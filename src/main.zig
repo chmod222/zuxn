@@ -87,7 +87,7 @@ const AudioDevice = @import("devices/Audio.zig");
 
 var system: SystemDevice = .{ .addr = 0x0 };
 var console: ConsoleDevice = .{ .addr = 0x1 };
-var screen: ScreenDevice = .{ .addr = 0x2, .scale = 2, .alloc = gpa.allocator() };
+var screen: ScreenDevice = .{ .addr = 0x2, .alloc = gpa.allocator() };
 
 var audio_id: SDL.SDL_AudioDeviceID = undefined;
 var audio: [4]AudioDevice = .{
@@ -222,6 +222,107 @@ fn determine_input(event: *SDL.SDL_Event) ?InputType {
     return null;
 }
 
+fn init_window(
+    window: **SDL.SDL_Window,
+    renderer: **SDL.SDL_Renderer,
+    texture: **SDL.SDL_Texture,
+    width: u16,
+    height: u16,
+    scale: u8,
+) !void {
+    window.* = SDL.SDL_CreateWindow(
+        "zuxn",
+        SDL.SDL_WINDOWPOS_CENTERED,
+        SDL.SDL_WINDOWPOS_CENTERED,
+        width * scale,
+        height * scale,
+        SDL.SDL_WINDOW_SHOWN,
+    ) orelse return error.CouldNotCreateWindow;
+
+    errdefer {
+        SDL.SDL_DestroyWindow(window.*);
+    }
+
+    renderer.* = SDL.SDL_CreateRenderer(
+        window.*,
+        -1,
+        SDL.SDL_RENDERER_ACCELERATED | SDL.SDL_RENDERER_PRESENTVSYNC,
+    ) orelse return error.CouldNotCreateRenderer;
+
+    _ = SDL.SDL_RenderSetLogicalSize(renderer.*, width, height);
+
+    errdefer {
+        SDL.SDL_DestroyRenderer(renderer.*);
+    }
+
+    texture.* = SDL.SDL_CreateTexture(
+        renderer.*,
+        SDL.SDL_PIXELFORMAT_RGB888,
+        SDL.SDL_TEXTUREACCESS_STREAMING,
+        width,
+        height,
+    ) orelse return error.CouldNotCreateTexture;
+}
+
+fn resize_window(
+    window: *SDL.SDL_Window,
+    renderer: *SDL.SDL_Renderer,
+    texture: **SDL.SDL_Texture,
+    width: u16,
+    height: u16,
+    scale: u8,
+) !void {
+    SDL.SDL_SetWindowSize(
+        window,
+        width * scale,
+        height * scale,
+    );
+
+    _ = SDL.SDL_RenderSetLogicalSize(renderer, width, height);
+
+    SDL.SDL_DestroyTexture(texture.*);
+
+    texture.* = SDL.SDL_CreateTexture(
+        renderer,
+        SDL.SDL_PIXELFORMAT_RGB888,
+        SDL.SDL_TEXTUREACCESS_STREAMING,
+        width,
+        height,
+    ) orelse return error.CouldNotCreateTexture;
+}
+
+fn draw_screen(
+    screen_device: *const ScreenDevice,
+    texture: *SDL.SDL_Texture,
+    renderer: *SDL.SDL_Renderer,
+) void {
+    var frame_memory: ?*SDL.SDL_Surface = undefined;
+
+    if (SDL.SDL_LockTextureToSurface(texture, null, &frame_memory) != 0)
+        return;
+
+    var pixels: [*c]u8 = @ptrCast(frame_memory.?.pixels);
+
+    for (0..screen_device.height) |y| {
+        for (0..screen_device.width) |x| {
+            const idx = y * screen_device.width + x;
+            const pal = (@as(u4, screen_device.foreground[idx]) << 2) | screen_device.background[idx];
+
+            const color = &system.colors[if ((pal >> 2) > 0) (pal >> 2) else (pal & 0x3)];
+
+            pixels[idx * 4 + 3] = 0x00;
+            pixels[idx * 4 + 2] = color.r;
+            pixels[idx * 4 + 1] = color.g;
+            pixels[idx * 4 + 0] = color.b;
+        }
+    }
+
+    SDL.SDL_UnlockTexture(texture);
+
+    _ = SDL.SDL_RenderCopy(renderer, texture, null, null);
+    SDL.SDL_RenderPresent(renderer);
+}
+
 fn main_graphical(cpu: *Cpu, args: [][:0]const u8) !u8 {
     if (SDL.SDL_Init(SDL.SDL_INIT_JOYSTICK | SDL.SDL_INIT_VIDEO | SDL.SDL_INIT_EVENTS | SDL.SDL_INIT_AUDIO) < 0)
         sdl_panic();
@@ -260,9 +361,10 @@ fn main_graphical(cpu: *Cpu, args: [][:0]const u8) !u8 {
     cpu.output_intercepts = .{ 0xff28, 0x0300, 0xc028, 0x8000, 0x8000, 0x8000, 0x8000, 0x0000, 0x0000, 0x0000, 0xa260, 0xa260, 0x0000, 0x0000, 0x0000, 0x0000 };
     cpu.input_intercepts = .{ 0x0000, 0x0000, 0x003c, 0x0014, 0x0014, 0x0014, 0x0014, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x07ff, 0x0000, 0x0000, 0x0000 };
 
-    system.screen = &screen;
-
     console.set_argc(cpu, args);
+
+    var window_width = screen.width;
+    var window_height = screen.height;
 
     cpu.evaluate_vector(0x0100) catch |fault|
         try system.handle_fault(cpu, fault);
@@ -273,7 +375,24 @@ fn main_graphical(cpu: *Cpu, args: [][:0]const u8) !u8 {
     if (system.exit_code) |c|
         return c;
 
+    const scale = 3;
+
+    var window: *SDL.SDL_Window = undefined;
+    var renderer: *SDL.SDL_Renderer = undefined;
+    var texture: *SDL.SDL_Texture = undefined;
+
+    // Reset vector is done, all arguments are handled and VM did not exit,
+    // so we know what our window size should be.
+    try init_window(&window, &renderer, &texture, screen.width, screen.height, scale);
+
     main_loop: while (system.exit_code == null) {
+        if (screen.width != window_width or screen.height != window_height) {
+            window_height = screen.height;
+            window_width = screen.width;
+
+            try resize_window(window, renderer, &texture, screen.width, screen.height, scale);
+        }
+
         var ev: SDL.SDL_Event = undefined;
 
         while (SDL.SDL_PollEvent(&ev) != 0) {
@@ -359,7 +478,7 @@ fn main_graphical(cpu: *Cpu, args: [][:0]const u8) !u8 {
         screen.evaluate_frame(cpu) catch |fault|
             try system.handle_fault(cpu, fault);
 
-        screen.update();
+        draw_screen(&screen, texture, renderer);
     }
 
     return system.exit_code orelse 0;

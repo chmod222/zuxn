@@ -3,10 +3,21 @@ const std = @import("std");
 
 const Screen = @import("Screen.zig");
 
+const Color = struct {
+    r: u8,
+    g: u8,
+    b: u8,
+};
+
 addr: u4,
 
 exit_code: ?u8 = null,
-screen: ?*Screen = null,
+colors: [4]Color = .{
+    .{ .r = 0, .g = 0, .b = 0 },
+    .{ .r = 0, .g = 0, .b = 0 },
+    .{ .r = 0, .g = 0, .b = 0 },
+    .{ .r = 0, .g = 0, .b = 0 },
+},
 
 const ports = struct {
     const catch_vector = 0x00;
@@ -18,6 +29,16 @@ const ports = struct {
     const debug = 0x0e;
     const state = 0x0f;
 };
+
+fn split_rgb(r: u16, g: u16, b: u16, c: u2) Color {
+    const sw = @as(u4, 3 - c) * 4;
+
+    return Color{
+        .r = @truncate((r >> sw) & 0xf | ((r >> sw) & 0xf) << 4),
+        .g = @truncate((g >> sw) & 0xf | ((g >> sw) & 0xf) << 4),
+        .b = @truncate((b >> sw) & 0xf | ((b >> sw) & 0xf) << 4),
+    };
+}
 
 pub fn intercept(
     dev: *@This(),
@@ -43,7 +64,7 @@ pub fn intercept(
             try dev.handle_expansion(cpu, cpu.load_device_mem(u16, base | ports.expansion));
         },
 
-        ports.red + 1, ports.green + 1, ports.blue + 1 => if (dev.screen) |s| {
+        ports.red + 1, ports.green + 1, ports.blue + 1 => {
             // Layout:
             //   R 0xABCD
             //   G 0xEFGH
@@ -52,7 +73,8 @@ pub fn intercept(
             const g = cpu.load_device_mem(u16, base | ports.green);
             const b = cpu.load_device_mem(u16, base | ports.blue);
 
-            s.update_scheme(r, g, b);
+            for (0..4) |i|
+                dev.colors[i] = split_rgb(r, g, b, @truncate(i));
         },
 
         else => {},
