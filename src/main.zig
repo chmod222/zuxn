@@ -131,31 +131,6 @@ fn intercept(cpu: *Cpu, addr: u8, kind: Cpu.InterceptKind) !void {
     }
 }
 
-fn main_cli(cpu: *Cpu, args: [][:0]const u8) !u8 {
-    cpu.output_intercepts = .{ 0xc028, 0x0300, 0xc028, 0x8000, 0x8000, 0x8000, 0x8000, 0x0000, 0x0000, 0x0000, 0xa260, 0xa260, 0x0000, 0x0000, 0x0000, 0x0000 };
-    cpu.input_intercepts = .{ 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x07ff, 0x0000, 0x0000, 0x0000 };
-
-    console.set_argc(cpu, args);
-
-    const stdin = std.io.getStdIn().reader();
-
-    cpu.evaluate_vector(0x0100) catch |fault|
-        try system.handle_fault(cpu, fault);
-
-    console.push_arguments(cpu, args) catch |fault|
-        try system.handle_fault(cpu, fault);
-
-    while (system.exit_code == null) {
-        const b = stdin.readByte() catch
-            break;
-
-        console.push_stdin_byte(cpu, b) catch |fault|
-            try system.handle_fault(cpu, fault);
-    }
-
-    return system.exit_code orelse 0;
-}
-
 fn sdl_panic() noreturn {
     const str = @as(?[*:0]const u8, SDL.SDL_GetError()) orelse "unknown error";
 
@@ -295,6 +270,9 @@ fn main_graphical(cpu: *Cpu, args: [][:0]const u8) !u8 {
     console.push_arguments(cpu, args) catch |fault|
         try system.handle_fault(cpu, fault);
 
+    if (system.exit_code) |c|
+        return c;
+
     main_loop: while (system.exit_code == null) {
         var ev: SDL.SDL_Event = undefined;
 
@@ -385,6 +363,34 @@ fn main_graphical(cpu: *Cpu, args: [][:0]const u8) !u8 {
     }
 
     return system.exit_code orelse 0;
+}
+
+fn main_cli(cpu: *Cpu, args: [][:0]const u8) !u8 {
+    cpu.output_intercepts = .{ 0xc028, 0x0300, 0x0000, 0x8000, 0x8000, 0x8000, 0x8000, 0x0000, 0x0000, 0x0000, 0xa260, 0xa260, 0x0000, 0x0000, 0x0000, 0x0000 };
+    cpu.input_intercepts = .{ 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x07ff, 0x0000, 0x0000, 0x0000 };
+
+    console.set_argc(cpu, args);
+
+    const stdin = std.io.getStdIn().reader();
+
+    cpu.evaluate_vector(0x0100) catch |fault|
+        try system.handle_fault(cpu, fault);
+
+    console.push_arguments(cpu, args) catch |fault|
+        try system.handle_fault(cpu, fault);
+
+    if (system.exit_code) |c|
+        return c;
+
+    while (stdin.readByte() catch null) |b| {
+        console.push_stdin_byte(cpu, b) catch |fault|
+            try system.handle_fault(cpu, fault);
+
+        if (system.exit_code) |c|
+            return c;
+    }
+
+    return 0;
 }
 
 pub fn main() !u8 {
