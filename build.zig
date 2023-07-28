@@ -15,16 +15,25 @@ pub fn build(b: *std.Build) void {
     // set a preferred release mode, allowing the user to decide how to optimize.
     const optimize = b.standardOptimizeOption(.{});
 
-    const core_mod = b.addModule("uxn-core", .{
-        .source_file = .{
-            .path = "src/uxn/lib.zig",
-        },
+    const dep_clap = b.dependency("clap", .{
+        .target = target,
+        .optimize = optimize,
     });
+
+    // Core library modules
+    const core_mod = b.addModule(
+        "uxn-core",
+        .{
+            .source_file = .{
+                .path = "src/lib/uxn/lib.zig",
+            },
+        },
+    );
 
     const varvara_mod = b.addModule(
         "uxn-varvara",
         .{
-            .source_file = .{ .path = "src/varvara/lib.zig" },
+            .source_file = .{ .path = "src/lib/varvara/lib.zig" },
             .dependencies = &.{.{
                 .name = "uxn-core",
                 .module = core_mod,
@@ -32,6 +41,18 @@ pub fn build(b: *std.Build) void {
         },
     );
 
+    const asm_mod = b.addModule(
+        "uxn-asm",
+        .{
+            .source_file = .{ .path = "src/lib/asm/lib.zig" },
+            .dependencies = &.{.{
+                .name = "uxn-core",
+                .module = core_mod,
+            }},
+        },
+    );
+
+    // Utility programs based on core libraries
     const uxn_cli = b.addExecutable(.{
         .name = "uxn-cli",
         .root_source_file = .{ .path = "src/uxn-cli/main.zig" },
@@ -63,7 +84,8 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    uxn_asm.addModule("uxn-core", core_mod);
+    uxn_asm.addModule("uxn-asm", asm_mod);
+    uxn_asm.addModule("clap", dep_clap.module("clap"));
 
     b.installArtifact(uxn_sdl);
     b.installArtifact(uxn_cli);
