@@ -31,7 +31,7 @@ pub fn intercept(
 pub fn push_arguments(
     dev: @This(),
     cpu: *Cpu,
-    args: [][:0]const u8,
+    args: [][]const u8,
 ) !void {
     const base = @as(u8, dev.addr) << 4;
 
@@ -53,7 +53,7 @@ pub fn push_arguments(
 pub fn set_argc(
     dev: @This(),
     cpu: *Cpu,
-    args: [][:0]const u8,
+    args: [][]const u8,
 ) void {
     const base = @as(u8, dev.addr) << 4;
 

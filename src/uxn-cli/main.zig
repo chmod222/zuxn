@@ -1,5 +1,7 @@
 const std = @import("std");
 
+const clap = @import("clap");
+
 const uxn = @import("uxn-core");
 const varvara = @import("uxn-varvara");
 
@@ -21,15 +23,37 @@ fn intercept(cpu: *uxn.Cpu, addr: u8, kind: uxn.Cpu.InterceptKind) !void {
 }
 
 pub fn main() !u8 {
+    const params = comptime clap.parseParamsComptime(
+        \\-h, --help          Display this help and exit.
+        \\<FILE>              Input ROM
+        \\<ARG>...            Command line arguments for the module
+    );
+
+    var diag = clap.Diagnostic{};
+    var stderr = std.io.getStdErr().writer();
+
+    const parsers = comptime .{
+        .FILE = clap.parsers.string,
+        .ARG = clap.parsers.string,
+    };
+
+    var res = clap.parse(clap.Help, &params, parsers, .{
+        .diagnostic = &diag,
+    }) catch |err| {
+        // Report useful error and exit
+        diag.report(stderr, err) catch {};
+
+        return err;
+    };
+
     var alloc = gpa.allocator();
 
     system = try varvara.VarvaraSystem.init(gpa.allocator());
     defer system.deinit();
 
-    const args = try std.process.argsAlloc(alloc);
-    defer std.process.argsFree(alloc, args);
+    const input_file_name = res.positionals[0];
 
-    const rom_file = try std.fs.cwd().openFile(args[1], .{});
+    const rom_file = try std.fs.cwd().openFile(input_file_name, .{});
     defer rom_file.close();
 
     var rom = try uxn.load_rom(alloc, rom_file);
@@ -39,6 +63,8 @@ pub fn main() !u8 {
 
     cpu.output_intercepts = varvara.headless_intercepts.output;
     cpu.input_intercepts = varvara.headless_intercepts.input;
+
+    const args: [][]const u8 = @constCast(res.positionals[1..]);
 
     system.console_device.set_argc(&cpu, args);
 

@@ -62,6 +62,7 @@ pub fn build(b: *std.Build) void {
 
     uxn_cli.addModule("uxn-core", core_mod);
     uxn_cli.addModule("uxn-varvara", varvara_mod);
+    uxn_cli.addModule("clap", dep_clap.module("clap"));
     uxn_cli.linkLibC();
 
     const uxn_sdl = b.addExecutable(.{
@@ -73,6 +74,7 @@ pub fn build(b: *std.Build) void {
 
     uxn_sdl.addModule("uxn-core", core_mod);
     uxn_sdl.addModule("uxn-varvara", varvara_mod);
+    uxn_sdl.addModule("clap", dep_clap.module("clap"));
     uxn_sdl.linkLibC();
     uxn_sdl.linkSystemLibrary("SDL2_image");
     uxn_sdl.linkSystemLibrary("SDL2");

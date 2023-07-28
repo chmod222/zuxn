@@ -1,5 +1,7 @@
 const std = @import("std");
 
+const clap = @import("clap");
+
 const uxn = @import("uxn-core");
 const varvara = @import("uxn-varvara");
 
@@ -234,7 +236,7 @@ fn draw_screen(
     SDL.SDL_RenderPresent(renderer);
 }
 
-fn main_graphical(cpu: *uxn.Cpu, args: [][:0]const u8) !u8 {
+fn main_graphical(cpu: *uxn.Cpu, scale: u8, args: [][]const u8) !u8 {
     if (SDL.SDL_Init(SDL.SDL_INIT_JOYSTICK | SDL.SDL_INIT_VIDEO | SDL.SDL_INIT_EVENTS | SDL.SDL_INIT_AUDIO) < 0)
         sdl_panic();
 
@@ -282,8 +284,6 @@ fn main_graphical(cpu: *uxn.Cpu, args: [][:0]const u8) !u8 {
 
     if (system.system_device.exit_code) |c|
         return c;
-
-    const scale = 3;
 
     var window: *SDL.SDL_Window = undefined;
     var renderer: *SDL.SDL_Renderer = undefined;
@@ -414,15 +414,47 @@ fn main_graphical(cpu: *uxn.Cpu, args: [][:0]const u8) !u8 {
 }
 
 pub fn main() !u8 {
+    const params = comptime clap.parseParamsComptime(
+        \\-h, --help          Display this help and exit.
+        \\-s, --scale <INT>   Display scale factor
+        \\<FILE>              Input ROM
+        \\<ARG>...            Command line arguments for the module
+    );
+
+    var diag = clap.Diagnostic{};
+    var stderr = std.io.getStdErr().writer();
+
+    const parsers = comptime .{
+        .FILE = clap.parsers.string,
+        .ARG = clap.parsers.string,
+        .INT = clap.parsers.int(u8, 10),
+    };
+
+    var res = clap.parse(clap.Help, &params, parsers, .{
+        .diagnostic = &diag,
+    }) catch |err| {
+        // Report useful error and exit
+        diag.report(stderr, err) catch {};
+
+        return err;
+    };
+
+    defer res.deinit();
+
+    if (res.args.help != 0) {
+        try clap.help(stderr, clap.Help, &params, .{});
+
+        return 0;
+    }
+
     var alloc = gpa.allocator();
 
     system = try varvara.VarvaraSystem.init(gpa.allocator());
     defer system.deinit();
 
-    const args = try std.process.argsAlloc(alloc);
-    defer std.process.argsFree(alloc, args);
+    const input_file_name = res.positionals[0];
 
-    const rom_file = try std.fs.cwd().openFile(args[1], .{});
+    const rom_file = try std.fs.cwd().openFile(input_file_name, .{});
     defer rom_file.close();
 
     var rom = try uxn.load_rom(alloc, rom_file);
@@ -430,5 +462,5 @@ pub fn main() !u8 {
 
     cpu.device_intercept = &intercept;
 
-    return main_graphical(&cpu, args[2..]);
+    return main_graphical(&cpu, res.args.scale orelse 1, @constCast(res.positionals[1..]));
 }
