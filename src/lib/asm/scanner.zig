@@ -179,7 +179,7 @@ pub fn Scanner(comptime l: Limits) type {
             const label = try scanner.read_whitespace_delimited(limits.identifier_length, input);
 
             for (label) |oct| {
-                if (std.ascii.isLower(oct))
+                if (std.ascii.isLower(oct) or !std.ascii.isAlphanumeric(oct))
                     break;
             } else return error.UppercaseLabelForbidden;
 
@@ -390,13 +390,10 @@ pub fn Scanner(comptime l: Limits) type {
                                 .{ .raw_literal = .{ .byte = byte } }
                             else if (parse_hex_literal(u16, slice, true) catch null) |short|
                                 .{ .raw_literal = .{ .short = short } }
-                            else if (std.ascii.isAlphanumeric(b))
-                                if (scanner.recall_macro(needle))
-                                    .{ .macro_expansion = needle }
-                                else
-                                    .{ .jsi = to_typed_label(needle) }
+                            else if (scanner.recall_macro(needle))
+                                .{ .macro_expansion = needle }
                             else
-                                return error.InvalidToken;
+                                .{ .jsi = to_typed_label(needle) };
                         }
                     },
                 };
