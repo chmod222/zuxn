@@ -6,7 +6,7 @@ pub const Limits = struct {
     path_length: usize = 256,
 
     labels: usize = 0x400,
-    references: usize = 0x800,
+    references: usize = 0x200,
     macros: usize = 0x40,
     macro_length: usize = 0x40,
 };
@@ -39,7 +39,8 @@ pub fn Assembler(comptime limits: Limits) type {
 
         pub const DefinedLabel = struct {
             label: Scanner.Label,
-            addr: u16,
+            addr: ?u16,
+            references: References,
         };
 
         pub const ReferenceType = union(enum) {
@@ -49,7 +50,6 @@ pub fn Assembler(comptime limits: Limits) type {
         };
 
         pub const Reference = struct {
-            label: Scanner.Label,
             addr: u16,
             offset: u16,
             type: ReferenceType,
@@ -70,7 +70,6 @@ pub fn Assembler(comptime limits: Limits) type {
         last_root_label: ?Scanner.Label = null,
 
         labels: Labels = Labels.init(0) catch unreachable,
-        forward_references: References = References.init(0) catch unreachable,
         macros: Macros = Macros.init(0) catch unreachable,
 
         fn lookup_label(assembler: *@This(), label: []const u8) ?u16 {
@@ -81,16 +80,31 @@ pub fn Assembler(comptime limits: Limits) type {
             return null;
         }
 
-        fn define_label(assembler: *@This(), label: Scanner.TypedLabel, addr: u16) !void {
+        fn retrieve_label(assembler: *@This(), label: Scanner.TypedLabel) !*DefinedLabel {
             const full = try assembler.full_label(label);
 
-            for (assembler.labels.slice()) |l|
+            for (assembler.labels.slice()) |*l|
                 if (std.mem.eql(u8, &l.label, &full))
-                    return error.LabelAlreadyDefined;
+                    return l;
 
-            assembler.labels.append(.{ .label = full, .addr = addr }) catch {
-                return error.TooManyLabels;
+            var definition = assembler.labels.addOne() catch return error.TooManyLabels;
+
+            definition.* = .{
+                .label = full,
+                .addr = null,
+                .references = References.init(0) catch unreachable,
             };
+
+            return definition;
+        }
+
+        fn define_label(assembler: *@This(), label: Scanner.TypedLabel, addr: u16) !void {
+            var definition = try assembler.retrieve_label(label);
+
+            if (definition.addr != null)
+                return error.LabelAlreadyDefined;
+
+            definition.*.addr = addr;
         }
 
         fn full_label(assembler: *@This(), label: Scanner.TypedLabel) !Scanner.Label {
@@ -126,8 +140,9 @@ pub fn Assembler(comptime limits: Limits) type {
             ref_type: ReferenceType,
             offset: u16,
         ) !void {
-            assembler.forward_references.append(.{
-                .label = try assembler.full_label(label),
+            var definition = try assembler.retrieve_label(label);
+
+            definition.references.append(.{
                 .addr = addr,
                 .offset = offset,
                 .type = ref_type,
@@ -159,7 +174,7 @@ pub fn Assembler(comptime limits: Limits) type {
                 },
 
                 .label => |l| {
-                    assembler.define_label(l, @truncate(try seekable.getPos())) catch return error.TooManyLabels;
+                    try assembler.define_label(l, @truncate(try seekable.getPos()));
 
                     if (l == .root) {
                         assembler.last_root_label = l.root;
@@ -307,26 +322,34 @@ pub fn Assembler(comptime limits: Limits) type {
             //      reference will implicitely fill in those 0x00 when loading the rom.
             assembler.rom_length = try seekable.getPos();
 
-            for (assembler.forward_references.slice()) |ref| {
-                const label_addr: i16 = @bitCast(assembler.lookup_label(std.mem.sliceTo(&ref.label, 0)) orelse
-                    return error.UndefinedLabel);
+            for (assembler.labels.slice()) |label| {
+                if (label.addr) |addr| {
+                    if (label.references.len == 0) {
+                        // TODO: issue diagnostic
+                    } else {
+                        for (label.references.slice()) |ref| {
+                            const target_addr: i16 = @as(i16, @bitCast(addr)) - @as(i16, @bitCast(ref.offset));
 
-                const target_addr: i16 = label_addr - @as(i16, @bitCast(ref.offset));
+                            try seekable.seekTo(ref.addr);
 
-                try seekable.seekTo(ref.addr);
+                            switch (ref.type) {
+                                .zero => try output.writeByte(@bitCast(@as(i8, @truncate(target_addr)))),
+                                .absolute => try output.writeIntBig(i16, target_addr),
+                                .relative => |to| {
+                                    const signed_pc: i16 = @intCast(to);
+                                    const relative = target_addr - signed_pc - 2;
 
-                switch (ref.type) {
-                    .zero => try output.writeByte(@bitCast(@as(i8, @truncate(target_addr)))),
-                    .absolute => try output.writeIntBig(i16, target_addr),
-                    .relative => |to| {
-                        const signed_pc: i16 = @intCast(to);
-                        const relative = target_addr - signed_pc - 2;
+                                    if (relative > 127 or relative < -128)
+                                        return error.ReferenceOutOfBound;
 
-                        if (relative > 127 or relative < -128)
-                            return error.ReferenceOutOfBound;
-
-                        try output.writeIntBig(i8, @as(i8, @truncate(relative)));
-                    },
+                                    try output.writeIntBig(i8, @as(i8, @truncate(relative)));
+                                },
+                            }
+                        }
+                    }
+                } else if (label.references.len > 0) {
+                    // Undefined and unreachable should be impossible.
+                    unreachable;
                 }
             }
         }
@@ -336,8 +359,10 @@ pub fn Assembler(comptime limits: Limits) type {
             output: anytype,
         ) @TypeOf(output).Error!void {
             for (assembler.labels.slice()) |label| {
-                try output.writeIntBig(u16, label.addr);
-                try output.print("{s}\x00", .{std.mem.sliceTo(&label.label, 0)});
+                if (label.addr) |addr| {
+                    try output.writeIntBig(u16, addr);
+                    try output.print("{s}\x00", .{std.mem.sliceTo(&label.label, 0)});
+                }
             }
         }
     };
