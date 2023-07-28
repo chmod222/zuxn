@@ -1,4 +1,4 @@
-const Cpu = @import("../Cpu.zig");
+const Cpu = @import("uxn-core").Cpu;
 const std = @import("std");
 
 const Directory = struct {
@@ -18,15 +18,15 @@ file: ?Target = null,
 mode: std.fs.File.OpenFlags = .{},
 
 pub const ports = struct {
-    const vector = 0x0;
-    const success = 0x2;
-    const stat = 0x4;
-    const delete = 0x6;
-    const append = 0x7;
-    const name = 0x8;
-    const length = 0xa;
-    const read = 0xc;
-    const write = 0xe;
+    pub const vector = 0x0;
+    pub const success = 0x2;
+    pub const stat = 0x4;
+    pub const delete = 0x6;
+    pub const append = 0x7;
+    pub const name = 0x8;
+    pub const length = 0xa;
+    pub const read = 0xc;
+    pub const write = 0xe;
 };
 
 pub fn cleanup(dev: *@This()) void {

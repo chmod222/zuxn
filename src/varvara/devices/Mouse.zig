@@ -1,15 +1,15 @@
-const Cpu = @import("../Cpu.zig");
+const Cpu = @import("uxn-core").Cpu;
 const std = @import("std");
 
 addr: u4,
 
 pub const ports = struct {
-    const vector = 0x0;
-    const x = 0x2;
-    const y = 0x4;
-    const state = 0x6;
-    const scroll_x = 0xa;
-    const scroll_y = 0xc;
+    pub const vector = 0x0;
+    pub const x = 0x2;
+    pub const y = 0x4;
+    pub const state = 0x6;
+    pub const scroll_x = 0xa;
+    pub const scroll_y = 0xc;
 };
 
 pub const ButtonFlags = packed struct(u8) {

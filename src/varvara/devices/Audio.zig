@@ -1,4 +1,4 @@
-const Cpu = @import("../Cpu.zig");
+const Cpu = @import("uxn-core").Cpu;
 const std = @import("std");
 
 const AudioImpl = @import("audio/DefaultImpl.zig");
@@ -17,14 +17,14 @@ age: u32 = 0,
 audio_impl: AudioImpl = .{},
 
 pub const ports = struct {
-    const vector = 0x0;
-    const position = 0x2;
-    const output = 0x4;
-    const adsr = 0x8;
-    const length = 0xa;
-    const addr = 0xc;
-    const volume = 0xe;
-    const pitch = 0xf;
+    pub const vector = 0x0;
+    pub const position = 0x2;
+    pub const output = 0x4;
+    pub const adsr = 0x8;
+    pub const length = 0xa;
+    pub const addr = 0xc;
+    pub const volume = 0xe;
+    pub const pitch = 0xf;
 };
 
 pub const AdsrFlags = packed struct(u16) {

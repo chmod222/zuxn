@@ -1,0 +1,326 @@
+const std = @import("std");
+
+const Scanner = @import("Scanner.zig");
+
+const DefinedLabel = struct {
+    label: Scanner.Label,
+    addr: u16,
+};
+
+const ReferenceType = union(enum) {
+    zero: void,
+    relative: u16,
+    absolute: void,
+};
+
+const Reference = struct {
+    label: Scanner.Label,
+    addr: u16,
+    offset: u16,
+    type: ReferenceType,
+};
+
+const Labels = std.BoundedArray(DefinedLabel, 0x400);
+const References = std.BoundedArray(Reference, 0x800);
+const MacroBody = std.BoundedArray(Scanner.SourceToken, 0x40);
+
+const Macro = struct {
+    name: Scanner.Label,
+    body: MacroBody,
+};
+
+const Macros = std.BoundedArray(Macro, 0x40);
+
+pub const AssemblerError = error{
+    TooManyMacros,
+    TooManyReferences,
+    TooManyLabels,
+
+    ReferenceOutOfBound,
+    LabelAlreadyDefined,
+
+    MissingScopeLabel,
+
+    UndefinedLabel,
+    UndefinedMacro,
+    InvalidMacroDefinition,
+    MacroBodyTooLong,
+
+    NotImplemented,
+};
+
+fn AssembleError(
+    comptime Reader: type,
+    comptime Writer: type,
+    comptime Seeker: type,
+) type {
+    return AssemblerError ||
+        Reader.Error ||
+        Writer.Error ||
+        Seeker.GetSeekPosError ||
+        Seeker.SeekError ||
+        Scanner.Error;
+}
+
+rom_length: usize = 0,
+
+last_root_label: ?Scanner.Label = null,
+
+labels: Labels = Labels.init(0) catch unreachable,
+forward_references: References = References.init(0) catch unreachable,
+macros: Macros = Macros.init(0) catch unreachable,
+
+fn lookup_label(assembler: *@This(), label: []const u8) ?u16 {
+    for (assembler.labels.slice()) |l|
+        if (std.mem.eql(u8, label, std.mem.sliceTo(&l.label, 0)))
+            return l.addr;
+
+    return null;
+}
+
+fn define_label(assembler: *@This(), label: Scanner.TypedLabel, addr: u16) !void {
+    const full = try assembler.full_label(label);
+
+    for (assembler.labels.slice()) |l|
+        if (std.mem.eql(u8, &l.label, &full))
+            return error.LabelAlreadyDefined;
+
+    assembler.labels.append(.{ .label = full, .addr = addr }) catch {
+        return error.TooManyLabels;
+    };
+}
+
+fn full_label(assembler: *@This(), label: Scanner.TypedLabel) !Scanner.Label {
+    switch (label) {
+        .root => |l| return l,
+        .sublabel => |s| {
+            const parent = std.mem.sliceTo(&(assembler.last_root_label orelse return error.MissingScopeLabel), 0);
+            const child = std.mem.sliceTo(&s, 0);
+
+            var full: Scanner.Label = [1:0]u8{0x00} ** Scanner.identifier_length;
+
+            @memcpy(full[0..parent.len], parent);
+            @memcpy(full[parent.len + 1 .. parent.len + 1 + child.len], child);
+
+            full[parent.len] = '/';
+
+            return full;
+        },
+    }
+}
+
+fn lookup_offset(assembler: *@This(), offset: Scanner.Offset) !?u16 {
+    return switch (offset) {
+        .literal => |lit| lit,
+        .label => |lbl| assembler.lookup_label(std.mem.sliceTo(&(try assembler.full_label(lbl)), 0)),
+    };
+}
+
+fn remember_location(
+    assembler: *@This(),
+    label: Scanner.TypedLabel,
+    addr: u16,
+    ref_type: ReferenceType,
+    offset: u16,
+) !void {
+    assembler.forward_references.append(.{
+        .label = try assembler.full_label(label),
+        .addr = addr,
+        .offset = offset,
+        .type = ref_type,
+    }) catch return error.TooManyReferences;
+}
+
+fn process_token(
+    assembler: *@This(),
+    scanner: *Scanner,
+    token: Scanner.SourceToken,
+    input: anytype,
+    output: anytype,
+    seekable: anytype,
+) !void {
+    switch (token.token) {
+        .literal, .raw_literal => |lit| {
+            if (token.token != .raw_literal)
+                if (lit == .byte)
+                    // LIT
+                    try output.writeByte(0x80)
+                else
+                    // LIT2
+                    try output.writeByte(0xa0);
+
+            switch (lit) {
+                .byte => |b| try output.writeByte(b),
+                .short => |s| try output.writeIntBig(u16, s),
+            }
+        },
+
+        .label => |l| {
+            assembler.define_label(l, @truncate(try seekable.getPos())) catch return error.TooManyLabels;
+
+            if (l == .root) {
+                assembler.last_root_label = l.root;
+            }
+        },
+        .address => |addr| {
+            const current_pos: u16 = @truncate(try seekable.getPos());
+
+            switch (addr) {
+                .zero => |label| {
+                    // LIT xx
+                    try assembler.remember_location(label, current_pos + 1, .zero, 0);
+                    try output.writeIntBig(u16, 0x80aa);
+                },
+                .relative => |label| {
+                    // LIT xx (relative to current loc)
+                    try assembler.remember_location(label, current_pos + 1, .{ .relative = current_pos + 1 }, 0);
+                    try output.writeIntBig(u16, 0x80aa);
+                },
+                .absolute => |label| {
+                    // LIT2 xxxx
+                    try assembler.remember_location(label, current_pos + 1, .absolute, 0);
+                    try output.writeIntBig(u24, 0xa0aaaa);
+                },
+
+                .raw_zero => |label| {
+                    // xx
+                    try assembler.remember_location(label, current_pos, .zero, 0);
+                    try output.writeByte(0xaa);
+                },
+                .raw_relative => |label| {
+                    // xx (relative to current loc)
+                    try assembler.remember_location(label, current_pos, .{ .relative = current_pos }, 0);
+                    try output.writeByte(0xaa);
+                },
+                .raw_absolute => |label| {
+                    // xxxx
+                    try assembler.remember_location(label, current_pos, .absolute, 0);
+                    try output.writeIntBig(u16, 0xaaaa);
+                },
+            }
+        },
+        .padding => |pad| try switch (pad) {
+            .absolute => |offset| seekable.seekTo(try assembler.lookup_offset(offset) orelse return error.UndefinedLabel),
+            .relative => |offset| seekable.seekBy(try assembler.lookup_offset(offset) orelse return error.UndefinedLabel),
+        },
+        .include => |_| {
+            return error.NotImplemented;
+        },
+        .instruction => |op| {
+            try output.writeByte(op.encoded);
+        },
+        .jci, .jmi, .jsi => |label| {
+            const pos = try seekable.getPos();
+
+            try assembler.remember_location(label, @truncate(pos + 1), .absolute, @truncate(pos + 3));
+
+            try output.writeByte(switch (token.token) {
+                .jci => 0x20,
+                .jmi => 0x40,
+                else => 0x60,
+            });
+
+            try output.writeByte(0xaa);
+            try output.writeByte(0xaa);
+        },
+        .word => |w| {
+            for (w) |o|
+                if (o == 0)
+                    break
+                else
+                    try output.writeByte(o);
+        },
+
+        .macro_definition => |name| {
+            const start = try scanner.read_token(input) orelse
+                return error.InvalidMacroDefinition;
+
+            if (start.token != .macro_start)
+                return error.InvalidMacroDefinition;
+
+            var body = MacroBody.init(0) catch unreachable;
+
+            while (try scanner.read_token(input)) |tok| {
+                if (tok.token == .macro_end)
+                    break;
+
+                body.append(tok) catch return error.MacroBodyTooLong;
+            }
+
+            assembler.macros.append(.{
+                .name = name,
+                .body = body,
+            }) catch return error.TooManyMacros;
+        },
+        .macro_expansion => |name| {
+            const macro = for (assembler.macros.slice()) |macro| {
+                if (std.mem.eql(u8, &macro.name, &name))
+                    break macro;
+            } else return error.UndefinedMacro;
+
+            // XXX: A macro can include itself and murder our stack. Introduce a max evaluation depth.
+            for (macro.body.slice()) |macro_token|
+                try assembler.process_token(scanner, macro_token, input, output, seekable);
+        },
+
+        .macro_start, .macro_end => {
+            return error.InvalidMacroDefinition;
+        },
+    }
+}
+
+pub fn init() @This() {
+    return .{};
+}
+
+pub fn assemble(
+    assembler: *@This(),
+    input: anytype,
+    output: anytype,
+    seekable: anytype,
+) AssembleError(@TypeOf(input), @TypeOf(output), @TypeOf(seekable))!void {
+    var scanner = Scanner{};
+
+    while (try scanner.read_token(input)) |token| {
+        try assembler.process_token(&scanner, token, input, output, seekable);
+    }
+
+    // N.B. the reference assembler only tracks writes for the rom length,
+    //      while this one includes pads. A pad without writes at the end
+    //      of the source will include 0x00 bytes in the output while the
+    //      reference will implicitely fill in those 0x00 when loading the rom.
+    assembler.rom_length = try seekable.getPos();
+
+    for (assembler.forward_references.slice()) |ref| {
+        const label_addr: i16 = @bitCast(assembler.lookup_label(std.mem.sliceTo(&ref.label, 0)) orelse
+            return error.UndefinedLabel);
+
+        const target_addr: i16 = label_addr - @as(i16, @bitCast(ref.offset));
+
+        try seekable.seekTo(ref.addr);
+
+        switch (ref.type) {
+            .zero => try output.writeByte(@bitCast(@as(i8, @truncate(target_addr)))),
+            .absolute => try output.writeIntBig(i16, target_addr),
+            .relative => |to| {
+                const signed_pc: i16 = @intCast(to);
+                const relative = target_addr - signed_pc - 2;
+
+                if (relative > 127 or relative < -128)
+                    return error.ReferenceOutOfBound;
+
+                try output.writeIntBig(i8, @as(i8, @truncate(relative)));
+            },
+        }
+    }
+}
+
+pub fn generate_symbols(
+    assembler: *@This(),
+    output: anytype,
+) @TypeOf(output).Error!void {
+    for (assembler.labels.slice()) |label| {
+        try output.writeIntBig(u16, label.addr);
+        try output.print("{s}\x00", .{std.mem.sliceTo(&label.label, 0)});
+    }
+}

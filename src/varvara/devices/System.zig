@@ -1,15 +1,16 @@
-const Cpu = @import("../Cpu.zig");
+const Cpu = @import("uxn-core").Cpu;
 const std = @import("std");
 
 const Screen = @import("Screen.zig");
 
-const Color = struct {
+pub const Color = struct {
     r: u8,
     g: u8,
     b: u8,
 };
 
 addr: u4,
+debug_callback: ?*const fn (cpu: *Cpu) void = null,
 
 exit_code: ?u8 = null,
 colors: [4]Color = .{
@@ -19,15 +20,15 @@ colors: [4]Color = .{
     .{ .r = 0, .g = 0, .b = 0 },
 },
 
-const ports = struct {
-    const catch_vector = 0x00;
-    const expansion = 0x02;
-    const metadata = 0x06;
-    const red = 0x08;
-    const green = 0x0a;
-    const blue = 0x0c;
-    const debug = 0x0e;
-    const state = 0x0f;
+pub const ports = struct {
+    pub const catch_vector = 0x00;
+    pub const expansion = 0x02;
+    pub const metadata = 0x06;
+    pub const red = 0x08;
+    pub const green = 0x0a;
+    pub const blue = 0x0c;
+    pub const debug = 0x0e;
+    pub const state = 0x0f;
 };
 
 fn split_rgb(r: u16, g: u16, b: u16, c: u2) Color {
@@ -57,7 +58,8 @@ pub fn intercept(
         },
 
         ports.debug => {
-            std.debug.print("Debug!\n", .{});
+            if (dev.debug_callback) |cb|
+                cb(cpu);
         },
 
         ports.expansion + 1 => {
@@ -103,13 +105,6 @@ pub fn handle_fault(dev: @This(), cpu: *Cpu, fault: Cpu.SystemFault) !void {
         cpu.evaluate_vector(catch_vector) catch |new_fault|
             try dev.handle_fault(cpu, new_fault);
     } else {
-        std.debug.print("uncaught fault at pc={x:0>4} instr={x:0>2} ({s}): {}\n", .{
-            cpu.pc,
-            cpu.mem[cpu.pc],
-            Cpu.mnemonics[cpu.mem[cpu.pc]],
-            fault,
-        });
-
         return fault;
     }
 }

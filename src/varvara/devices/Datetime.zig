@@ -1,4 +1,4 @@
-const Cpu = @import("../Cpu.zig");
+const Cpu = @import("uxn-core").Cpu;
 const std = @import("std");
 
 const ctime = @cImport({
@@ -10,15 +10,15 @@ addr: u4,
 localtime: bool = true,
 
 pub const ports = struct {
-    const year = 0x0;
-    const month = 0x2;
-    const day = 0x3;
-    const hour = 0x4;
-    const minute = 0x5;
-    const second = 0x6;
-    const dotw = 0x7;
-    const doty = 0x8;
-    const isdst = 0xa;
+    pub const year = 0x0;
+    pub const month = 0x2;
+    pub const day = 0x3;
+    pub const hour = 0x4;
+    pub const minute = 0x5;
+    pub const second = 0x6;
+    pub const dotw = 0x7;
+    pub const doty = 0x8;
+    pub const isdst = 0xa;
 };
 
 pub fn intercept(

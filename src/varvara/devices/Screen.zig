@@ -1,4 +1,4 @@
-const Cpu = @import("../Cpu.zig");
+const Cpu = @import("uxn-core").Cpu;
 const std = @import("std");
 
 const default_window_width = 512;
@@ -16,7 +16,7 @@ background: []u2 = undefined,
 // "Private"
 alloc: std.mem.Allocator,
 
-const AutoFlags = packed struct(u8) {
+pub const AutoFlags = packed struct(u8) {
     x: bool,
     y: bool,
     addr: bool,
@@ -24,7 +24,7 @@ const AutoFlags = packed struct(u8) {
     add_length: u4,
 };
 
-const PixelFlags = packed struct(u8) {
+pub const PixelFlags = packed struct(u8) {
     color: u2,
     _: u2,
     flip_x: bool,
@@ -33,7 +33,7 @@ const PixelFlags = packed struct(u8) {
     fill: bool,
 };
 
-const SpriteFlags = packed struct(u8) {
+pub const SpriteFlags = packed struct(u8) {
     blending: u4,
     flip_x: bool,
     flip_y: bool,
@@ -49,15 +49,15 @@ const blending: [4][16]u2 = .{
 };
 
 pub const ports = struct {
-    const vector = 0x0;
-    const width = 0x2;
-    const height = 0x4;
-    const auto = 0x6;
-    const x = 0x8;
-    const y = 0xa;
-    const addr = 0xc;
-    const pixel = 0xe;
-    const sprite = 0xf;
+    pub const vector = 0x0;
+    pub const width = 0x2;
+    pub const height = 0x4;
+    pub const auto = 0x6;
+    pub const x = 0x8;
+    pub const y = 0xa;
+    pub const addr = 0xc;
+    pub const pixel = 0xe;
+    pub const sprite = 0xf;
 };
 
 pub fn intercept(

@@ -15,49 +15,83 @@ pub fn build(b: *std.Build) void {
     // set a preferred release mode, allowing the user to decide how to optimize.
     const optimize = b.standardOptimizeOption(.{});
 
-    const exe = b.addExecutable(.{
-        .name = "zuxn",
-        // In this case the main source file is merely a path, however, in more
-        // complicated build scripts, this could be a generated file.
-        .root_source_file = .{ .path = "src/main.zig" },
+    const core_mod = b.addModule("uxn-core", .{
+        .source_file = .{
+            .path = "src/uxn/lib.zig",
+        },
+    });
+
+    const varvara_mod = b.addModule(
+        "uxn-varvara",
+        .{
+            .source_file = .{ .path = "src/varvara/lib.zig" },
+            .dependencies = &.{.{
+                .name = "uxn-core",
+                .module = core_mod,
+            }},
+        },
+    );
+
+    const uxn_cli = b.addExecutable(.{
+        .name = "uxn-cli",
+        .root_source_file = .{ .path = "src/uxn-cli/main.zig" },
         .target = target,
         .optimize = optimize,
     });
 
-    exe.linkLibC();
-    exe.linkSystemLibrary("SDL2_image");
-    exe.linkSystemLibrary("SDL2");
+    uxn_cli.addModule("uxn-core", core_mod);
+    uxn_cli.addModule("uxn-varvara", varvara_mod);
+    uxn_cli.linkLibC();
 
-    // This declares intent for the executable to be installed into the
-    // standard location when the user invokes the "install" step (the default
-    // step when running `zig build`).
-    b.installArtifact(exe);
+    const uxn_sdl = b.addExecutable(.{
+        .name = "uxn-sdl",
+        .root_source_file = .{ .path = "src/uxn-sdl/main.zig" },
+        .target = target,
+        .optimize = optimize,
+    });
 
-    // This *creates* a Run step in the build graph, to be executed when another
-    // step is evaluated that depends on it. The next line below will establish
-    // such a dependency.
-    const run_cmd = b.addRunArtifact(exe);
+    uxn_sdl.addModule("uxn-core", core_mod);
+    uxn_sdl.addModule("uxn-varvara", varvara_mod);
+    uxn_sdl.linkLibC();
+    uxn_sdl.linkSystemLibrary("SDL2_image");
+    uxn_sdl.linkSystemLibrary("SDL2");
 
-    // By making the run step depend on the install step, it will be run from the
-    // installation directory rather than directly from within the cache directory.
-    // This is not necessary, however, if the application depends on other installed
-    // files, this ensures they will be present and in the expected location.
-    run_cmd.step.dependOn(b.getInstallStep());
+    const uxn_asm = b.addExecutable(.{
+        .name = "uxn-asm",
+        .root_source_file = .{ .path = "src/uxn-asm/main.zig" },
+        .target = target,
+        .optimize = optimize,
+    });
 
-    // This allows the user to pass arguments to the application in the build
-    // command itself, like this: `zig build run -- arg1 arg2 etc`
+    uxn_asm.addModule("uxn-core", core_mod);
+
+    b.installArtifact(uxn_sdl);
+    b.installArtifact(uxn_cli);
+    b.installArtifact(uxn_asm);
+
+    const run_cli_cmd = b.addRunArtifact(uxn_cli);
+    const run_sdl_cmd = b.addRunArtifact(uxn_sdl);
+    const run_asm_cmd = b.addRunArtifact(uxn_asm);
+
+    run_cli_cmd.step.dependOn(b.getInstallStep());
+    run_sdl_cmd.step.dependOn(b.getInstallStep());
+    run_asm_cmd.step.dependOn(b.getInstallStep());
+
     if (b.args) |args| {
-        run_cmd.addArgs(args);
+        run_cli_cmd.addArgs(args);
+        run_sdl_cmd.addArgs(args);
+        run_asm_cmd.addArgs(args);
     }
 
-    // This creates a build step. It will be visible in the `zig build --help` menu,
-    // and can be selected like this: `zig build run`
-    // This will evaluate the `run` step rather than the default, which is "install".
-    const run_step = b.step("run", "Run the app");
-    run_step.dependOn(&run_cmd.step);
+    const run_cli_step = b.step("run-cli", "Run the CLI evaluator");
+    run_cli_step.dependOn(&run_cli_cmd.step);
 
-    // Creates a step for unit testing. This only builds the test executable
-    // but does not run it.
+    const run_sdl_step = b.step("run-sdl", "Run the SDL evaluator");
+    run_sdl_step.dependOn(&run_sdl_cmd.step);
+
+    const run_asm_step = b.step("run-asm", "Run the uxn assembler");
+    run_asm_step.dependOn(&run_asm_cmd.step);
+
     const unit_tests = b.addTest(.{
         .root_source_file = .{ .path = "src/main.zig" },
         .target = target,
@@ -65,10 +99,6 @@ pub fn build(b: *std.Build) void {
     });
 
     const run_unit_tests = b.addRunArtifact(unit_tests);
-
-    // Similar to creating the run step earlier, this exposes a `test` step to
-    // the `zig build --help` menu, providing a way for the user to request
-    // running the unit tests.
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_unit_tests.step);
 }

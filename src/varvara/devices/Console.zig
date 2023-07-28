@@ -1,14 +1,14 @@
-const Cpu = @import("../Cpu.zig");
+const Cpu = @import("uxn-core").Cpu;
 const std = @import("std");
 
 addr: u4,
 
 pub const ports = struct {
-    const vector = 0x0;
-    const read = 0x2;
-    const typ = 0x7;
-    const write = 0x8;
-    const err = 0x9;
+    pub const vector = 0x0;
+    pub const read = 0x2;
+    pub const typ = 0x7;
+    pub const write = 0x8;
+    pub const err = 0x9;
 };
 
 pub fn intercept(

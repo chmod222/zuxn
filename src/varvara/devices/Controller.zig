@@ -1,4 +1,4 @@
-const Cpu = @import("../Cpu.zig");
+const Cpu = @import("uxn-core").Cpu;
 const std = @import("std");
 
 addr: u4,
@@ -15,12 +15,12 @@ pub const ButtonFlags = packed struct(u8) {
 };
 
 pub const ports = struct {
-    const vector = 0x0;
-    const buttons = 0x2;
-    const key = 0x3;
-    const p2 = 0x5;
-    const p3 = 0x6;
-    const p4 = 0x7;
+    pub const vector = 0x0;
+    pub const buttons = 0x2;
+    pub const key = 0x3;
+    pub const p2 = 0x5;
+    pub const p3 = 0x6;
+    pub const p4 = 0x7;
 };
 
 pub fn intercept(
