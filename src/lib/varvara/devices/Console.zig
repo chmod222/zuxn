@@ -11,6 +11,9 @@ pub const ports = struct {
     pub const err = 0x9;
 };
 
+var stderr = std.io.getStdErr();
+var stdout = std.io.getStdOut();
+
 pub fn intercept(
     dev: @This(),
     cpu: *Cpu,
@@ -20,12 +23,15 @@ pub fn intercept(
     if (kind != .output)
         return;
 
-    if (port != ports.write)
+    if (port != ports.write and port != ports.err)
         return;
 
     const base = @as(u8, dev.addr) << 4;
+    const handle = if (port == ports.write) stdout else stderr;
 
-    std.debug.print("{c}", .{cpu.device_mem[base | port]});
+    _ = handle.write(&[1]u8{cpu.device_mem[base | port]}) catch {
+        return;
+    };
 }
 
 pub fn push_arguments(
