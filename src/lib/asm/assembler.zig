@@ -112,7 +112,7 @@ pub fn Assembler(comptime lim: Limits) type {
         fn full_label(assembler: *@This(), label: Scanner.TypedLabel) !Scanner.Label {
             switch (label) {
                 .root => |l| return l,
-                .sublabel => |s| {
+                .scoped => |s| {
                     const parent = std.mem.sliceTo(&(assembler.last_root_label orelse return error.MissingScopeLabel), 0);
                     const child = std.mem.sliceTo(&s, 0);
 

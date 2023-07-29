@@ -40,7 +40,7 @@ pub fn Scanner(comptime lim: Limits) type {
 
         pub const TypedLabel = union(enum) {
             root: Label,
-            sublabel: Label,
+            scoped: Label,
         };
 
         pub const Address = union(enum) {
@@ -202,7 +202,7 @@ pub fn Scanner(comptime lim: Limits) type {
 
                 std.mem.copyForwards(u8, &cpy, cpy[1..]);
 
-                return .{ .sublabel = cpy };
+                return .{ .scoped = cpy };
             } else {
                 return .{ .root = label };
             }
@@ -257,7 +257,7 @@ pub fn Scanner(comptime lim: Limits) type {
                         break :b if (b == '@')
                             .{ .label = .{ .root = label } }
                         else
-                            .{ .label = .{ .sublabel = label } };
+                            .{ .label = .{ .scoped = label } };
                     },
 
                     ',', '.', ';', '_', '-', '=', ':' => b: {
