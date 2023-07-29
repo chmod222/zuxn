@@ -285,6 +285,15 @@ fn fill_region(
     }
 }
 
+pub fn force_redraw(dev: *@This()) void {
+    dev.dirty_region = .{
+        .x0 = 0,
+        .y0 = 0,
+        .x1 = dev.width,
+        .y1 = dev.height,
+    };
+}
+
 pub fn initialize_graphics(dev: *@This()) !void {
     dev.foreground = try dev.alloc.alloc(u2, @as(usize, dev.width) * dev.height);
     errdefer dev.alloc.free(dev.foreground);
@@ -295,12 +304,7 @@ pub fn initialize_graphics(dev: *@This()) !void {
     @memset(dev.foreground, 0x00);
     @memset(dev.background, 0x00);
 
-    dev.dirty_region = .{
-        .x0 = 0,
-        .y0 = 0,
-        .x1 = dev.width,
-        .y1 = dev.height,
-    };
+    dev.force_redraw();
 }
 
 pub fn cleanup_graphics(dev: *@This()) void {

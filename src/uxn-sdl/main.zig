@@ -27,7 +27,15 @@ fn intercept(cpu: *uxn.Cpu, addr: u8, kind: uxn.Cpu.InterceptKind) !void {
     defer if (lock_audio) SDL.SDL_UnlockAudioDevice(audio_id);
 
     switch (addr >> 4) {
-        0x0 => try system.system_device.intercept(cpu, port, kind),
+        0x0 => {
+            try system.system_device.intercept(cpu, port, kind);
+
+            if (addr & 0xf >= varvara.System.ports.red and
+                addr & 0xf < varvara.System.ports.debug)
+            {
+                system.screen_device.force_redraw();
+            }
+        },
         0x1 => try system.console_device.intercept(cpu, port, kind),
         0x2 => try system.screen_device.intercept(cpu, port, kind),
         0x3 => try system.audio_devices[0].intercept(cpu, port, kind),
@@ -304,20 +312,6 @@ fn main_graphical(cpu: *uxn.Cpu, scale: u8, args: [][]const u8) !u8 {
     );
 
     main_loop: while (system.system_device.exit_code == null) {
-        if (system.screen_device.width != window_width or system.screen_device.height != window_height) {
-            window_height = system.screen_device.height;
-            window_width = system.screen_device.width;
-
-            try resize_window(
-                window,
-                renderer,
-                &texture,
-                system.screen_device.width,
-                system.screen_device.height,
-                scale,
-            );
-        }
-
         const t0 = SDL.SDL_GetPerformanceCounter();
 
         var ev: SDL.SDL_Event = undefined;
@@ -409,6 +403,20 @@ fn main_graphical(cpu: *uxn.Cpu, scale: u8, args: [][]const u8) !u8 {
 
         system.screen_device.evaluate_frame(cpu) catch |fault|
             try system.system_device.handle_fault(cpu, fault);
+
+        if (system.screen_device.width != window_width or system.screen_device.height != window_height) {
+            window_height = system.screen_device.height;
+            window_width = system.screen_device.width;
+
+            try resize_window(
+                window,
+                renderer,
+                &texture,
+                system.screen_device.width,
+                system.screen_device.height,
+                scale,
+            );
+        }
 
         draw_screen(&system.screen_device, texture, renderer);
     }
