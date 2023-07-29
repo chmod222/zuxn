@@ -72,8 +72,8 @@ pub fn update_position(dev: *@This(), cpu: *Cpu, x: u16, y: u16) !void {
 pub fn update_scroll(dev: *@This(), cpu: *Cpu, x: i32, y: i32) !void {
     const base = @as(u8, dev.addr) << 4;
 
-    cpu.store_device_mem(u16, base | ports.scroll_x, @as(u16, @bitCast(@as(i16, @truncate(x)))));
-    cpu.store_device_mem(u16, base | ports.scroll_y, @as(u16, @bitCast(@as(i16, @truncate(y)))));
+    cpu.store_device_mem(i16, base | ports.scroll_x, @as(i16, @truncate(x)));
+    cpu.store_device_mem(i16, base | ports.scroll_y, @as(i16, @truncate(-y)));
 
     try dev.invoke_vector(cpu);
 }
