@@ -140,8 +140,8 @@ pub fn intercept(
                         cpu,
                         layer,
                         flags,
-                        x + dy * @as(u16, @truncate(i)),
-                        y + dx * @as(u16, @truncate(i)),
+                        x +% dy * @as(u16, @truncate(i)),
+                        y +% dx * @as(u16, @truncate(i)),
                         addr,
                     );
 
