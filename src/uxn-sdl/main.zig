@@ -4,6 +4,7 @@ const clap = @import("clap");
 
 const uxn = @import("uxn-core");
 const varvara = @import("uxn-varvara");
+const Debug = @import("uxn-shared").Debug;
 
 const File = std.fs.File;
 const Allocator = std.mem.Allocator;
@@ -279,9 +280,6 @@ fn main_graphical(cpu: *uxn.Cpu, scale: u8, args: [][]const u8) !u8 {
 
     SDL.SDL_DetachThread(stdin);
 
-    cpu.output_intercepts = varvara.full_intercepts.output;
-    cpu.input_intercepts = varvara.full_intercepts.input;
-
     system.console_device.set_argc(cpu, args);
 
     var window_width = system.screen_device.width;
@@ -426,10 +424,11 @@ fn main_graphical(cpu: *uxn.Cpu, scale: u8, args: [][]const u8) !u8 {
 
 pub fn main() !u8 {
     const params = comptime clap.parseParamsComptime(
-        \\-h, --help          Display this help and exit.
-        \\-s, --scale <INT>   Display scale factor
-        \\<FILE>              Input ROM
-        \\<ARG>...            Command line arguments for the module
+        \\-h, --help                 Display this help and exit.
+        \\-s, --scale <INT>          Display scale factor
+        \\-S, --symbols <FILE>       Load debug symbols
+        \\<FILE>                     Input ROM
+        \\<ARG>...                   Command line arguments for the module
     );
 
     var diag = clap.Diagnostic{};
@@ -460,18 +459,38 @@ pub fn main() !u8 {
 
     var alloc = gpa.allocator();
 
+    // Initialize system devices
     system = try varvara.VarvaraSystem.init(gpa.allocator());
     defer system.deinit();
 
-    const input_file_name = res.positionals[0];
+    // Setup the breakpoint hook if requested
+    var debug = if (res.args.symbols) |debug_symbols| b: {
+        var symbols_file = try std.fs.cwd().openFile(debug_symbols, .{});
+        defer symbols_file.close();
 
-    const rom_file = try std.fs.cwd().openFile(input_file_name, .{});
+        break :b try Debug.load_symbols(alloc, symbols_file.reader());
+    } else null;
+
+    system.system_device.debug_callback = &Debug.on_debug_hook;
+
+    if (debug) |*s|
+        system.system_device.debug_callback_data = s;
+
+    // Load input ROM
+    const rom_file = try std.fs.cwd().openFile(res.positionals[0], .{});
     defer rom_file.close();
 
     var rom = try uxn.load_rom(alloc, rom_file);
+    defer alloc.free(rom);
+
+    // Setup CPU and intercepts
     var cpu = uxn.Cpu.init(rom);
 
     cpu.device_intercept = &intercept;
 
+    cpu.output_intercepts = varvara.full_intercepts.output;
+    cpu.input_intercepts = varvara.full_intercepts.input;
+
+    // Run main
     return main_graphical(&cpu, res.args.scale orelse 1, @constCast(res.positionals[1..]));
 }

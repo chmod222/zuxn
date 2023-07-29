@@ -53,6 +53,17 @@ pub fn build(b: *std.Build) void {
     );
 
     // Utility programs based on core libraries
+    const shared_mod = b.addModule(
+        "uxn-shared",
+        .{
+            .source_file = .{ .path = "src/shared.zig" },
+            .dependencies = &.{.{
+                .name = "uxn-core",
+                .module = core_mod,
+            }},
+        },
+    );
+
     const uxn_cli = b.addExecutable(.{
         .name = "uxn-cli",
         .root_source_file = .{ .path = "src/uxn-cli/main.zig" },
@@ -60,6 +71,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    uxn_cli.addModule("uxn-shared", shared_mod);
     uxn_cli.addModule("uxn-core", core_mod);
     uxn_cli.addModule("uxn-varvara", varvara_mod);
     uxn_cli.addModule("clap", dep_clap.module("clap"));
@@ -72,6 +84,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    uxn_sdl.addModule("uxn-shared", shared_mod);
     uxn_sdl.addModule("uxn-core", core_mod);
     uxn_sdl.addModule("uxn-varvara", varvara_mod);
     uxn_sdl.addModule("clap", dep_clap.module("clap"));
