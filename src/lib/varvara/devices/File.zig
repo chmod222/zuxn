@@ -1,20 +1,9 @@
 const Cpu = @import("uxn-core").Cpu;
 const std = @import("std");
 
-const Directory = struct {
-    root: std.fs.IterableDir,
-    iter: std.fs.IterableDir.Iterator,
-    init: bool,
-};
-
-const Target = union(enum) {
-    file: std.fs.File,
-    dir: Directory,
-};
-
 addr: u4,
 
-file: ?Target = null,
+active_file: ?AnyTarget = null,
 mode: std.fs.File.OpenFlags = .{},
 
 pub const ports = struct {
@@ -29,78 +18,174 @@ pub const ports = struct {
     pub const write = 0xe;
 };
 
-pub fn cleanup(dev: *@This()) void {
-    if (dev.file) |*open_file| switch (open_file.*) {
-        .file => |f| {
-            f.close();
-        },
+const Directory = struct {
+    root: std.fs.IterableDir,
+    iter: std.fs.IterableDir.Iterator,
 
-        .dir => |*d| {
-            d.root.close();
-        },
-    };
+    cached_entry: ?std.fs.IterableDir.Entry = null,
 
-    dev.file = null;
-}
-
-fn open_readable(path: []const u8) !Target {
-    if (std.fs.cwd().openIterableDir(path, .{})) |dir| {
-        return Target{
-            .dir = .{
-                .root = dir,
-                .iter = dir.iterate(),
-                .init = true,
-            },
+    fn render_dir_entry(
+        dir: *Directory,
+        entry: std.fs.IterableDir.Entry,
+        slice: []u8,
+    ) !usize {
+        var fbw = std.io.FixedBufferStream([]u8){
+            .buffer = slice,
+            .pos = 0,
         };
-    } else |e| {
-        if (e == error.NotDir) {
-            return Target{
-                .file = try std.fs.cwd().openFile(path, .{}),
-            };
+
+        var writer = fbw.writer();
+
+        if (entry.kind != .directory) {
+            var stat = try dir.root.dir.statFile(entry.name);
+
+            try if (stat.size > 0xffff)
+                writer.print("???? {s}\n", .{entry.name})
+            else
+                writer.print("{x:0>4} {s}\n", .{ stat.size, entry.name });
         } else {
-            return e;
+            try writer.print("---- {s}/\n", .{entry.name});
+        }
+
+        return fbw.pos;
+    }
+};
+
+const File = struct {
+    file: std.fs.File,
+};
+
+const AnyTarget = union(enum) {
+    directory: Directory,
+    file: File,
+
+    fn read(self: *AnyTarget, buf: []u8) ?u16 {
+        switch (self.*) {
+            .directory => |*dir| {
+                var offset: usize = 0;
+
+                if (dir.cached_entry) |entry| {
+                    offset += dir.render_dir_entry(entry, buf[offset..]) catch 0;
+
+                    dir.cached_entry = null;
+                }
+
+                while (dir.iter.next() catch null) |entry| {
+                    if (dir.render_dir_entry(entry, buf[offset..])) |written| {
+                        offset += written;
+                    } else |err| {
+                        if (err == error.NoSpaceLeft) {
+                            // If we cannot write the current entry, we rember it for the next call.
+                            dir.cached_entry = entry;
+
+                            break;
+                        } else {
+                            return null;
+                        }
+                    }
+                }
+
+                @memset(buf[offset..], 0x00);
+
+                return @truncate(offset);
+            },
+
+            .file => |*f| {
+                return @truncate(f.file.readAll(buf) catch return null);
+            },
+        }
+
+        return null;
+    }
+
+    fn write(self: *AnyTarget, buf: []const u8) ?u16 {
+        return switch (self.*) {
+            .file => |f| {
+                return @truncate(f.file.write(buf) catch return null);
+            },
+
+            else => null,
+        };
+    }
+
+    fn close(self: *AnyTarget) void {
+        switch (self.*) {
+            .directory => |*dir| dir.root.close(),
+            .file => |*file| file.file.close(),
         }
     }
+};
+
+fn open_directory(path: []const u8) !Directory {
+    const dir = try std.fs.cwd().openIterableDir(path, .{});
+
+    return Directory{
+        .root = dir,
+        .iter = dir.iterate(),
+    };
 }
 
-fn open_writable(path: []const u8, truncate: bool) !Target {
-    return Target{
+fn open_file(path: []const u8) !File {
+    return File{
+        .file = try std.fs.cwd().openFile(path, .{}),
+    };
+}
+
+fn open_file_write(path: []const u8, truncate: bool) !File {
+    return File{
         .file = try std.fs.cwd().createFile(path, .{ .truncate = truncate }),
     };
 }
 
-fn make_dir_entry(dir: *Directory, slice: []u8) !u16 {
-    var fbw = std.io.FixedBufferStream([]u8){
-        .buffer = slice,
-        .pos = 0,
-    };
-
-    if (dir.init) {
-        try fbw.writer().print("---- ../\n", .{});
-
-        dir.init = false;
-    } else if (dir.iter.next() catch null) |entry| {
-        var stat = try dir.root.dir.statFile(entry.name);
-
-        try if (entry.kind != .directory)
-            if (stat.size > 0xffff)
-                fbw.writer().print("????", .{})
-            else
-                fbw.writer().print("{x:0>4}", .{stat.size})
-        else
-            fbw.writer().print("----", .{});
-
-        try fbw.writer().print(" {s}", .{entry.name});
-
-        if (entry.kind == .directory)
-            try fbw.writer().print("/", .{});
-
-        try fbw.writer().print("\n", .{});
+pub fn cleanup(dev: *@This()) void {
+    if (dev.active_file) |*f| {
+        f.close();
     }
 
-    @memset(slice[fbw.getPos() catch unreachable ..], 0x00);
+    dev.active_file = null;
+}
 
-    return @as(u16, @truncate(fbw.getPos() catch unreachable));
+fn open_readable(path: []const u8) !AnyTarget {
+    if (open_directory(path)) |dir| {
+        return .{ .directory = dir };
+    } else |err| {
+        if (err == error.NotDir) {
+            return .{ .file = try open_file(path) };
+        }
+    }
+
+    return error.CannotOpen;
+}
+
+fn open_writable(path: []const u8, truncate: bool) !AnyTarget {
+    return .{
+        .file = try open_file_write(path, truncate),
+    };
+}
+
+fn get_current_name_slice(dev: *@This(), cpu: *Cpu) []const u8 {
+    const base = @as(u8, dev.addr) << 4;
+    const name_ptr = cpu.load_device_mem(u16, base | ports.name);
+
+    return std.mem.sliceTo(cpu.mem[name_ptr..], 0x00);
+}
+
+fn get_current_read_slice(dev: *@This(), cpu: *Cpu) []u8 {
+    const base = @as(u8, dev.addr) << 4;
+
+    const data_ptr: usize = cpu.load_device_mem(u16, base | ports.read);
+    const len = cpu.load_device_mem(u16, base | ports.length);
+
+    return cpu.mem[data_ptr..data_ptr +| len];
+}
+
+fn get_current_write_slice(dev: *@This(), cpu: *Cpu) []const u8 {
+    const base = @as(u8, dev.addr) << 4;
+
+    const data_ptr: usize = cpu.load_device_mem(u16, base | ports.write);
+    const len = cpu.load_device_mem(u16, base | ports.length);
+
+    return cpu.mem[data_ptr..data_ptr +| len];
 }
 
 pub fn intercept(
@@ -118,86 +203,48 @@ pub fn intercept(
         ports.name + 1 => {
             // Close a previously opened file
             dev.cleanup();
+
+            cpu.store_device_mem(u16, base | ports.success, 0x0001);
         },
 
         ports.write + 1 => {
-            const data_ptr = cpu.load_device_mem(u16, base | port - 1);
-            const len = cpu.load_device_mem(u16, base | ports.length);
-
-            const name_ptr = cpu.load_device_mem(u16, base | ports.name);
-            const name_slice = std.mem.sliceTo(cpu.mem[name_ptr..], 0x00);
-
             const truncate = cpu.load_device_mem(u16, base | ports.append) == 0x00;
 
-            var t = dev.file orelse open_writable(name_slice, truncate) catch {
+            const name_slice = dev.get_current_name_slice(cpu);
+            const data_slice = dev.get_current_write_slice(cpu);
+
+            var t = dev.active_file orelse open_writable(name_slice, truncate) catch {
                 return cpu.store_device_mem(u16, base | ports.success, 0x0000);
             };
 
-            var f = switch (t) {
-                .file => |f| f,
-                .dir => return,
-            };
-
-            var writer = f.writer();
-
-            cpu.store_device_mem(
-                u16,
-                base | ports.success,
-
-                if (writer.write(cpu.mem[data_ptr .. data_ptr + len])) |n|
-                    @as(u16, @truncate(n))
-                else |_|
-                    0x0000,
-            );
-
-            if (dev.file == null)
-                dev.file = t;
+            cpu.store_device_mem(u16, base | ports.success, t.write(data_slice) orelse 0);
+            dev.active_file = t;
         },
 
         ports.read + 1 => {
-            const data_ptr = cpu.load_device_mem(u16, base | port - 1);
-            const len = cpu.load_device_mem(u16, base | ports.length);
-            const data_slice = cpu.mem[data_ptr..data_ptr +| len];
+            const data_slice = dev.get_current_read_slice(cpu);
+            const name_slice = dev.get_current_name_slice(cpu);
 
-            const name_ptr = cpu.load_device_mem(u16, base | ports.name);
-            const name_slice = std.mem.sliceTo(cpu.mem[name_ptr..], 0x00);
-
-            var t = dev.file orelse open_readable(name_slice) catch {
+            var t = dev.active_file orelse open_readable(name_slice) catch {
                 return cpu.store_device_mem(u16, base | ports.success, 0x0000);
             };
 
-            switch (t) {
-                .file => |f| {
-                    var reader = f.reader();
+            var r = t.read(data_slice) orelse 0;
 
-                    cpu.store_device_mem(
-                        u16,
-                        base | ports.success,
-
-                        if (reader.read(data_slice)) |n|
-                            @as(u16, @truncate(n))
-                        else |_|
-                            0x0000,
-                    );
-                },
-
-                .dir => |*d| {
-                    const n = make_dir_entry(d, data_slice) catch 0x0000;
-
-                    cpu.store_device_mem(u16, base | ports.success, n);
-                },
-            }
-
-            dev.file = t;
+            cpu.store_device_mem(u16, base | ports.success, r);
+            dev.active_file = t;
         },
 
         ports.delete => {
-            const name_ptr = cpu.load_device_mem(u16, base | ports.name);
-            const name_slice = std.mem.sliceTo(cpu.mem[name_ptr..], 0x00);
+            const name_slice = dev.get_current_name_slice(cpu);
 
-            std.fs.cwd().deleteFile(name_slice) catch {
-                cpu.store_device_mem(u16, base | ports.success, 0x0000);
-            };
+            std.fs.cwd().deleteFile(name_slice) catch {};
+
+            cpu.store_device_mem(u16, base | ports.success, 0x0001);
+        },
+
+        ports.stat + 1 => {
+            cpu.store_device_mem(u16, base | ports.success, 0x0000);
         },
 
         else => {},
