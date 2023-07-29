@@ -17,39 +17,47 @@ var AUDIO_FINISHED: u32 = undefined;
 var STDIN_RECEIVED: u32 = undefined;
 
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-var system: varvara.VarvaraSystem = undefined;
 var audio_id: SDL.SDL_AudioDeviceID = undefined;
 
-fn intercept(cpu: *uxn.Cpu, addr: u8, kind: uxn.Cpu.InterceptKind) !void {
-    const port: u4 = @truncate(addr & 0xf);
-    const lock_audio = kind == .output and addr >= 0x30 and addr < 0x70;
+fn intercept(
+    cpu: *uxn.Cpu,
+    addr: u8,
+    kind: uxn.Cpu.InterceptKind,
+    data: ?*anyopaque,
+) !void {
+    var varvara_sys: ?*varvara.VarvaraSystem = @alignCast(@ptrCast(data));
 
-    if (lock_audio) SDL.SDL_LockAudioDevice(audio_id);
-    defer if (lock_audio) SDL.SDL_UnlockAudioDevice(audio_id);
+    if (varvara_sys) |sys| {
+        const port: u4 = @truncate(addr & 0xf);
+        const lock_audio = kind == .output and addr >= 0x30 and addr < 0x70;
 
-    switch (addr >> 4) {
-        0x0 => {
-            try system.system_device.intercept(cpu, port, kind);
+        if (lock_audio) SDL.SDL_LockAudioDevice(audio_id);
+        defer if (lock_audio) SDL.SDL_UnlockAudioDevice(audio_id);
 
-            if (addr & 0xf >= varvara.System.ports.red and
-                addr & 0xf < varvara.System.ports.debug)
-            {
-                system.screen_device.force_redraw();
-            }
-        },
-        0x1 => try system.console_device.intercept(cpu, port, kind),
-        0x2 => try system.screen_device.intercept(cpu, port, kind),
-        0x3 => try system.audio_devices[0].intercept(cpu, port, kind),
-        0x4 => try system.audio_devices[1].intercept(cpu, port, kind),
-        0x5 => try system.audio_devices[2].intercept(cpu, port, kind),
-        0x6 => try system.audio_devices[3].intercept(cpu, port, kind),
-        0x8 => try system.controller_device.intercept(cpu, port, kind),
-        0x9 => try system.mouse_device.intercept(cpu, port, kind),
-        0xa => try system.file_devices[0].intercept(cpu, port, kind),
-        0xb => try system.file_devices[1].intercept(cpu, port, kind),
-        0xc => try system.datetime_device.intercept(cpu, port, kind),
+        switch (addr >> 4) {
+            0x0 => {
+                try sys.system_device.intercept(cpu, port, kind);
 
-        else => {},
+                if (addr & 0xf >= varvara.System.ports.red and
+                    addr & 0xf < varvara.System.ports.debug)
+                {
+                    sys.screen_device.force_redraw();
+                }
+            },
+            0x1 => try sys.console_device.intercept(cpu, port, kind),
+            0x2 => try sys.screen_device.intercept(cpu, port, kind),
+            0x3 => try sys.audio_devices[0].intercept(cpu, port, kind),
+            0x4 => try sys.audio_devices[1].intercept(cpu, port, kind),
+            0x5 => try sys.audio_devices[2].intercept(cpu, port, kind),
+            0x6 => try sys.audio_devices[3].intercept(cpu, port, kind),
+            0x8 => try sys.controller_device.intercept(cpu, port, kind),
+            0x9 => try sys.mouse_device.intercept(cpu, port, kind),
+            0xa => try sys.file_devices[0].intercept(cpu, port, kind),
+            0xb => try sys.file_devices[1].intercept(cpu, port, kind),
+            0xc => try sys.datetime_device.intercept(cpu, port, kind),
+
+            else => {},
+        }
     }
 }
 
@@ -60,6 +68,8 @@ fn sdl_panic() noreturn {
 }
 
 fn audio_callback(u: ?*anyopaque, stream: [*c]u8, len: c_int) callconv(.C) void {
+    var sys: *varvara.VarvaraSystem = @alignCast(@ptrCast(u));
+
     var samples_ptr = @as([*c]i16, @alignCast(@ptrCast(stream)));
     var samples = samples_ptr[0 .. @as(usize, @intCast(len)) / 2];
 
@@ -69,7 +79,7 @@ fn audio_callback(u: ?*anyopaque, stream: [*c]u8, len: c_int) callconv(.C) void 
     //var still_playing: usize = 0;
     var event: SDL.SDL_Event = undefined;
 
-    for (0.., &system.audio_devices) |i, *poly| {
+    for (0.., &sys.audio_devices) |i, *poly| {
         if (poly.render_audio(samples)) |r| {
             if (r) {
                 //still_playing += 1;
@@ -81,8 +91,6 @@ fn audio_callback(u: ?*anyopaque, stream: [*c]u8, len: c_int) callconv(.C) void 
         }
     }
 
-    _ = u;
-
     //if (still_playing == 0) {
     //    const audio_id: *SDL.SDL_AudioDeviceID = @alignCast(@ptrCast(u.?));
     //
@@ -91,13 +99,13 @@ fn audio_callback(u: ?*anyopaque, stream: [*c]u8, len: c_int) callconv(.C) void 
 }
 
 fn receive_stdin(p: ?*anyopaque) callconv(.C) c_int {
-    _ = p;
+    var sys: *varvara.VarvaraSystem = @alignCast(@ptrCast(p));
 
     const stdin = std.io.getStdIn().reader();
 
     var event: SDL.SDL_Event = .{ .type = STDIN_RECEIVED };
 
-    while (system.system_device.exit_code == null) {
+    while (sys.system_device.exit_code == null) {
         const b = stdin.readByte() catch
             break;
 
@@ -215,6 +223,7 @@ fn resize_window(
 
 fn draw_screen(
     screen_device: *varvara.Screen,
+    system_device: *const varvara.System,
     texture: *SDL.SDL_Texture,
     renderer: *SDL.SDL_Renderer,
 ) void {
@@ -232,7 +241,7 @@ fn draw_screen(
                 const idx = y * screen_device.width + x;
                 const pal = (@as(u4, screen_device.foreground[idx]) << 2) | screen_device.background[idx];
 
-                const color = &system.system_device.colors[if ((pal >> 2) > 0) (pal >> 2) else (pal & 0x3)];
+                const color = &system_device.colors[if ((pal >> 2) > 0) (pal >> 2) else (pal & 0x3)];
 
                 pixels[idx * 4 + 3] = 0x00;
                 pixels[idx * 4 + 2] = color.r;
@@ -248,7 +257,12 @@ fn draw_screen(
     SDL.SDL_RenderPresent(renderer);
 }
 
-fn main_graphical(cpu: *uxn.Cpu, scale: u8, args: [][]const u8) !u8 {
+fn main_graphical(
+    cpu: *uxn.Cpu,
+    system: *varvara.VarvaraSystem,
+    scale: u8,
+    args: [][]const u8,
+) !u8 {
     if (SDL.SDL_Init(SDL.SDL_INIT_JOYSTICK | SDL.SDL_INIT_VIDEO | SDL.SDL_INIT_EVENTS | SDL.SDL_INIT_AUDIO) < 0)
         sdl_panic();
 
@@ -262,7 +276,7 @@ fn main_graphical(cpu: *uxn.Cpu, scale: u8, args: [][]const u8) !u8 {
         .channels = 2,
         .callback = &audio_callback,
         .samples = 512,
-        .userdata = &audio_id,
+        .userdata = system,
 
         .silence = 0,
         .size = 0,
@@ -276,7 +290,7 @@ fn main_graphical(cpu: *uxn.Cpu, scale: u8, args: [][]const u8) !u8 {
     AUDIO_FINISHED = SDL.SDL_RegisterEvents(4);
     STDIN_RECEIVED = SDL.SDL_RegisterEvents(1);
 
-    var stdin = SDL.SDL_CreateThread(receive_stdin, "stdin", null);
+    var stdin = SDL.SDL_CreateThread(receive_stdin, "stdin", system);
 
     SDL.SDL_DetachThread(stdin);
 
@@ -416,7 +430,7 @@ fn main_graphical(cpu: *uxn.Cpu, scale: u8, args: [][]const u8) !u8 {
             );
         }
 
-        draw_screen(&system.screen_device, texture, renderer);
+        draw_screen(&system.screen_device, &system.system_device, texture, renderer);
     }
 
     return system.system_device.exit_code orelse 0;
@@ -460,7 +474,7 @@ pub fn main() !u8 {
     var alloc = gpa.allocator();
 
     // Initialize system devices
-    system = try varvara.VarvaraSystem.init(gpa.allocator());
+    var system = try varvara.VarvaraSystem.init(gpa.allocator());
     defer system.deinit();
 
     // Setup the breakpoint hook if requested
@@ -474,7 +488,7 @@ pub fn main() !u8 {
     system.system_device.debug_callback = &Debug.on_debug_hook;
 
     if (debug) |*s|
-        system.system_device.debug_callback_data = s;
+        system.system_device.callback_data = s;
 
     // Load input ROM
     const rom_file = try std.fs.cwd().openFile(res.positionals[0], .{});
@@ -487,10 +501,11 @@ pub fn main() !u8 {
     var cpu = uxn.Cpu.init(rom);
 
     cpu.device_intercept = &intercept;
+    cpu.callback_data = &system;
 
     cpu.output_intercepts = varvara.full_intercepts.output;
     cpu.input_intercepts = varvara.full_intercepts.input;
 
     // Run main
-    return main_graphical(&cpu, res.args.scale orelse 1, @constCast(res.positionals[1..]));
+    return main_graphical(&cpu, &system, res.args.scale orelse 1, @constCast(res.positionals[1..]));
 }

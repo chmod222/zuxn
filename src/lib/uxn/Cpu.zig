@@ -32,10 +32,13 @@ device_mem: [0x100]u8,
 input_intercepts: [0x10]u16 = [1]u16{0x0000} ** 0x10,
 output_intercepts: [0x10]u16 = [1]u16{0x0000} ** 0x10,
 
+callback_data: ?*anyopaque = null,
+
 device_intercept: ?*const fn (
     cpu: *Cpu,
     addr: u8,
     kind: InterceptKind,
+    data: ?*anyopaque,
 ) SystemFault!void = null,
 
 pub fn init(mem: *[0x10000]u8) Cpu {
@@ -148,11 +151,6 @@ pub fn step(cpu: *Cpu) SystemFault!?u16 {
         wst.thaw_read();
         rst.thaw_read();
     };
-
-    //std.debug.print("PC = {x:0>4} {s}\n", .{
-    //    cpu.pc,
-    //    Cpu.mnemonics[cpu.mem[cpu.pc]],
-    //});
 
     switch (instruction.opcode) {
         .BRK => return null,
@@ -274,11 +272,11 @@ pub fn step(cpu: *Cpu) SystemFault!?u16 {
 
             if (intercept_port & 0x1 > 0)
                 if (cpu.device_intercept) |ifn|
-                    try ifn(cpu, dev, .input);
+                    try ifn(cpu, dev, .input, cpu.callback_data);
 
             if (instruction.short_mode and (intercept_port >> 1) & 0x1 > 0)
                 if (cpu.device_intercept) |ifn|
-                    try ifn(cpu, dev + 1, .input);
+                    try ifn(cpu, dev + 1, .input, cpu.callback_data);
 
             if (instruction.short_mode)
                 try wst.push(u16, cpu.load_device_mem(u16, dev))
@@ -299,11 +297,11 @@ pub fn step(cpu: *Cpu) SystemFault!?u16 {
 
             if (intercept_port & 0x1 > 0)
                 if (cpu.device_intercept) |ifn|
-                    try ifn(cpu, dev, .output);
+                    try ifn(cpu, dev, .output, cpu.callback_data);
 
             if (instruction.short_mode and (intercept_port >> 1) & 0x1 > 0)
                 if (cpu.device_intercept) |ifn|
-                    try ifn(cpu, dev + 1, .output);
+                    try ifn(cpu, dev + 1, .output, cpu.callback_data);
         },
 
         // Comparisons

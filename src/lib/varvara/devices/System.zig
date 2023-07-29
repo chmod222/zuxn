@@ -12,7 +12,7 @@ pub const Color = struct {
 addr: u4,
 
 debug_callback: ?*const fn (cpu: *Cpu, data: ?*anyopaque) void = null,
-debug_callback_data: ?*anyopaque = null,
+callback_data: ?*anyopaque = null,
 
 exit_code: ?u8 = null,
 colors: [4]Color = .{
@@ -61,7 +61,7 @@ pub fn intercept(
 
         ports.debug => {
             if (dev.debug_callback) |cb|
-                cb(cpu, dev.debug_callback_data);
+                cb(cpu, dev.callback_data);
         },
 
         ports.expansion + 1 => {

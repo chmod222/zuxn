@@ -7,19 +7,27 @@ const varvara = @import("uxn-varvara");
 const Debug = @import("uxn-shared").Debug;
 
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-var system: varvara.VarvaraSystem = undefined;
 
-fn intercept(cpu: *uxn.Cpu, addr: u8, kind: uxn.Cpu.InterceptKind) !void {
-    const port: u4 = @truncate(addr & 0xf);
+fn intercept(
+    cpu: *uxn.Cpu,
+    addr: u8,
+    kind: uxn.Cpu.InterceptKind,
+    data: ?*anyopaque,
+) !void {
+    var varvara_sys: ?*varvara.VarvaraSystem = @alignCast(@ptrCast(data));
 
-    switch (addr >> 4) {
-        0x0 => try system.system_device.intercept(cpu, port, kind),
-        0x1 => try system.console_device.intercept(cpu, port, kind),
-        0xa => try system.file_devices[0].intercept(cpu, port, kind),
-        0xb => try system.file_devices[1].intercept(cpu, port, kind),
-        0xc => try system.datetime_device.intercept(cpu, port, kind),
+    if (varvara_sys) |sys| {
+        const port: u4 = @truncate(addr & 0xf);
 
-        else => {},
+        switch (addr >> 4) {
+            0x0 => try sys.system_device.intercept(cpu, port, kind),
+            0x1 => try sys.console_device.intercept(cpu, port, kind),
+            0xa => try sys.file_devices[0].intercept(cpu, port, kind),
+            0xb => try sys.file_devices[1].intercept(cpu, port, kind),
+            0xc => try sys.datetime_device.intercept(cpu, port, kind),
+
+            else => {},
+        }
     }
 }
 
@@ -51,7 +59,7 @@ pub fn main() !u8 {
     var alloc = gpa.allocator();
 
     // Initialize system devices
-    system = try varvara.VarvaraSystem.init(gpa.allocator());
+    var system = try varvara.VarvaraSystem.init(gpa.allocator());
     defer system.deinit();
 
     // Setup the breakpoint hook if requested
@@ -65,7 +73,7 @@ pub fn main() !u8 {
     system.system_device.debug_callback = &Debug.on_debug_hook;
 
     if (debug) |*s|
-        system.system_device.debug_callback_data = s;
+        system.system_device.callback_data = s;
 
     // Load input ROM
     const rom_file = try std.fs.cwd().openFile(res.positionals[0], .{});
@@ -78,6 +86,7 @@ pub fn main() !u8 {
     var cpu = uxn.Cpu.init(rom);
 
     cpu.device_intercept = &intercept;
+    cpu.callback_data = &system;
 
     cpu.output_intercepts = varvara.headless_intercepts.output;
     cpu.input_intercepts = varvara.headless_intercepts.input;
