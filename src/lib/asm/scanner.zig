@@ -29,9 +29,9 @@ fn parse_hex_literal(comptime T: type, raw: []const u8, fixed_width: bool) !T {
     return std.fmt.parseInt(T, raw, 16) catch unreachable;
 }
 
-pub fn Scanner(comptime l: Limits) type {
+pub fn Scanner(comptime lim: Limits) type {
     return struct {
-        pub const limits = l;
+        pub const limits = lim;
 
         pub const Literal = union(enum) {
             byte: u8,

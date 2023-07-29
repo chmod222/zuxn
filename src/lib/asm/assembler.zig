@@ -1,9 +1,9 @@
 const std = @import("std");
 
 pub const Limits = struct {
-    identifier_length: usize = 64,
-    word_length: usize = 64,
-    path_length: usize = 256,
+    identifier_length: usize = 0x40,
+    word_length: usize = 0x40,
+    path_length: usize = 0x100,
 
     labels: usize = 0x400,
     references: usize = 0x200,
@@ -29,8 +29,15 @@ pub const AssemblerError = error{
     NotImplemented,
 };
 
-pub fn Assembler(comptime limits: Limits) type {
+pub fn Assembler(comptime lim: Limits) type {
     return struct {
+        pub const limits = lim;
+
+        pub const Labels = std.BoundedArray(DefinedLabel, limits.labels);
+        pub const References = std.BoundedArray(Reference, limits.references);
+        pub const MacroBody = std.BoundedArray(Scanner.SourceToken, limits.macro_length);
+        pub const Macros = std.BoundedArray(Macro, limits.macros);
+
         pub const Scanner = @import("scanner.zig").Scanner(.{
             .identifier_length = limits.identifier_length,
             .word_length = limits.word_length,
@@ -59,11 +66,6 @@ pub fn Assembler(comptime limits: Limits) type {
             name: Scanner.Label,
             body: MacroBody,
         };
-
-        pub const Labels = std.BoundedArray(DefinedLabel, limits.labels);
-        pub const References = std.BoundedArray(Reference, limits.references);
-        pub const MacroBody = std.BoundedArray(Scanner.SourceToken, limits.macro_length);
-        pub const Macros = std.BoundedArray(Macro, limits.macros);
 
         rom_length: usize = 0,
 
@@ -238,8 +240,7 @@ pub fn Assembler(comptime limits: Limits) type {
                         else => 0x60,
                     });
 
-                    try output.writeByte(0xaa);
-                    try output.writeByte(0xaa);
+                    try output.writeIntBig(u16, 0xaaaa);
                 },
                 .word => |w| {
                     for (w) |o|
@@ -328,14 +329,20 @@ pub fn Assembler(comptime limits: Limits) type {
                         // TODO: issue diagnostic
                     } else {
                         for (label.references.slice()) |ref| {
-                            const target_addr: i16 = @as(i16, @bitCast(addr)) - @as(i16, @bitCast(ref.offset));
-
                             try seekable.seekTo(ref.addr);
 
                             switch (ref.type) {
-                                .zero => try output.writeByte(@bitCast(@as(i8, @truncate(target_addr)))),
-                                .absolute => try output.writeIntBig(i16, target_addr),
+                                .zero => {
+                                    try output.writeByte(@truncate(addr));
+                                },
+
+                                .absolute => {
+                                    try output.writeIntBig(u16, addr -% ref.offset);
+                                },
+
                                 .relative => |to| {
+                                    const target_addr: i16 = @as(i16, @bitCast(addr -% ref.offset));
+
                                     const signed_pc: i16 = @intCast(to);
                                     const relative = target_addr - signed_pc - 2;
 
