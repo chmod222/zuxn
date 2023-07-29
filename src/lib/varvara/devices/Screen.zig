@@ -94,25 +94,32 @@ fn update_dirty_region(
     x1: usize,
     y1: usize,
 ) void {
-    if (dev.dirty_region) |*region| {
-        if (x0 < region.x0) region.x0 = x0;
-        if (y0 < region.y0) region.y0 = y0;
-        if (x1 > region.x1) region.x1 = x1;
-        if (y1 > region.y1) region.y1 = y1;
+    //if (dev.dirty_region) |*region| {
+    //    if (x0 < region.x0) region.x0 = x0;
+    //    if (y0 < region.y0) region.y0 = y0;
+    //    if (x1 > region.x1) region.x1 = x1;
+    //    if (y1 > region.y1) region.y1 = y1;
+    //
+    //    dev.normalize_region(region);
+    //} else {
+    //    var region: Rect = .{
+    //        .x0 = x0,
+    //        .y0 = y0,
+    //        .x1 = x1,
+    //        .y1 = y1,
+    //    };
+    //
+    //    dev.normalize_region(&region);
+    //
+    //    dev.dirty_region = region;
+    //}
 
-        dev.normalize_region(region);
-    } else {
-        var region: Rect = .{
-            .x0 = x0,
-            .y0 = y0,
-            .x1 = x1,
-            .y1 = y1,
-        };
+    _ = x0;
+    _ = y0;
+    _ = x1;
+    _ = y1;
 
-        dev.normalize_region(&region);
-
-        dev.dirty_region = region;
-    }
+    dev.force_redraw();
 }
 
 pub fn intercept(
