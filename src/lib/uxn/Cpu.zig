@@ -1,5 +1,8 @@
 const Cpu = @This();
 
+const std = @import("std");
+const mem = std.mem;
+
 pub usingnamespace @import("cpu/isa.zig");
 
 pub const SystemFault = error{
@@ -41,19 +44,17 @@ device_intercept: ?*const fn (
     data: ?*anyopaque,
 ) SystemFault!void = null,
 
-pub fn init(mem: *[0x10000]u8) Cpu {
+pub fn init(memory: *[0x10000]u8) Cpu {
     return .{
         .pc = 0x0100,
 
         .wst = Stack.init(),
         .rst = Stack.init(),
 
-        .mem = mem,
+        .mem = memory,
         .device_mem = [1]u8{0x00} ** 0x100,
     };
 }
-
-const std = @import("std");
 
 pub fn evaluate_vector(cpu: *Cpu, vector: u16) SystemFault!void {
     cpu.pc = vector;
@@ -70,14 +71,14 @@ pub fn load_mem(cpu: *Cpu, comptime T: type, addr: u16) T {
     return if (T == u8)
         cpu.mem[addr]
     else
-        std.mem.readIntBig(T, cast_array(T, cpu.mem[addr..addr +| @sizeOf(T)]));
+        mem.readIntBig(T, cast_array(T, cpu.mem[addr..addr +| @sizeOf(T)]));
 }
 
 pub fn store_mem(cpu: *Cpu, comptime T: type, addr: u16, v: T) void {
     if (T == u8) {
         cpu.mem[addr] = v;
     } else {
-        std.mem.writeIntBig(T, cast_array(T, cpu.mem[addr..addr +| @sizeOf(T)]), v);
+        mem.writeIntBig(T, cast_array(T, cpu.mem[addr..addr +| @sizeOf(T)]), v);
     }
 }
 
@@ -85,14 +86,14 @@ pub fn load_device_mem(cpu: *Cpu, comptime T: type, addr: u8) T {
     return if (T == u8)
         cpu.device_mem[addr]
     else
-        std.mem.readIntBig(T, cast_array(T, cpu.device_mem[addr..addr +| @sizeOf(T)]));
+        mem.readIntBig(T, cast_array(T, cpu.device_mem[addr..addr +| @sizeOf(T)]));
 }
 
 pub fn store_device_mem(cpu: *Cpu, comptime T: type, addr: u8, v: T) void {
     if (T == u8) {
         cpu.device_mem[addr] = v;
     } else {
-        std.mem.writeIntSliceBig(T, cast_array(T, cpu.device_mem[addr..addr +| @sizeOf(T)]), v);
+        mem.writeIntSliceBig(T, cast_array(T, cpu.device_mem[addr..addr +| @sizeOf(T)]), v);
     }
 }
 
@@ -128,7 +129,7 @@ pub fn step(cpu: *Cpu) SystemFault!?u16 {
     var rst = &cpu.rst;
 
     if (instruction.return_mode) {
-        std.mem.swap(*Stack, &wst, &rst);
+        mem.swap(*Stack, &wst, &rst);
     }
 
     var push: *const PushFunc = undefined;

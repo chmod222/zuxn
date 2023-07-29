@@ -1,10 +1,12 @@
 const Cpu = @import("uxn-core").Cpu;
+
 const std = @import("std");
+const fs = std.fs;
+const io = std.io;
 
 addr: u4,
 
 active_file: ?AnyTarget = null,
-mode: std.fs.File.OpenFlags = .{},
 
 pub const ports = struct {
     pub const vector = 0x0;
@@ -19,17 +21,17 @@ pub const ports = struct {
 };
 
 const Directory = struct {
-    root: std.fs.IterableDir,
-    iter: std.fs.IterableDir.Iterator,
+    root: fs.IterableDir,
+    iter: fs.IterableDir.Iterator,
 
-    cached_entry: ?std.fs.IterableDir.Entry = null,
+    cached_entry: ?fs.IterableDir.Entry = null,
 
     fn render_dir_entry(
         dir: *Directory,
-        entry: std.fs.IterableDir.Entry,
+        entry: fs.IterableDir.Entry,
         slice: []u8,
     ) !usize {
-        var fbw = std.io.FixedBufferStream([]u8){
+        var fbw = io.FixedBufferStream([]u8){
             .buffer = slice,
             .pos = 0,
         };
@@ -52,7 +54,7 @@ const Directory = struct {
 };
 
 const File = struct {
-    file: std.fs.File,
+    file: fs.File,
 };
 
 const AnyTarget = union(enum) {
@@ -117,7 +119,7 @@ const AnyTarget = union(enum) {
 };
 
 fn open_directory(path: []const u8) !Directory {
-    const dir = try std.fs.cwd().openIterableDir(path, .{});
+    const dir = try fs.cwd().openIterableDir(path, .{});
 
     return Directory{
         .root = dir,
@@ -127,13 +129,13 @@ fn open_directory(path: []const u8) !Directory {
 
 fn open_file(path: []const u8) !File {
     return File{
-        .file = try std.fs.cwd().openFile(path, .{}),
+        .file = try fs.cwd().openFile(path, .{}),
     };
 }
 
 fn open_file_write(path: []const u8, truncate: bool) !File {
     return File{
-        .file = try std.fs.cwd().createFile(path, .{ .truncate = truncate }),
+        .file = try fs.cwd().createFile(path, .{ .truncate = truncate }),
     };
 }
 
@@ -238,7 +240,7 @@ pub fn intercept(
         ports.delete => {
             const name_slice = dev.get_current_name_slice(cpu);
 
-            std.fs.cwd().deleteFile(name_slice) catch {};
+            fs.cwd().deleteFile(name_slice) catch {};
 
             cpu.store_device_mem(u16, base | ports.success, 0x0001);
         },

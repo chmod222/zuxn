@@ -1,4 +1,5 @@
 const std = @import("std");
+const mem = std.mem;
 
 pub const Limits = struct {
     identifier_length: usize = 0x40,
@@ -76,7 +77,7 @@ pub fn Assembler(comptime lim: Limits) type {
 
         fn lookup_label(assembler: *@This(), label: []const u8) ?u16 {
             for (assembler.labels.slice()) |l|
-                if (std.mem.eql(u8, label, std.mem.sliceTo(&l.label, 0)))
+                if (mem.eql(u8, label, mem.sliceTo(&l.label, 0)))
                     return l.addr;
 
             return null;
@@ -86,7 +87,7 @@ pub fn Assembler(comptime lim: Limits) type {
             const full = try assembler.full_label(label);
 
             for (assembler.labels.slice()) |*l|
-                if (std.mem.eql(u8, &l.label, &full))
+                if (mem.eql(u8, &l.label, &full))
                     return l;
 
             var definition = assembler.labels.addOne() catch return error.TooManyLabels;
@@ -113,8 +114,8 @@ pub fn Assembler(comptime lim: Limits) type {
             switch (label) {
                 .root => |l| return l,
                 .scoped => |s| {
-                    const parent = std.mem.sliceTo(&(assembler.last_root_label orelse return error.MissingScopeLabel), 0);
-                    const child = std.mem.sliceTo(&s, 0);
+                    const parent = mem.sliceTo(&(assembler.last_root_label orelse return error.MissingScopeLabel), 0);
+                    const child = mem.sliceTo(&s, 0);
 
                     var full: Scanner.Label = [1:0]u8{0x00} ** Scanner.limits.identifier_length;
 
@@ -131,7 +132,7 @@ pub fn Assembler(comptime lim: Limits) type {
         fn lookup_offset(assembler: *@This(), offset: Scanner.Offset) !?u16 {
             return switch (offset) {
                 .literal => |lit| lit,
-                .label => |lbl| assembler.lookup_label(std.mem.sliceTo(&(try assembler.full_label(lbl)), 0)),
+                .label => |lbl| assembler.lookup_label(mem.sliceTo(&(try assembler.full_label(lbl)), 0)),
             };
         }
 
@@ -273,7 +274,7 @@ pub fn Assembler(comptime lim: Limits) type {
                 },
                 .macro_expansion => |name| {
                     const macro = for (assembler.macros.slice()) |macro| {
-                        if (std.mem.eql(u8, &macro.name, &name))
+                        if (mem.eql(u8, &macro.name, &name))
                             break macro;
                     } else return error.UndefinedMacro;
 
@@ -368,7 +369,7 @@ pub fn Assembler(comptime lim: Limits) type {
             for (assembler.labels.slice()) |label| {
                 if (label.addr) |addr| {
                     try output.writeIntBig(u16, addr);
-                    try output.print("{s}\x00", .{std.mem.sliceTo(&label.label, 0)});
+                    try output.print("{s}\x00", .{mem.sliceTo(&label.label, 0)});
                 }
             }
         }

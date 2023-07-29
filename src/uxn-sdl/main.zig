@@ -6,9 +6,6 @@ const uxn = @import("uxn-core");
 const varvara = @import("uxn-varvara");
 const Debug = @import("uxn-shared").Debug;
 
-const File = std.fs.File;
-const Allocator = std.mem.Allocator;
-
 pub const SDL = @cImport({
     @cInclude("SDL2/SDL.h");
 });

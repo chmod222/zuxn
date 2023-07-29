@@ -1,5 +1,9 @@
 const uxn = @import("uxn-core");
+
 const std = @import("std");
+const mem = std.mem;
+const fmt = std.fmt;
+const ascii = std.ascii;
 
 pub const Limits = struct {
     identifier_length: usize = 64,
@@ -8,10 +12,10 @@ pub const Limits = struct {
 };
 
 fn parse_hex_digit(octet: u8) !u4 {
-    if (!std.ascii.isHex(octet) or (!std.ascii.isDigit(octet) and !std.ascii.isLower(octet)))
+    if (!ascii.isHex(octet) or (!ascii.isDigit(octet) and !ascii.isLower(octet)))
         return error.InvalidHexLiteral;
 
-    return @truncate(std.fmt.charToDigit(octet, 16) catch unreachable);
+    return @truncate(fmt.charToDigit(octet, 16) catch unreachable);
 }
 
 fn parse_hex_literal(comptime T: type, raw: []const u8, fixed_width: bool) !T {
@@ -23,10 +27,10 @@ fn parse_hex_literal(comptime T: type, raw: []const u8, fixed_width: bool) !T {
     }
 
     for (raw) |oct|
-        if (!std.ascii.isHex(oct) or (!std.ascii.isDigit(oct) and !std.ascii.isLower(oct)))
+        if (!ascii.isHex(oct) or (!ascii.isDigit(oct) and !ascii.isLower(oct)))
             return error.InvalidHexLiteral;
 
-    return std.fmt.parseInt(T, raw, 16) catch unreachable;
+    return fmt.parseInt(T, raw, 16) catch unreachable;
 }
 
 pub fn Scanner(comptime lim: Limits) type {
@@ -137,7 +141,7 @@ pub fn Scanner(comptime lim: Limits) type {
             // Catch EOF as whitespace so we exit cleanly in case "#xy" is the very last thing in the input
             const next = scanner.read_byte(input) orelse ' ';
 
-            const h1n: u8 = if (std.ascii.isWhitespace(next))
+            const h1n: u8 = if (ascii.isWhitespace(next))
                 return .{ .byte = @as(u8, h0n << 4) | l0n }
             else
                 try parse_hex_digit(next);
@@ -164,7 +168,7 @@ pub fn Scanner(comptime lim: Limits) type {
             while (true) {
                 var oct = scanner.read_byte(input) orelse ' ';
 
-                if (std.ascii.isWhitespace(oct))
+                if (ascii.isWhitespace(oct))
                     break;
 
                 writer.writeByte(oct) catch {
@@ -179,7 +183,7 @@ pub fn Scanner(comptime lim: Limits) type {
             const label = try scanner.read_whitespace_delimited(limits.identifier_length, input);
 
             for (label) |oct| {
-                if (std.ascii.isLower(oct) or !std.ascii.isAlphanumeric(oct))
+                if (ascii.isLower(oct) or !ascii.isAlphanumeric(oct))
                     break;
             } else return error.UppercaseLabelForbidden;
 
@@ -200,7 +204,7 @@ pub fn Scanner(comptime lim: Limits) type {
             if (label[0] == '&') {
                 var cpy = label;
 
-                std.mem.copyForwards(u8, &cpy, cpy[1..]);
+                mem.copyForwards(u8, &cpy, cpy[1..]);
 
                 return .{ .scoped = cpy };
             } else {
@@ -215,7 +219,7 @@ pub fn Scanner(comptime lim: Limits) type {
 
         fn recall_macro(scanner: *@This(), ident: Label) bool {
             for (scanner.macro_names.slice()) |n| {
-                if (std.mem.eql(u8, &n, &ident))
+                if (mem.eql(u8, &n, &ident))
                     return true;
             }
 
@@ -252,7 +256,7 @@ pub fn Scanner(comptime lim: Limits) type {
                         // Labels
                         const label = try scanner.read_label(input);
 
-                        end = Location{ start[0], start[1] + 1 + std.mem.sliceTo(&label, 0).len };
+                        end = Location{ start[0], start[1] + 1 + mem.sliceTo(&label, 0).len };
 
                         break :b if (b == '@')
                             .{ .label = .{ .root = label } }
@@ -265,7 +269,7 @@ pub fn Scanner(comptime lim: Limits) type {
                         const label = try scanner.read_label(input);
                         const typed = to_typed_label(label);
 
-                        end = Location{ start[0], start[1] + 1 + std.mem.sliceTo(&label, 0).len };
+                        end = Location{ start[0], start[1] + 1 + mem.sliceTo(&label, 0).len };
 
                         break :b switch (b) {
                             '.' => .{ .address = .{ .zero = typed } },
@@ -294,9 +298,9 @@ pub fn Scanner(comptime lim: Limits) type {
                         // Padding (TODO)
                         var pad = try scanner.read_whitespace_delimited(limits.identifier_length, input);
 
-                        end = Location{ start[0], start[1] + 1 + std.mem.sliceTo(&pad, 0).len };
+                        end = Location{ start[0], start[1] + 1 + mem.sliceTo(&pad, 0).len };
 
-                        const offset: Offset = if (parse_hex_literal(u16, std.mem.sliceTo(&pad, 0), false) catch null) |lit|
+                        const offset: Offset = if (parse_hex_literal(u16, mem.sliceTo(&pad, 0), false) catch null) |lit|
                             .{ .literal = lit }
                         else
                             .{ .label = to_typed_label(pad) };
@@ -310,7 +314,7 @@ pub fn Scanner(comptime lim: Limits) type {
                     '?' => b: {
                         const label = try scanner.read_label(input);
 
-                        end = Location{ start[0], start[1] + 1 + std.mem.sliceTo(&label, 0).len };
+                        end = Location{ start[0], start[1] + 1 + mem.sliceTo(&label, 0).len };
 
                         break :b .{ .jci = to_typed_label(label) };
                     },
@@ -318,7 +322,7 @@ pub fn Scanner(comptime lim: Limits) type {
                     '!' => b: {
                         const label = try scanner.read_label(input);
 
-                        end = Location{ start[0], start[1] + 1 + std.mem.sliceTo(&label, 0).len };
+                        end = Location{ start[0], start[1] + 1 + mem.sliceTo(&label, 0).len };
 
                         break :b .{ .jmi = to_typed_label(label) };
                     },
@@ -326,7 +330,7 @@ pub fn Scanner(comptime lim: Limits) type {
                     '~' => b: {
                         const path = try scanner.read_path(input);
 
-                        end = Location{ start[0], start[1] + 1 + std.mem.sliceTo(&path, 0).len };
+                        end = Location{ start[0], start[1] + 1 + mem.sliceTo(&path, 0).len };
 
                         break :b .{ .include = path };
                     },
@@ -336,7 +340,7 @@ pub fn Scanner(comptime lim: Limits) type {
 
                         scanner.register_macro(ident);
 
-                        end = Location{ start[0], start[1] + 1 + std.mem.sliceTo(&ident, 0).len };
+                        end = Location{ start[0], start[1] + 1 + mem.sliceTo(&ident, 0).len };
 
                         break :b .{ .macro_definition = ident };
                     },
@@ -355,13 +359,13 @@ pub fn Scanner(comptime lim: Limits) type {
                         var i: usize = 0;
 
                         while (scanner.read_byte(input)) |oct| : (i += 1) {
-                            if (std.ascii.isWhitespace(oct))
+                            if (ascii.isWhitespace(oct))
                                 break;
 
                             word[i] = oct;
                         }
 
-                        end = Location{ start[0], start[1] + 1 + std.mem.sliceTo(&word, 0).len };
+                        end = Location{ start[0], start[1] + 1 + mem.sliceTo(&word, 0).len };
 
                         break :b .{ .word = word };
                     },
@@ -370,13 +374,13 @@ pub fn Scanner(comptime lim: Limits) type {
                         var needle = [1:0]u8{b} ++ [1:0]u8{0x00} ** (limits.identifier_length - 1);
                         var remain = try scanner.read_whitespace_delimited(limits.identifier_length, input);
 
-                        end = Location{ start[0], start[1] + 1 + std.mem.sliceTo(&remain, 0).len };
+                        end = Location{ start[0], start[1] + 1 + mem.sliceTo(&remain, 0).len };
 
-                        for (1.., std.mem.sliceTo(&remain, 0)) |j, oct|
+                        for (1.., mem.sliceTo(&remain, 0)) |j, oct|
                             needle[j] = oct;
 
                         for (0.., uxn.Cpu.mnemonics) |instr, m| {
-                            if (std.mem.eql(u8, std.mem.sliceTo(m, 0), std.mem.sliceTo(&needle, 0)))
+                            if (mem.eql(u8, mem.sliceTo(m, 0), mem.sliceTo(&needle, 0)))
                                 break :b .{
                                     .instruction = .{
                                         .mnemonic = m,
@@ -384,7 +388,7 @@ pub fn Scanner(comptime lim: Limits) type {
                                     },
                                 };
                         } else {
-                            const slice = std.mem.sliceTo(&needle, 0);
+                            const slice = mem.sliceTo(&needle, 0);
 
                             break :b if (parse_hex_literal(u8, slice, true) catch null) |byte|
                                 .{ .raw_literal = .{ .byte = byte } }

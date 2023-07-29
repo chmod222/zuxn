@@ -1,6 +1,4 @@
 const Cpu = @import("uxn-core").Cpu;
-const std = @import("std");
-
 const AudioImpl = @import("audio/DefaultImpl.zig");
 
 pub const sample_rate = 44100;

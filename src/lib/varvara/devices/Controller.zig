@@ -1,5 +1,4 @@
 const Cpu = @import("uxn-core").Cpu;
-const std = @import("std");
 
 addr: u4,
 
