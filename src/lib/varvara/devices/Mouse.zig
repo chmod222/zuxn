@@ -74,5 +74,10 @@ pub fn update_scroll(dev: *@This(), cpu: *Cpu, x: i32, y: i32) !void {
     cpu.store_device_mem(i16, base | ports.scroll_x, @as(i16, @truncate(x)));
     cpu.store_device_mem(i16, base | ports.scroll_y, @as(i16, @truncate(-y)));
 
+    defer {
+        cpu.store_device_mem(i16, base | ports.scroll_x, 0);
+        cpu.store_device_mem(i16, base | ports.scroll_y, 0);
+    }
+
     try dev.invoke_vector(cpu);
 }
