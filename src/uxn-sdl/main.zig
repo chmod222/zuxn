@@ -205,32 +205,35 @@ fn resize_window(
 }
 
 fn draw_screen(
-    screen_device: *const varvara.Screen,
+    screen_device: *varvara.Screen,
     texture: *SDL.SDL_Texture,
     renderer: *SDL.SDL_Renderer,
 ) void {
-    var frame_memory: ?*SDL.SDL_Surface = undefined;
+    if (screen_device.dirty_region) |region| {
+        var pixels: [*c]u8 = undefined;
+        var pitch: c_int = undefined;
 
-    if (SDL.SDL_LockTextureToSurface(texture, null, &frame_memory) != 0)
-        return;
+        if (SDL.SDL_LockTexture(texture, null, @ptrCast(&pixels), &pitch) != 0)
+            return;
 
-    var pixels: [*c]u8 = @ptrCast(frame_memory.?.pixels);
+        defer SDL.SDL_UnlockTexture(texture);
 
-    for (0..screen_device.height) |y| {
-        for (0..screen_device.width) |x| {
-            const idx = y * screen_device.width + x;
-            const pal = (@as(u4, screen_device.foreground[idx]) << 2) | screen_device.background[idx];
+        for (region.y0..region.y1) |y| {
+            for (region.x0..region.x1) |x| {
+                const idx = y * screen_device.width + x;
+                const pal = (@as(u4, screen_device.foreground[idx]) << 2) | screen_device.background[idx];
 
-            const color = &system.system_device.colors[if ((pal >> 2) > 0) (pal >> 2) else (pal & 0x3)];
+                const color = &system.system_device.colors[if ((pal >> 2) > 0) (pal >> 2) else (pal & 0x3)];
 
-            pixels[idx * 4 + 3] = 0x00;
-            pixels[idx * 4 + 2] = color.r;
-            pixels[idx * 4 + 1] = color.g;
-            pixels[idx * 4 + 0] = color.b;
+                pixels[idx * 4 + 3] = 0x00;
+                pixels[idx * 4 + 2] = color.r;
+                pixels[idx * 4 + 1] = color.g;
+                pixels[idx * 4 + 0] = color.b;
+            }
         }
-    }
 
-    SDL.SDL_UnlockTexture(texture);
+        screen_device.dirty_region = null;
+    }
 
     _ = SDL.SDL_RenderCopy(renderer, texture, null, null);
     SDL.SDL_RenderPresent(renderer);

@@ -4,11 +4,20 @@ const std = @import("std");
 const default_window_width = 512;
 const default_window_height = 320;
 
+pub const Rect = struct {
+    x0: usize,
+    y0: usize,
+    x1: usize,
+    y1: usize,
+};
+
 // Public
 addr: u4,
 
 width: u16 = default_window_width,
 height: u16 = default_window_height,
+
+dirty_region: ?Rect = null,
 
 foreground: []u2 = undefined,
 background: []u2 = undefined,
@@ -59,6 +68,52 @@ pub const ports = struct {
     pub const pixel = 0xe;
     pub const sprite = 0xf;
 };
+
+fn normalize_region(
+    dev: *@This(),
+    region: *Rect,
+) void {
+    var x0: u16 = @truncate(region.x0);
+    var x1: u16 = @truncate(region.x1);
+    var y0: u16 = @truncate(region.y0);
+    var y1: u16 = @truncate(region.y1);
+
+    if (x0 > x1) x0 = 0;
+    if (y0 > y1) y0 = 0;
+
+    region.x0 = @min(dev.width, x0);
+    region.y0 = @min(dev.height, y0);
+    region.x1 = @min(dev.width, x1);
+    region.y1 = @min(dev.height, y1);
+}
+
+fn update_dirty_region(
+    dev: *@This(),
+    x0: usize,
+    y0: usize,
+    x1: usize,
+    y1: usize,
+) void {
+    if (dev.dirty_region) |*region| {
+        if (x0 < region.x0) region.x0 = x0;
+        if (y0 < region.y0) region.y0 = y0;
+        if (x1 > region.x1) region.x1 = x1;
+        if (y1 > region.y1) region.y1 = y1;
+
+        dev.normalize_region(region);
+    } else {
+        var region: Rect = .{
+            .x0 = x0,
+            .y0 = y0,
+            .x1 = x1,
+            .y1 = y1,
+        };
+
+        dev.normalize_region(&region);
+
+        dev.dirty_region = region;
+    }
+}
 
 pub fn intercept(
     dev: *@This(),
@@ -116,7 +171,7 @@ pub fn intercept(
                     if (auto.y) cpu.store_device_mem(u16, base | ports.y, y1);
                 }
 
-                // TODO: trigger update from (x0, y0) to (x1, y1)
+                dev.update_dirty_region(x0, y0, x1, y1);
             },
 
             ports.sprite => {
@@ -129,12 +184,13 @@ pub fn intercept(
                 const dx: u16 = if (auto.x) 8 else 0;
                 const dy: u16 = if (auto.y) 8 else 0;
                 const da: u16 = if (auto.addr) if (flags.two_bpp) 16 else 8 else 0;
+                const l: u8 = @as(u8, auto.add_length) + 1;
 
                 const layer = if (flags.layer == 0x00) dev.background else dev.foreground;
 
                 var addr = cpu.load_device_mem(u16, base | ports.addr);
 
-                for (0..@as(u8, auto.add_length) + 1) |i| {
+                for (0..l) |i| {
                     // dy and dx flipped in original implementation
                     dev.render_sprite(
                         cpu,
@@ -148,7 +204,12 @@ pub fn intercept(
                     addr +%= da;
                 }
 
-                // TODO: trigger update from (x, y) to (x+dy*l, y+dx*l)
+                dev.update_dirty_region(
+                    x,
+                    y,
+                    @as(usize, x) +% (dy * l) +% 8,
+                    @as(usize, y) +% (dx * l) +% 8,
+                );
 
                 if (auto.x) cpu.store_device_mem(u16, base | ports.x, x +% dx);
                 if (auto.y) cpu.store_device_mem(u16, base | ports.y, y +% dy);
@@ -233,6 +294,13 @@ pub fn initialize_graphics(dev: *@This()) !void {
 
     @memset(dev.foreground, 0x00);
     @memset(dev.background, 0x00);
+
+    dev.dirty_region = .{
+        .x0 = 0,
+        .y0 = 0,
+        .x1 = dev.width,
+        .y1 = dev.height,
+    };
 }
 
 pub fn cleanup_graphics(dev: *@This()) void {
