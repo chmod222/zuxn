@@ -75,6 +75,7 @@ pub fn Assembler(comptime lim: Limits) type {
         rom_length: usize = 0,
 
         last_root_label: ?Scanner.Label = null,
+        current_token: ?Scanner.SourceToken = null,
 
         labels: Labels = Labels.init(0) catch unreachable,
         macros: Macros = Macros.init(0) catch unreachable,
@@ -350,6 +351,8 @@ pub fn Assembler(comptime lim: Limits) type {
             var scanner = Scanner{};
 
             while (try scanner.read_token(input)) |token| {
+                assembler.current_token = token;
+
                 try assembler.process_token(&scanner, token, input, output, seekable);
             }
 
