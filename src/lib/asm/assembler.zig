@@ -1,24 +1,16 @@
 const std = @import("std");
 const mem = std.mem;
 
+const scan = @import("scanner.zig");
+
 const can_include = true;
 
 const fs = std.fs;
 const os = std.os;
 
-pub const Limits = struct {
-    identifier_length: usize = 0x40,
-    word_length: usize = 0x40,
-    path_length: usize = 0x100,
-
-    labels: usize = 0x400,
-    references: usize = 0x200,
-    macros: usize = 0x40,
-    nested_lambdas: usize = 0x200,
-    macro_length: usize = 0x40,
-};
-
 pub const AssemblerError = error{
+    OutOfMemory,
+
     TooManyMacros,
     TooManyReferences,
     TooManyLabels,
@@ -42,26 +34,14 @@ pub const AssemblerError = error{
     CannotOpenFile,
 };
 
-pub fn Assembler(comptime lim: Limits) type {
+pub fn Assembler(comptime lim: scan.Limits) type {
     return struct {
-        pub const limits = lim;
-
-        pub const Labels = std.BoundedArray(DefinedLabel, limits.labels);
-        pub const References = std.BoundedArray(Reference, limits.references);
-        pub const MacroBody = std.BoundedArray(Scanner.SourceToken, limits.macro_length);
-        pub const Macros = std.BoundedArray(Macro, limits.macros);
-        pub const Lambdas = std.BoundedArray(usize, limits.nested_lambdas);
-
-        pub const Scanner = @import("scanner.zig").Scanner(.{
-            .identifier_length = limits.identifier_length,
-            .word_length = limits.word_length,
-            .path_length = limits.path_length,
-        });
+        pub const Scanner = scan.Scanner(lim);
 
         pub const DefinedLabel = struct {
             label: Scanner.Label,
             addr: ?u16,
-            references: References,
+            references: std.ArrayList(Reference),
         };
 
         pub const ReferenceType = union(enum) {
@@ -78,30 +58,50 @@ pub fn Assembler(comptime lim: Limits) type {
 
         pub const Macro = struct {
             name: Scanner.Label,
-            body: MacroBody,
+            body: std.ArrayList(Scanner.SourceToken),
         };
+
+        allocator: mem.Allocator,
 
         rom_length: usize = 0,
 
         include_base: ?fs.Dir,
         include_follow: bool = true,
+        include_stack: std.ArrayList([]const u8),
 
         last_root_label: ?Scanner.Label = null,
         current_token: ?Scanner.SourceToken = null,
 
-        labels: Labels = Labels.init(0) catch unreachable,
-        macros: Macros = Macros.init(0) catch unreachable,
-        lambdas: Lambdas = Lambdas.init(0) catch unreachable,
+        labels: std.ArrayList(DefinedLabel),
+        macros: std.ArrayList(Macro),
+        lambdas: std.ArrayList(usize),
         lambda_counter: usize = 0,
 
-        pub fn init(include_base: ?fs.Dir) @This() {
+        pub fn init(alloc: mem.Allocator, include_base: ?fs.Dir) @This() {
             return .{
+                .allocator = alloc,
                 .include_base = include_base,
+
+                .labels = std.ArrayList(DefinedLabel).init(alloc),
+                .macros = std.ArrayList(Macro).init(alloc),
+                .lambdas = std.ArrayList(usize).init(alloc),
+                .include_stack = std.ArrayList([]const u8).init(alloc),
             };
         }
 
+        pub fn deinit(assembler: *@This()) void {
+            for (assembler.include_stack.items) |inc| assembler.allocator.free(inc);
+            for (assembler.macros.items) |macro| macro.body.deinit();
+            for (assembler.labels.items) |label| label.references.deinit();
+
+            assembler.include_stack.deinit();
+            assembler.lambdas.deinit();
+            assembler.macros.deinit();
+            assembler.labels.deinit();
+        }
+
         fn lookup_label(assembler: *@This(), label: []const u8) ?u16 {
-            for (assembler.labels.slice()) |l|
+            for (assembler.labels.items) |l|
                 if (mem.eql(u8, label, mem.sliceTo(&l.label, 0)))
                     return l.addr;
 
@@ -111,7 +111,7 @@ pub fn Assembler(comptime lim: Limits) type {
         fn retrieve_label(assembler: *@This(), label: Scanner.TypedLabel) !*DefinedLabel {
             const full = try assembler.full_label(label);
 
-            for (assembler.labels.slice()) |*l|
+            for (assembler.labels.items) |*l|
                 if (mem.eql(u8, &l.label, &full))
                     return l;
 
@@ -120,7 +120,7 @@ pub fn Assembler(comptime lim: Limits) type {
             definition.* = .{
                 .label = full,
                 .addr = null,
-                .references = References.init(0) catch unreachable,
+                .references = std.ArrayList(Reference).init(assembler.allocator),
             };
 
             return definition;
@@ -312,7 +312,7 @@ pub fn Assembler(comptime lim: Limits) type {
                     if (start.token != .curly_open)
                         return error.InvalidMacroDefinition;
 
-                    var body = MacroBody.init(0) catch unreachable;
+                    var body = std.ArrayList(Scanner.SourceToken).init(assembler.allocator);
 
                     while (try scanner.read_token(input)) |tok| {
                         if (tok.token == .curly_close)
@@ -327,13 +327,13 @@ pub fn Assembler(comptime lim: Limits) type {
                     }) catch return error.TooManyMacros;
                 },
                 .macro_expansion => |name| {
-                    const macro = for (assembler.macros.slice()) |macro| {
+                    const macro = for (assembler.macros.items) |macro| {
                         if (mem.eql(u8, &macro.name, &name))
                             break macro;
                     } else return error.UndefinedMacro;
 
                     // XXX: A macro can include itself and murder our stack. Introduce a max evaluation depth.
-                    for (macro.body.slice()) |macro_token|
+                    for (macro.body.items) |macro_token|
                         try assembler.process_token(scanner, macro_token, input, output, seekable);
                 },
 
@@ -369,7 +369,7 @@ pub fn Assembler(comptime lim: Limits) type {
             output: anytype,
             seekable: anytype,
         ) AssembleError(@TypeOf(input), @TypeOf(output), @TypeOf(seekable))!void {
-            var scanner = Scanner{};
+            var scanner = Scanner.init();
 
             while (try scanner.read_token(input)) |token| {
                 assembler.current_token = token;
@@ -423,9 +423,15 @@ pub fn Assembler(comptime lim: Limits) type {
                 assembler.include_base = dir;
             };
 
+            try assembler.include_stack.ensureUnusedCapacity(1);
+
+            const included_path = try assembler.allocator.dupe(u8, full_path);
+
+            assembler.include_stack.appendAssumeCapacity(included_path);
+
             // Do assemble
             var reader = file.reader();
-            var scanner = Scanner{};
+            var scanner = Scanner.init();
 
             while (try scanner.read_token(reader)) |token| {
                 assembler.current_token = token;
@@ -438,6 +444,10 @@ pub fn Assembler(comptime lim: Limits) type {
                     seekable,
                 );
             }
+
+            // We don't defer this so our include stack remains valid and pointed
+            // at the failing file if the loop fails
+            assembler.allocator.free(assembler.include_stack.pop());
         }
 
         fn resolve_references(
@@ -445,12 +455,12 @@ pub fn Assembler(comptime lim: Limits) type {
             output: anytype,
             seekable: anytype,
         ) !void {
-            for (assembler.labels.slice()) |label| {
+            for (assembler.labels.items) |label| {
                 if (label.addr) |addr| {
-                    if (label.references.len == 0) {
+                    if (label.references.items.len == 0) {
                         // TODO: issue diagnostic for unused label
                     } else {
-                        for (label.references.slice()) |ref| {
+                        for (label.references.items) |ref| {
                             try seekable.seekTo(ref.addr);
 
                             switch (ref.type) {
@@ -476,7 +486,7 @@ pub fn Assembler(comptime lim: Limits) type {
                             }
                         }
                     }
-                } else if (label.references.len > 0) {
+                } else if (label.references.items.len > 0) {
                     return error.UndefinedLabel;
                 }
             }
@@ -486,7 +496,7 @@ pub fn Assembler(comptime lim: Limits) type {
             assembler: *@This(),
             output: anytype,
         ) @TypeOf(output).Error!void {
-            for (assembler.labels.slice()) |label| {
+            for (assembler.labels.items) |label| {
                 if (label.addr) |addr| {
                     try output.writeIntBig(u16, addr);
                     try output.print("{s}\x00", .{mem.sliceTo(&label.label, 0)});

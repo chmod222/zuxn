@@ -57,7 +57,11 @@ pub fn main() !void {
     const input_file = try std.fs.cwd().openFile(input_file_name, .{});
     defer input_file.close();
 
-    var assembler = Assembler.init(std.fs.cwd());
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const alloc = gpa.allocator();
+
+    var assembler = Assembler.init(alloc, std.fs.cwd());
+    defer assembler.deinit();
 
     try assembler.assemble(
         input_file.reader(),

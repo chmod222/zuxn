@@ -117,6 +117,10 @@ pub fn Scanner(comptime lim: Limits) type {
             UppercaseLabelForbidden,
         };
 
+        pub fn init() @This() {
+            return .{};
+        }
+
         fn read_byte(scanner: *@This(), input: anytype) ?u8 {
             const b = input.readByte() catch return null;
 
