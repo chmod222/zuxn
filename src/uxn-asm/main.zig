@@ -1,4 +1,5 @@
 const std = @import("std");
+const io = std.io;
 
 const uxn = @import("uxn-core");
 const uxn_asm = @import("uxn-asm");
@@ -63,11 +64,18 @@ pub fn main() !void {
     var assembler = Assembler.init(alloc, std.fs.cwd());
     defer assembler.deinit();
 
-    try assembler.assemble(
+    assembler.include_follow = false;
+    assembler.default_input_filename = input_file_name;
+
+    assembler.assemble(
         input_file.reader(),
         output.writer(),
         output.seekableStream(),
-    );
+    ) catch |err| {
+        assembler.issue_diagnostic(err, io.getStdErr().writer()) catch {};
+
+        return;
+    };
 
     const outfile_name = res.args.output orelse
         std.mem.sliceTo(&change_extension(input_file_name, ".rom"), 0);

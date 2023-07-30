@@ -38,7 +38,20 @@ pub fn Assembler(comptime lim: scan.Limits) type {
     return struct {
         pub const Scanner = scan.Scanner(lim);
 
+        pub const Span = struct {
+            line: usize,
+            column: usize,
+        };
+
+        pub const LexicalInformation = struct {
+            file: ?[]const u8,
+            from: Span,
+            to: Span,
+        };
+
         pub const DefinedLabel = struct {
+            definition: ?LexicalInformation = null,
+
             label: Scanner.Label,
             addr: ?u16,
             references: std.ArrayList(Reference),
@@ -51,6 +64,8 @@ pub fn Assembler(comptime lim: scan.Limits) type {
         };
 
         pub const Reference = struct {
+            definition: ?LexicalInformation = null,
+
             addr: u16,
             offset: u16,
             type: Scanner.AddressType,
@@ -65,12 +80,15 @@ pub fn Assembler(comptime lim: scan.Limits) type {
 
         rom_length: usize = 0,
 
+        default_input_filename: ?[]const u8 = null,
         include_base: ?fs.Dir,
         include_follow: bool = true,
         include_stack: std.ArrayList([]const u8),
 
         last_root_label: ?Scanner.Label = null,
-        current_token: ?Scanner.SourceToken = null,
+
+        err_input_pos: ?LexicalInformation = null,
+        err_token: ?Scanner.SourceToken = null,
 
         labels: std.ArrayList(DefinedLabel),
         macros: std.ArrayList(Macro),
@@ -92,12 +110,71 @@ pub fn Assembler(comptime lim: scan.Limits) type {
         pub fn deinit(assembler: *@This()) void {
             for (assembler.include_stack.items) |inc| assembler.allocator.free(inc);
             for (assembler.macros.items) |macro| macro.body.deinit();
-            for (assembler.labels.items) |label| label.references.deinit();
+            for (assembler.labels.items) |label| {
+                if (label.definition) |def|
+                    if (def.file) |f|
+                        assembler.allocator.free(f);
+
+                for (label.references.items) |ref|
+                    if (ref.definition) |def|
+                        if (def.file) |f|
+                            assembler.allocator.free(f);
+
+                label.references.deinit();
+            }
 
             assembler.include_stack.deinit();
             assembler.lambdas.deinit();
             assembler.macros.deinit();
             assembler.labels.deinit();
+
+            if (assembler.err_input_pos) |err|
+                if (err.file) |f|
+                    assembler.allocator.free(f);
+        }
+
+        fn lexical_information_from_token(
+            assembler: *@This(),
+            token: Scanner.SourceToken,
+        ) LexicalInformation {
+            const file = if (assembler.include_stack.getLastOrNull()) |last|
+                assembler.allocator.dupe(u8, last) catch null
+            else
+                null;
+
+            return .{
+                .file = file,
+                .from = .{
+                    .line = token.start[0],
+                    .column = token.start[1],
+                },
+                .to = .{
+                    .line = token.end[0],
+                    .column = token.end[1],
+                },
+            };
+        }
+
+        fn lexical_information_from_scanner(
+            assembler: *@This(),
+            scanner: *const Scanner,
+        ) LexicalInformation {
+            const file = if (assembler.include_stack.getLastOrNull()) |last|
+                assembler.allocator.dupe(u8, last) catch null
+            else
+                null;
+
+            return .{
+                .file = file,
+                .from = .{
+                    .line = scanner.location[0],
+                    .column = scanner.location[1],
+                },
+                .to = .{
+                    .line = scanner.location[0],
+                    .column = scanner.location[1] + 1,
+                },
+            };
         }
 
         fn lookup_label(assembler: *@This(), label: Scanner.Label) ?*DefinedLabel {
@@ -118,6 +195,7 @@ pub fn Assembler(comptime lim: scan.Limits) type {
             var definition = assembler.labels.addOne() catch return error.TooManyLabels;
 
             definition.* = .{
+                .definition = null,
                 .label = full,
                 .addr = null,
                 .references = std.ArrayList(Reference).init(assembler.allocator),
@@ -126,13 +204,15 @@ pub fn Assembler(comptime lim: scan.Limits) type {
             return definition;
         }
 
-        fn define_label(assembler: *@This(), label: Scanner.TypedLabel, addr: u16) !void {
+        fn define_label(assembler: *@This(), label: Scanner.TypedLabel, addr: u16) !*DefinedLabel {
             var definition = try assembler.retrieve_label(label);
 
             if (definition.addr != null)
                 return error.LabelAlreadyDefined;
 
             definition.*.addr = addr;
+
+            return definition;
         }
 
         fn generate_lambda_label(id: usize) Scanner.TypedLabel {
@@ -175,14 +255,19 @@ pub fn Assembler(comptime lim: scan.Limits) type {
             reference: Scanner.Address,
             addr: u16,
             offset: u16,
-        ) !void {
+        ) !*Reference {
             var definition = try assembler.retrieve_label(reference.label);
 
-            definition.references.append(.{
+            var ref = definition.references.addOne() catch
+                return error.TooManyReferences;
+
+            ref.* = .{
                 .addr = addr,
                 .offset = offset,
                 .type = reference.type,
-            }) catch return error.TooManyReferences;
+            };
+
+            return ref;
         }
 
         fn AssembleError(
@@ -207,6 +292,12 @@ pub fn Assembler(comptime lim: scan.Limits) type {
             output: anytype,
             seekable: anytype,
         ) AssembleError(@TypeOf(input), @TypeOf(output), @TypeOf(seekable))!void {
+            assembler.err_token = null;
+
+            errdefer {
+                assembler.err_token = token;
+            }
+
             switch (token.token) {
                 .literal, .raw_literal => |lit| {
                     if (token.token != .raw_literal)
@@ -224,14 +315,19 @@ pub fn Assembler(comptime lim: scan.Limits) type {
                 },
 
                 .label => |l| {
-                    try assembler.define_label(l, @truncate(try seekable.getPos()));
+                    var label_def = try assembler.define_label(l, @truncate(try seekable.getPos()));
+
+                    label_def.definition = assembler.lexical_information_from_token(token);
 
                     if (l == .root) {
                         assembler.last_root_label = l.root;
                     }
                 },
                 .address => |addr| {
-                    try assembler.remember_location(addr, @truncate(try seekable.getPos()), 0);
+                    var ref = try assembler.remember_location(addr, @truncate(try seekable.getPos()), 0);
+
+                    ref.definition = assembler.lexical_information_from_token(token);
+
                     try switch (addr.type) {
                         .zero => output.writeIntBig(u16, 0x80aa),
                         .zero_raw => output.writeByte(0xaa),
@@ -259,12 +355,15 @@ pub fn Assembler(comptime lim: scan.Limits) type {
                 },
                 .jci, .jmi, .jsi => |label| {
                     const pos = try seekable.getPos();
-                    const ref = .{
+                    const reference = .{
                         .type = .absolute,
                         .label = label,
                     };
 
-                    try assembler.remember_location(ref, @truncate(pos), @truncate(pos + 3));
+                    var ref = try assembler.remember_location(reference, @truncate(pos), @truncate(pos + 3));
+
+                    ref.definition = assembler.lexical_information_from_token(token);
+
                     try output.writeByte(switch (token.token) {
                         .jci => 0x20,
                         .jmi => 0x40,
@@ -273,13 +372,8 @@ pub fn Assembler(comptime lim: scan.Limits) type {
 
                     try output.writeIntBig(u16, 0xaaaa);
                 },
-                .word => |w| {
-                    for (w) |o|
-                        if (o == 0)
-                            break
-                        else
-                            try output.writeByte(o);
-                },
+
+                .word => |w| try output.writeAll(mem.sliceTo(&w, 0)),
 
                 .macro_definition => |name| {
                     const start = try scanner.read_token(input) orelse
@@ -323,12 +417,15 @@ pub fn Assembler(comptime lim: scan.Limits) type {
                     assembler.lambda_counter += 1;
 
                     // Write JSI to location to be defined below
-                    const ref = .{
+                    const reference = .{
                         .type = .absolute,
                         .label = label,
                     };
 
-                    try assembler.remember_location(ref, @truncate(pos), @truncate(pos + 3));
+                    var ref = try assembler.remember_location(reference, @truncate(pos), @truncate(pos + 3));
+
+                    ref.definition = assembler.lexical_information_from_token(token);
+
                     try output.writeIntBig(u24, 0x60aaaa);
                 },
 
@@ -336,7 +433,9 @@ pub fn Assembler(comptime lim: scan.Limits) type {
                     const lambda = assembler.lambdas.popOrNull() orelse return error.UnbalancedLambda;
                     const label = generate_lambda_label(lambda);
 
-                    try assembler.define_label(label, @truncate(try seekable.getPos()));
+                    var label_def = try assembler.define_label(label, @truncate(try seekable.getPos()));
+
+                    label_def.definition = assembler.lexical_information_from_token(token);
 
                     // STH2r to put the lambda entry onto the main stack
                     try output.writeByte(0x6f);
@@ -352,9 +451,11 @@ pub fn Assembler(comptime lim: scan.Limits) type {
         ) AssembleError(@TypeOf(input), @TypeOf(output), @TypeOf(seekable))!void {
             var scanner = Scanner.init();
 
-            while (try scanner.read_token(input)) |token| {
-                assembler.current_token = token;
+            errdefer {
+                assembler.err_input_pos = assembler.lexical_information_from_scanner(&scanner);
+            }
 
+            while (try scanner.read_token(input)) |token| {
                 try assembler.process_token(&scanner, token, input, output, seekable);
             }
 
@@ -414,9 +515,11 @@ pub fn Assembler(comptime lim: scan.Limits) type {
             var reader = file.reader();
             var scanner = Scanner.init();
 
-            while (try scanner.read_token(reader)) |token| {
-                assembler.current_token = token;
+            errdefer {
+                assembler.err_input_pos = assembler.lexical_information_from_scanner(&scanner);
+            }
 
+            while (try scanner.read_token(reader)) |token| {
                 try assembler.process_token(
                     &scanner,
                     token,
@@ -492,6 +595,96 @@ pub fn Assembler(comptime lim: scan.Limits) type {
                     try output.writeIntBig(u16, addr);
                     try output.print("{s}\x00", .{mem.sliceTo(&label.label, 0)});
                 }
+            }
+        }
+
+        pub fn issue_diagnostic(assembler: *@This(), err: anyerror, output: anytype) !void {
+            const default_input = assembler.default_input_filename orelse "<input>";
+
+            const error_str = switch (err) {
+                error.OutOfMemory => "Out of memory",
+                error.TooManyMacros => "Macro limit exceeded",
+                error.TooManyReferences => "Reference limit exceeded",
+                error.TooManyLabels => "Label limit exceeded",
+                error.TooManyNestedLambas => "Nested lambda depth exceeded",
+                error.UnbalancedLambda => "Unbalanced lambda paranetheses",
+                error.ReferenceOutOfBounds => "Relative reference distance too far from definition",
+                error.LabelAlreadyDefined => "Label already defined",
+                error.MissingScopeLabel => "Missing parent label",
+                error.UndefinedLabel => "Undefined label found where definition is required",
+                error.UndefinedMacro => "Undefined macro name",
+                error.InvalidMacroDefinition => "Malformed macro definition",
+                error.MacroBodyTooLong => "Macro body limit exceeded",
+                error.NotImplemented => "Not implemented yet",
+                error.IncludeNotFound => "Include file not found",
+                error.NotAllowed => "Function disabled",
+                error.CannotOpenFile => "Cannot open file",
+
+                else => @errorName(err),
+            };
+
+            if (err == error.UndefinedLabel) {
+                try output.print("{s}: undefined labels found:\n", .{
+                    assembler.include_stack.getLastOrNull() orelse default_input,
+                });
+
+                for (assembler.labels.items) |label| {
+                    if (label.addr == null and label.references.items.len > 0) {
+                        const first_ref = label.references.items[0];
+
+                        try output.print("{s}:   @{s} (first referenced: {s}:{}:{})\n", .{
+                            assembler.include_stack.getLastOrNull() orelse default_input,
+                            label.label,
+                            first_ref.definition.?.file orelse default_input,
+                            first_ref.definition.?.from.line,
+                            first_ref.definition.?.from.column,
+                        });
+                    }
+                }
+            } else if (assembler.err_token) |token_err| {
+                const location = token_err.start;
+
+                if (token_err.token == .label and err == error.LabelAlreadyDefined) {
+                    const first_ref = assembler.retrieve_label(token_err.token.label) catch {
+                        try output.print("{s}:{}:{}: {s}\n", .{
+                            assembler.include_stack.getLastOrNull() orelse default_input,
+                            location[0],
+                            location[1],
+                            error_str,
+                        });
+
+                        return;
+                    };
+
+                    try output.print("{s}:{}:{}: {s} (first defined: {s}:{}:{})\n", .{
+                        assembler.include_stack.getLastOrNull() orelse default_input,
+                        location[0],
+                        location[1],
+                        error_str,
+                        first_ref.definition.?.file orelse default_input,
+                        first_ref.definition.?.from.line,
+                        first_ref.definition.?.from.column,
+                    });
+                } else {
+                    try output.print("{s}:{}:{}: {s}\n", .{
+                        assembler.include_stack.getLastOrNull() orelse default_input,
+                        location[0],
+                        location[1],
+                        error_str,
+                    });
+                }
+            } else if (assembler.err_input_pos) |lexer_err_pos| {
+                try output.print("{s}:{}:{}: {s}\n", .{
+                    lexer_err_pos.file orelse default_input,
+                    lexer_err_pos.from.line,
+                    lexer_err_pos.from.column,
+                    error_str,
+                });
+            } else {
+                try output.print("{s}: {s}\n", .{
+                    assembler.include_stack.getLastOrNull() orelse default_input,
+                    error_str,
+                });
             }
         }
     };

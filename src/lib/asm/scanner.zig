@@ -76,12 +76,14 @@ pub fn Scanner(comptime lim: Limits) type {
             absolute: Offset,
         };
 
-        pub const Location = struct { usize, usize };
+        pub const Location = struct {
+            usize = 1,
+            usize = 1,
+        };
 
         pub const Label = [limits.identifier_length:0]u8;
 
-        line: usize = 1,
-        column: usize = 1,
+        location: Location = .{},
 
         macro_names: std.BoundedArray(Label, 0x100) =
             std.BoundedArray(Label, 0x100).init(0) catch unreachable,
@@ -129,10 +131,10 @@ pub fn Scanner(comptime lim: Limits) type {
             const b = input.readByte() catch return null;
 
             if (b == '\n') {
-                scanner.line += 1;
-                scanner.column = 1;
+                scanner.location[0] += 1;
+                scanner.location[1] = 1;
             } else {
-                scanner.column += 1;
+                scanner.location[1] += 1;
             }
 
             return b;
@@ -204,10 +206,6 @@ pub fn Scanner(comptime lim: Limits) type {
             };
         }
 
-        pub fn location(scanner: *@This()) Location {
-            return .{ scanner.line, scanner.column };
-        }
-
         fn to_typed_label(label: Label) TypedLabel {
             if (label[0] == '&') {
                 var cpy = label;
@@ -241,8 +239,13 @@ pub fn Scanner(comptime lim: Limits) type {
                 if (comment_depth > 0 and (b != ')') and (b != '('))
                     continue;
 
-                var start = scanner.location();
+                if (ascii.isWhitespace(b))
+                    continue;
+
+                var start = scanner.location;
                 start[1] -= 1;
+
+                errdefer scanner.location = start;
 
                 var end: Location = undefined;
 
