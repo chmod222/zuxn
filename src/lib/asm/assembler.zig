@@ -9,6 +9,7 @@ pub const Limits = struct {
     labels: usize = 0x400,
     references: usize = 0x200,
     macros: usize = 0x40,
+    nested_lambdas: usize = 0x200,
     macro_length: usize = 0x40,
 };
 
@@ -16,6 +17,8 @@ pub const AssemblerError = error{
     TooManyMacros,
     TooManyReferences,
     TooManyLabels,
+    TooManyNestedLambas,
+    UnbalancedLambda,
 
     ReferenceOutOfBound,
     LabelAlreadyDefined,
@@ -38,6 +41,7 @@ pub fn Assembler(comptime lim: Limits) type {
         pub const References = std.BoundedArray(Reference, limits.references);
         pub const MacroBody = std.BoundedArray(Scanner.SourceToken, limits.macro_length);
         pub const Macros = std.BoundedArray(Macro, limits.macros);
+        pub const Lambdas = std.BoundedArray(usize, limits.nested_lambdas);
 
         pub const Scanner = @import("scanner.zig").Scanner(.{
             .identifier_length = limits.identifier_length,
@@ -74,6 +78,8 @@ pub fn Assembler(comptime lim: Limits) type {
 
         labels: Labels = Labels.init(0) catch unreachable,
         macros: Macros = Macros.init(0) catch unreachable,
+        lambdas: Lambdas = Lambdas.init(0) catch unreachable,
+        lambda_counter: usize = 0,
 
         fn lookup_label(assembler: *@This(), label: []const u8) ?u16 {
             for (assembler.labels.slice()) |l|
@@ -99,6 +105,15 @@ pub fn Assembler(comptime lim: Limits) type {
             };
 
             return definition;
+        }
+
+        fn generate_lambda_label(id: usize) Scanner.TypedLabel {
+            var lambda_label = [1:0]u8{0x00} ** Scanner.limits.identifier_length;
+            var stream = std.io.fixedBufferStream(&lambda_label);
+
+            stream.writer().print("lambda-{x}", .{id}) catch unreachable;
+
+            return .{ .root = lambda_label };
         }
 
         fn define_label(assembler: *@This(), label: Scanner.TypedLabel, addr: u16) !void {
@@ -255,13 +270,13 @@ pub fn Assembler(comptime lim: Limits) type {
                     const start = try scanner.read_token(input) orelse
                         return error.InvalidMacroDefinition;
 
-                    if (start.token != .macro_start)
+                    if (start.token != .curly_open)
                         return error.InvalidMacroDefinition;
 
                     var body = MacroBody.init(0) catch unreachable;
 
                     while (try scanner.read_token(input)) |tok| {
-                        if (tok.token == .macro_end)
+                        if (tok.token == .curly_close)
                             break;
 
                         body.append(tok) catch return error.MacroBodyTooLong;
@@ -283,8 +298,28 @@ pub fn Assembler(comptime lim: Limits) type {
                         try assembler.process_token(scanner, macro_token, input, output, seekable);
                 },
 
-                .macro_start, .macro_end => {
-                    return error.InvalidMacroDefinition;
+                .curly_open => {
+                    const label = generate_lambda_label(assembler.lambda_counter);
+                    const pos = try seekable.getPos();
+
+                    assembler.lambdas.append(assembler.lambda_counter) catch
+                        return error.TooManyNestedLambas;
+
+                    assembler.lambda_counter += 1;
+
+                    // Write JSI to location to be defined below
+                    try assembler.remember_location(label, @truncate(pos + 1), .absolute, @truncate(pos + 3));
+                    try output.writeIntBig(u24, 0x60aaaa);
+                },
+
+                .curly_close => {
+                    const lambda = assembler.lambdas.popOrNull() orelse return error.UnbalancedLambda;
+                    const label = generate_lambda_label(lambda);
+
+                    try assembler.define_label(label, @truncate(try seekable.getPos()));
+
+                    // STH2r to put the lambda entry onto the main stack
+                    try output.writeByte(0x6f);
                 },
             }
         }
