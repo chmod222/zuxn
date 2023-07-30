@@ -448,7 +448,7 @@ pub fn Assembler(comptime lim: Limits) type {
             for (assembler.labels.slice()) |label| {
                 if (label.addr) |addr| {
                     if (label.references.len == 0) {
-                        // TODO: issue diagnostic
+                        // TODO: issue diagnostic for unused label
                     } else {
                         for (label.references.slice()) |ref| {
                             try seekable.seekTo(ref.addr);
@@ -477,8 +477,7 @@ pub fn Assembler(comptime lim: Limits) type {
                         }
                     }
                 } else if (label.references.len > 0) {
-                    // Undefined and unreachable should be impossible.
-                    unreachable;
+                    return error.UndefinedLabel;
                 }
             }
         }
