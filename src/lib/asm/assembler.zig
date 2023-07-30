@@ -83,6 +83,8 @@ pub fn Assembler(comptime lim: Limits) type {
 
         rom_length: usize = 0,
 
+        source_name: ?[]const u8 = null,
+
         include_base: ?fs.Dir,
         include_follow: bool = true,
 
@@ -423,6 +425,10 @@ pub fn Assembler(comptime lim: Limits) type {
                 assembler.include_base = dir;
             };
 
+            const old_source = assembler.source_name;
+
+            assembler.source_name = full_path;
+
             // Do assemble
             var reader = file.reader();
             var scanner = Scanner{};
@@ -438,6 +444,10 @@ pub fn Assembler(comptime lim: Limits) type {
                     seekable,
                 );
             }
+
+            // We don't defer so if we exit with an error, the source_name
+            // points to the file that caused it.
+            assembler.source_name = old_source;
         }
 
         fn resolve_references(
