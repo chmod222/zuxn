@@ -100,10 +100,10 @@ pub fn Assembler(comptime lim: scan.Limits) type {
             assembler.labels.deinit();
         }
 
-        fn lookup_label(assembler: *@This(), label: []const u8) ?u16 {
-            for (assembler.labels.items) |l|
-                if (mem.eql(u8, label, mem.sliceTo(&l.label, 0)))
-                    return l.addr;
+        fn lookup_label(assembler: *@This(), label: Scanner.Label) ?*DefinedLabel {
+            for (assembler.labels.items) |*l|
+                if (mem.eql(u8, &label, &l.label))
+                    return l;
 
             return null;
         }
@@ -111,9 +111,9 @@ pub fn Assembler(comptime lim: scan.Limits) type {
         fn retrieve_label(assembler: *@This(), label: Scanner.TypedLabel) !*DefinedLabel {
             const full = try assembler.full_label(label);
 
-            for (assembler.labels.items) |*l|
-                if (mem.eql(u8, &l.label, &full))
-                    return l;
+            if (assembler.lookup_label(full)) |def| {
+                return def;
+            }
 
             var definition = assembler.labels.addOne() catch return error.TooManyLabels;
 
@@ -126,15 +126,6 @@ pub fn Assembler(comptime lim: scan.Limits) type {
             return definition;
         }
 
-        fn generate_lambda_label(id: usize) Scanner.TypedLabel {
-            var lambda_label = [1:0]u8{0x00} ** Scanner.limits.identifier_length;
-            var stream = std.io.fixedBufferStream(&lambda_label);
-
-            stream.writer().print("lambda-{x}", .{id}) catch unreachable;
-
-            return .{ .root = lambda_label };
-        }
-
         fn define_label(assembler: *@This(), label: Scanner.TypedLabel, addr: u16) !void {
             var definition = try assembler.retrieve_label(label);
 
@@ -142,6 +133,15 @@ pub fn Assembler(comptime lim: scan.Limits) type {
                 return error.LabelAlreadyDefined;
 
             definition.*.addr = addr;
+        }
+
+        fn generate_lambda_label(id: usize) Scanner.TypedLabel {
+            var lambda_label = [1:0]u8{0x00} ** Scanner.limits.identifier_length;
+            var stream = std.io.fixedBufferStream(&lambda_label);
+
+            stream.writer().print("lambda/{x:0>3}", .{id}) catch unreachable;
+
+            return .{ .root = lambda_label };
         }
 
         fn full_label(assembler: *@This(), label: Scanner.TypedLabel) !Scanner.Label {
@@ -166,7 +166,7 @@ pub fn Assembler(comptime lim: scan.Limits) type {
         fn lookup_offset(assembler: *@This(), offset: Scanner.Offset) !?u16 {
             return switch (offset) {
                 .literal => |lit| lit,
-                .label => |lbl| assembler.lookup_label(mem.sliceTo(&(try assembler.full_label(lbl)), 0)),
+                .label => |lbl| if (assembler.lookup_label(try assembler.full_label(lbl))) |l| l.addr else null,
             };
         }
 
@@ -231,18 +231,15 @@ pub fn Assembler(comptime lim: scan.Limits) type {
                     }
                 },
                 .address => |addr| {
-                    const current_pos: u16 = @truncate(try seekable.getPos());
-
-                    try assembler.remember_location(addr, current_pos, 0);
-
-                    switch (addr.type) {
-                        .zero => try output.writeIntBig(u16, 0x80aa),
-                        .zero_raw => try output.writeByte(0xaa),
-                        .relative => try output.writeIntBig(u16, 0x80aa),
-                        .relative_raw => try output.writeByte(0xaa),
-                        .absolute => try output.writeIntBig(u24, 0xa0aaaa),
-                        .absolute_raw => try output.writeIntBig(u16, 0xaaaa),
-                    }
+                    try assembler.remember_location(addr, @truncate(try seekable.getPos()), 0);
+                    try switch (addr.type) {
+                        .zero => output.writeIntBig(u16, 0x80aa),
+                        .zero_raw => output.writeByte(0xaa),
+                        .relative => output.writeIntBig(u16, 0x80aa),
+                        .relative_raw => output.writeByte(0xaa),
+                        .absolute => output.writeIntBig(u24, 0xa0aaaa),
+                        .absolute_raw => output.writeIntBig(u16, 0xaaaa),
+                    };
                 },
                 .padding => |pad| try switch (pad) {
                     .absolute => |offset| seekable.seekTo(try assembler.lookup_offset(offset) orelse return error.UndefinedLabel),
@@ -446,10 +443,15 @@ pub fn Assembler(comptime lim: scan.Limits) type {
                     } else {
                         for (label.references.items) |ref| {
                             const ref_pos = switch (ref.type) {
+                                // Literal references start after the LIT/LIT2/JSI/JMI/JCI opcode
                                 .zero, .relative, .absolute => ref.addr + 1,
+
+                                // Raw references start wherever they start.
                                 .zero_raw, .relative_raw, .absolute_raw => ref.addr,
                             };
 
+                            // Seek to the reference position and replace our placeholder 0xaa... with the
+                            // resolved reference.
                             try seekable.seekTo(ref_pos);
 
                             switch (ref.type) {
