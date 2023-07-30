@@ -1,6 +1,11 @@
 const std = @import("std");
 const mem = std.mem;
 
+const can_include = true;
+
+const fs = std.fs;
+const os = std.os;
+
 pub const Limits = struct {
     identifier_length: usize = 0x40,
     word_length: usize = 0x40,
@@ -31,6 +36,10 @@ pub const AssemblerError = error{
     MacroBodyTooLong,
 
     NotImplemented,
+
+    IncludeNotFound,
+    NotAllowed,
+    CannotOpenFile,
 };
 
 pub fn Assembler(comptime lim: Limits) type {
@@ -74,6 +83,9 @@ pub fn Assembler(comptime lim: Limits) type {
 
         rom_length: usize = 0,
 
+        include_base: ?fs.Dir,
+        include_follow: bool = true,
+
         last_root_label: ?Scanner.Label = null,
         current_token: ?Scanner.SourceToken = null,
 
@@ -81,6 +93,12 @@ pub fn Assembler(comptime lim: Limits) type {
         macros: Macros = Macros.init(0) catch unreachable,
         lambdas: Lambdas = Lambdas.init(0) catch unreachable,
         lambda_counter: usize = 0,
+
+        pub fn init(include_base: ?fs.Dir) @This() {
+            return .{
+                .include_base = include_base,
+            };
+        }
 
         fn lookup_label(assembler: *@This(), label: []const u8) ?u16 {
             for (assembler.labels.slice()) |l|
@@ -168,6 +186,20 @@ pub fn Assembler(comptime lim: Limits) type {
             }) catch return error.TooManyReferences;
         }
 
+        fn AssembleError(
+            comptime Reader: type,
+            comptime Writer: type,
+            comptime Seeker: type,
+        ) type {
+            return AssemblerError ||
+                Reader.Error ||
+                fs.File.Reader.Error ||
+                Writer.Error ||
+                Seeker.GetSeekPosError ||
+                Seeker.SeekError ||
+                Scanner.Error;
+        }
+
         fn process_token(
             assembler: *@This(),
             scanner: *Scanner,
@@ -175,7 +207,7 @@ pub fn Assembler(comptime lim: Limits) type {
             input: anytype,
             output: anytype,
             seekable: anytype,
-        ) !void {
+        ) AssembleError(@TypeOf(input), @TypeOf(output), @TypeOf(seekable))!void {
             switch (token.token) {
                 .literal, .raw_literal => |lit| {
                     if (token.token != .raw_literal)
@@ -240,7 +272,13 @@ pub fn Assembler(comptime lim: Limits) type {
                     .absolute => |offset| seekable.seekTo(try assembler.lookup_offset(offset) orelse return error.UndefinedLabel),
                     .relative => |offset| seekable.seekBy(try assembler.lookup_offset(offset) orelse return error.UndefinedLabel),
                 },
-                .include => |_| {
+                .include => |path| if (can_include) {
+                    try assembler.include_file(
+                        output,
+                        seekable,
+                        mem.sliceTo(&path, 0),
+                    );
+                } else {
                     return error.NotImplemented;
                 },
                 .instruction => |op| {
@@ -325,23 +363,6 @@ pub fn Assembler(comptime lim: Limits) type {
             }
         }
 
-        pub fn init() @This() {
-            return .{};
-        }
-
-        fn AssembleError(
-            comptime Reader: type,
-            comptime Writer: type,
-            comptime Seeker: type,
-        ) type {
-            return AssemblerError ||
-                Reader.Error ||
-                Writer.Error ||
-                Seeker.GetSeekPosError ||
-                Seeker.SeekError ||
-                Scanner.Error;
-        }
-
         pub fn assemble(
             assembler: *@This(),
             input: anytype,
@@ -363,6 +384,60 @@ pub fn Assembler(comptime lim: Limits) type {
             assembler.rom_length = try seekable.getPos();
 
             try assembler.resolve_references(output, seekable);
+        }
+
+        pub fn include_file(
+            assembler: *@This(),
+            output: anytype,
+            seekable: anytype,
+            path: []const u8,
+        ) !void {
+            const dir = assembler.include_base orelse
+                return error.NotAllowed;
+
+            var full_path_buffer: [fs.MAX_PATH_BYTES]u8 = undefined;
+
+            // Determine canonical path to included file
+            const full_path = dir.realpath(path, &full_path_buffer) catch
+                return error.IncludeNotFound;
+
+            // Open the include file
+            const file = dir.openFile(full_path, .{}) catch
+                return error.CannotOpenFile;
+
+            defer file.close();
+
+            // If we're following relative includes, update our include_base to point
+            // to the parent folder of the included file and set it back to our old value
+            // once finished with that file.
+            if (assembler.include_follow) {
+                const basename = fs.path.dirname(full_path) orelse
+                    return error.IncludeNotFound;
+
+                assembler.include_base = dir.openDir(basename, .{}) catch
+                    return error.IncludeNotFound;
+            }
+
+            defer if (assembler.include_follow) {
+                assembler.include_base.?.close();
+                assembler.include_base = dir;
+            };
+
+            // Do assemble
+            var reader = file.reader();
+            var scanner = Scanner{};
+
+            while (try scanner.read_token(reader)) |token| {
+                assembler.current_token = token;
+
+                try assembler.process_token(
+                    &scanner,
+                    token,
+                    reader,
+                    output,
+                    seekable,
+                );
+            }
         }
 
         fn resolve_references(
