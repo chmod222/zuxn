@@ -10,7 +10,7 @@ pub fn load_rom(alloc: Allocator, reader: anytype) !*[0x10000]u8 {
     var ram = try alloc.alloc(u8, 0x10000);
 
     while (true) {
-        const r = try reader.readAll(ram[ram_pos .. ram_pos + 0x1000]);
+        const r = try reader.readAll(ram[ram_pos..ram_pos +| 0x1000]);
 
         ram_pos += @truncate(r);
 
