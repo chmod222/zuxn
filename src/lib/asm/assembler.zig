@@ -362,6 +362,14 @@ pub fn Assembler(comptime lim: Limits) type {
             //      reference will implicitely fill in those 0x00 when loading the rom.
             assembler.rom_length = try seekable.getPos();
 
+            try assembler.resolve_references(output, seekable);
+        }
+
+        fn resolve_references(
+            assembler: *@This(),
+            output: anytype,
+            seekable: anytype,
+        ) !void {
             for (assembler.labels.slice()) |label| {
                 if (label.addr) |addr| {
                     if (label.references.len == 0) {
