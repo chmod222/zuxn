@@ -2,7 +2,7 @@ A mostly complete implementation of most of the components of a complete [Uxntal
 
 `zig build` will compile three binary analogues to the reference implementations of uxnasm, uxncli and uxnemu:
 
-  - uxn-asm: The Uxntal assembler (Mostly complete, except for lacking `~import`)
+  - uxn-asm: The Uxntal assembler
   - uxn-cli: Runs Uxn ROMs in a headless fashion
   - uxn-sdl: Runs Uxn ROMs with audio and video support in SDL
 
