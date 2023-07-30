@@ -17,7 +17,7 @@ pub const AssemblerError = error{
     TooManyNestedLambas,
     UnbalancedLambda,
 
-    ReferenceOutOfBound,
+    ReferenceOutOfBounds,
     LabelAlreadyDefined,
 
     MissingScopeLabel,
@@ -468,7 +468,7 @@ pub fn Assembler(comptime lim: scan.Limits) type {
                                     const relative = target_addr - signed_pc - 2;
 
                                     if (relative > 127 or relative < -128)
-                                        return error.ReferenceOutOfBound;
+                                        return error.ReferenceOutOfBounds;
 
                                     try output.writeIntBig(i8, @as(i8, @truncate(relative)));
                                 },
