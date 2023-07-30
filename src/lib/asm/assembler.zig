@@ -53,7 +53,7 @@ pub fn Assembler(comptime lim: scan.Limits) type {
         pub const Reference = struct {
             addr: u16,
             offset: u16,
-            type: ReferenceType,
+            type: Scanner.AddressType,
         };
 
         pub const Macro = struct {
@@ -172,17 +172,16 @@ pub fn Assembler(comptime lim: scan.Limits) type {
 
         fn remember_location(
             assembler: *@This(),
-            label: Scanner.TypedLabel,
+            reference: Scanner.Address,
             addr: u16,
-            ref_type: ReferenceType,
             offset: u16,
         ) !void {
-            var definition = try assembler.retrieve_label(label);
+            var definition = try assembler.retrieve_label(reference.label);
 
             definition.references.append(.{
                 .addr = addr,
                 .offset = offset,
-                .type = ref_type,
+                .type = reference.type,
             }) catch return error.TooManyReferences;
         }
 
@@ -234,38 +233,15 @@ pub fn Assembler(comptime lim: scan.Limits) type {
                 .address => |addr| {
                     const current_pos: u16 = @truncate(try seekable.getPos());
 
-                    switch (addr) {
-                        .zero => |label| {
-                            // LIT xx
-                            try assembler.remember_location(label, current_pos + 1, .zero, 0);
-                            try output.writeIntBig(u16, 0x80aa);
-                        },
-                        .relative => |label| {
-                            // LIT xx (relative to current loc)
-                            try assembler.remember_location(label, current_pos + 1, .{ .relative = current_pos + 1 }, 0);
-                            try output.writeIntBig(u16, 0x80aa);
-                        },
-                        .absolute => |label| {
-                            // LIT2 xxxx
-                            try assembler.remember_location(label, current_pos + 1, .absolute, 0);
-                            try output.writeIntBig(u24, 0xa0aaaa);
-                        },
+                    try assembler.remember_location(addr, current_pos, 0);
 
-                        .raw_zero => |label| {
-                            // xx
-                            try assembler.remember_location(label, current_pos, .zero, 0);
-                            try output.writeByte(0xaa);
-                        },
-                        .raw_relative => |label| {
-                            // xx (relative to current loc)
-                            try assembler.remember_location(label, current_pos, .{ .relative = current_pos }, 0);
-                            try output.writeByte(0xaa);
-                        },
-                        .raw_absolute => |label| {
-                            // xxxx
-                            try assembler.remember_location(label, current_pos, .absolute, 0);
-                            try output.writeIntBig(u16, 0xaaaa);
-                        },
+                    switch (addr.type) {
+                        .zero => try output.writeIntBig(u16, 0x80aa),
+                        .zero_raw => try output.writeByte(0xaa),
+                        .relative => try output.writeIntBig(u16, 0x80aa),
+                        .relative_raw => try output.writeByte(0xaa),
+                        .absolute => try output.writeIntBig(u24, 0xa0aaaa),
+                        .absolute_raw => try output.writeIntBig(u16, 0xaaaa),
                     }
                 },
                 .padding => |pad| try switch (pad) {
@@ -286,9 +262,12 @@ pub fn Assembler(comptime lim: scan.Limits) type {
                 },
                 .jci, .jmi, .jsi => |label| {
                     const pos = try seekable.getPos();
+                    const ref = .{
+                        .type = .absolute,
+                        .label = label,
+                    };
 
-                    try assembler.remember_location(label, @truncate(pos + 1), .absolute, @truncate(pos + 3));
-
+                    try assembler.remember_location(ref, @truncate(pos), @truncate(pos + 3));
                     try output.writeByte(switch (token.token) {
                         .jci => 0x20,
                         .jmi => 0x40,
@@ -347,7 +326,12 @@ pub fn Assembler(comptime lim: scan.Limits) type {
                     assembler.lambda_counter += 1;
 
                     // Write JSI to location to be defined below
-                    try assembler.remember_location(label, @truncate(pos + 1), .absolute, @truncate(pos + 3));
+                    const ref = .{
+                        .type = .absolute,
+                        .label = label,
+                    };
+
+                    try assembler.remember_location(ref, @truncate(pos), @truncate(pos + 3));
                     try output.writeIntBig(u24, 0x60aaaa);
                 },
 
@@ -461,21 +445,26 @@ pub fn Assembler(comptime lim: scan.Limits) type {
                         // TODO: issue diagnostic for unused label
                     } else {
                         for (label.references.items) |ref| {
-                            try seekable.seekTo(ref.addr);
+                            const ref_pos = switch (ref.type) {
+                                .zero, .relative, .absolute => ref.addr + 1,
+                                .zero_raw, .relative_raw, .absolute_raw => ref.addr,
+                            };
+
+                            try seekable.seekTo(ref_pos);
 
                             switch (ref.type) {
-                                .zero => {
+                                .zero, .zero_raw => {
                                     try output.writeByte(@truncate(addr));
                                 },
 
-                                .absolute => {
+                                .absolute, .absolute_raw => {
                                     try output.writeIntBig(u16, addr -% ref.offset);
                                 },
 
-                                .relative => |to| {
+                                .relative, .relative_raw => {
                                     const target_addr: i16 = @as(i16, @bitCast(addr -% ref.offset));
 
-                                    const signed_pc: i16 = @intCast(to);
+                                    const signed_pc: i16 = @intCast(ref_pos);
                                     const relative = target_addr - signed_pc - 2;
 
                                     if (relative > 127 or relative < -128)

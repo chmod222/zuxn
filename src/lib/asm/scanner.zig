@@ -47,14 +47,18 @@ pub fn Scanner(comptime lim: Limits) type {
             scoped: Label,
         };
 
-        pub const Address = union(enum) {
-            zero: TypedLabel,
-            relative: TypedLabel,
-            absolute: TypedLabel,
+        pub const AddressType = enum {
+            zero,
+            relative,
+            absolute,
+            zero_raw,
+            relative_raw,
+            absolute_raw,
+        };
 
-            raw_zero: TypedLabel,
-            raw_relative: TypedLabel,
-            raw_absolute: TypedLabel,
+        pub const Address = struct {
+            type: AddressType,
+            label: TypedLabel,
         };
 
         pub const Instruction = struct {
@@ -275,14 +279,19 @@ pub fn Scanner(comptime lim: Limits) type {
 
                         end = Location{ start[0], start[1] + 1 + mem.sliceTo(&label, 0).len };
 
-                        break :b switch (b) {
-                            '.' => .{ .address = .{ .zero = typed } },
-                            ',' => .{ .address = .{ .relative = typed } },
-                            ';' => .{ .address = .{ .absolute = typed } },
-                            '-' => .{ .address = .{ .raw_zero = typed } },
-                            '_' => .{ .address = .{ .raw_relative = typed } },
-                            '=', ':' => .{ .address = .{ .raw_absolute = typed } },
-                            else => unreachable,
+                        break :b .{
+                            .address = .{
+                                .label = typed,
+                                .type = switch (b) {
+                                    '.' => .zero,
+                                    '-' => .zero_raw,
+                                    ',' => .relative,
+                                    '_' => .relative_raw,
+                                    ';' => .absolute,
+                                    '=', ':' => .absolute_raw,
+                                    else => unreachable,
+                                },
+                            },
                         };
                     },
                     '#' => b: {
