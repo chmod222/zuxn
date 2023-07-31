@@ -71,7 +71,7 @@ fn audio_callback(u: ?*anyopaque, stream: [*c]u8, len: c_int) callconv(.C) void 
     var samples = samples_ptr[0 .. @as(usize, @intCast(len)) / 2];
 
     // TODO: 0x00 should ideally be SDL_AudioSpec.silence here
-    @memset(stream[0..@as(usize, @intCast(len))], 0x00);
+    @memset(samples, 0x0000);
 
     //var still_playing: usize = 0;
     var event: SDL.SDL_Event = undefined;

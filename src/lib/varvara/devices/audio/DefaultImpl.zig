@@ -5,7 +5,6 @@ const Impl = @This();
 const Dev = @import("../Audio.zig");
 
 const std = @import("std");
-const pow = std.math.pow;
 
 factor: f32 = 0.0,
 
@@ -24,7 +23,7 @@ const base_frequencies: [12]f32 = .{
     15.4338531643, // B# -1
 };
 
-const detune_steps: [256]f64 = .{
+const detune_steps: [256]f32 = .{
     1.0000000000000000, 1.0002256593050698, 1.0004513695322617, 1.0006771306930664, 1.0009029427989777, 1.0011288058614922,
     1.0013547198921082, 1.0015806849023274, 1.0018067009036538, 1.002032767907594,  1.0022588859256572, 1.0024850549693551,
     1.0027112750502025, 1.0029375461797159, 1.0031638683694153, 1.0033902416308227, 1.0036166659754628, 1.0038431414148634,
@@ -70,10 +69,6 @@ const detune_steps: [256]f64 = .{
     1.0585073227945128, 1.0587461848213857, 1.058985100749698,  1.0592240705916123,
 };
 
-// Default *should* be C 4 (base_frequencies[0] * 2^5) but uxnemu sounds more like
-// F 4 (base_frequencies[5] * 2^5)
-const base_freq = base_frequencies[5] * pow(f32, 2, 5);
-
 pub fn setup_sound(
     impl: *Impl,
     dev: *Dev,
@@ -83,11 +78,17 @@ pub fn setup_sound(
     const octave: u5 = @truncate(pitch.note / 12);
     const note = pitch.note % 12;
 
-    const tone_freq = base_frequencies[note] *
-        pow(f32, 2, @as(f32, @floatFromInt(octave + 1))) *
-        detune_steps[dev.detune];
+    // Adjust the playback speed based on the sample rate and sample length, calculate
+    // our frequency exponential for the octave.
+    const rate_adjust: f32 = @floatFromInt(Dev.sample_rate / dev.sample.len);
+    const pitch_exponential: f32 = @floatFromInt(@as(u32, 2) << (octave - 1));
 
-    impl.factor = @floatCast(@as(f64, @floatCast(tone_freq)) / base_freq);
+    // Select our pitch, scale it by octave and apply the detune factor.
+    const tone_freq = base_frequencies[note] * pitch_exponential * detune_steps[dev.detune];
+
+    // Combine nominal tone frequency with sample rate adjustment to decouple from the
+    // sample rate.
+    impl.factor = tone_freq / rate_adjust;
 }
 
 pub fn get_playback_position(impl: *Impl, dev: *Dev) u16 {
