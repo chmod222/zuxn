@@ -23,6 +23,8 @@ const base_frequencies: [12]f32 = .{
     15.4338531643, // B# -1
 };
 
+// detune_steps[i] = i'th step between selected pitch and next pitch in the chromatic scale, in 256 steps where
+// 0 = pure selected pitch, 255 = last step before the next pitch
 const detune_steps: [256]f32 = .{
     1.0000000000000000, 1.0002256593050698, 1.0004513695322617, 1.0006771306930664, 1.0009029427989777, 1.0011288058614922,
     1.0013547198921082, 1.0015806849023274, 1.0018067009036538, 1.002032767907594,  1.0022588859256572, 1.0024850549693551,
