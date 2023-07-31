@@ -47,8 +47,10 @@ pub fn main() !u8 {
     );
 
     var diag = clap.Diagnostic{};
-    var stdout = std.io.getStdOut().writer();
-    var stderr = std.io.getStdErr().writer();
+
+    const stdin = std.io.getStdIn().reader();
+    const stdout = std.io.getStdOut().writer();
+    const stderr = std.io.getStdErr().writer();
 
     const parsers = comptime .{
         .FILE = clap.parsers.string,
@@ -103,8 +105,6 @@ pub fn main() !u8 {
     const args: [][]const u8 = @constCast(res.positionals[1..]);
 
     system.console_device.set_argc(&cpu, args);
-
-    const stdin = std.io.getStdIn().reader();
 
     cpu.evaluate_vector(0x0100) catch |fault|
         try system.system_device.handle_fault(&cpu, fault);
