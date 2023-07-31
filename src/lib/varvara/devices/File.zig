@@ -210,7 +210,7 @@ pub fn intercept(
         },
 
         ports.write + 1 => {
-            const truncate = cpu.load_device_mem(u16, base | ports.append) == 0x00;
+            const truncate = cpu.load_device_mem(u8, base | ports.append) == 0x00;
 
             const name_slice = dev.get_current_name_slice(cpu);
             const data_slice = dev.get_current_write_slice(cpu);
