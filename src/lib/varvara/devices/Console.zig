@@ -5,9 +5,6 @@ const logger = std.log.scoped(.uxn_varvara_console);
 
 addr: u4,
 
-var stderr = std.io.getStdErr();
-var stdout = std.io.getStdOut();
-
 pub const ports = struct {
     pub const vector = 0x0;
     pub const read = 0x2;
@@ -21,6 +18,8 @@ pub fn intercept(
     cpu: *Cpu,
     port: u4,
     kind: Cpu.InterceptKind,
+    stdout_writer: anytype,
+    stderr_writer: anytype,
 ) !void {
     if (kind != .output)
         return;
@@ -29,11 +28,13 @@ pub fn intercept(
         return;
 
     const base = @as(u8, dev.addr) << 4;
-    const handle = if (port == ports.write) stdout else stderr;
+    const octet = cpu.device_mem[base | port];
 
-    _ = handle.write(&[1]u8{cpu.device_mem[base | port]}) catch {
-        return;
-    };
+    if (port == ports.write) {
+        _ = stdout_writer.write(&[_]u8{octet}) catch return;
+    } else if (port == ports.err) {
+        _ = stderr_writer.write(&[_]u8{octet}) catch return;
+    }
 }
 
 pub fn push_arguments(

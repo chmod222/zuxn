@@ -22,6 +22,8 @@ pub const std_options = struct {
     };
 };
 
+const VarvaraDefault = varvara.VarvaraSystem(std.fs.File.Writer, std.fs.File.Writer);
+
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 
 fn intercept(
@@ -30,7 +32,7 @@ fn intercept(
     kind: uxn.Cpu.InterceptKind,
     data: ?*anyopaque,
 ) !void {
-    var varvara_sys: ?*varvara.VarvaraSystem = @alignCast(@ptrCast(data));
+    var varvara_sys: ?*VarvaraDefault = @alignCast(@ptrCast(data));
 
     if (varvara_sys) |sys|
         try sys.intercept(cpu, addr, kind);
@@ -45,6 +47,7 @@ pub fn main() !u8 {
     );
 
     var diag = clap.Diagnostic{};
+    var stdout = std.io.getStdOut().writer();
     var stderr = std.io.getStdErr().writer();
 
     const parsers = comptime .{
@@ -64,7 +67,7 @@ pub fn main() !u8 {
     var alloc = gpa.allocator();
 
     // Initialize system devices
-    var system = try varvara.VarvaraSystem.init(gpa.allocator());
+    var system = try VarvaraDefault.init(gpa.allocator(), stdout, stderr);
     defer system.deinit();
 
     // Setup the breakpoint hook if requested

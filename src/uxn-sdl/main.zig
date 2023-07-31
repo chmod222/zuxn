@@ -26,29 +26,13 @@ pub const std_options = struct {
     };
 };
 
+const VarvaraDefault = varvara.VarvaraSystem(std.fs.File.Writer, std.fs.File.Writer);
+
 var AUDIO_FINISHED: u32 = undefined;
 var STDIN_RECEIVED: u32 = undefined;
 
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 var audio_id: SDL.SDL_AudioDeviceID = undefined;
-
-fn intercept(
-    cpu: *uxn.Cpu,
-    addr: u8,
-    kind: uxn.Cpu.InterceptKind,
-    data: ?*anyopaque,
-) !void {
-    var varvara_sys: ?*varvara.VarvaraSystem = @alignCast(@ptrCast(data));
-
-    if (varvara_sys) |sys| {
-        const lock_audio = kind == .output and addr >= 0x30 and addr < 0x70;
-
-        if (lock_audio) SDL.SDL_LockAudioDevice(audio_id);
-        defer if (lock_audio) SDL.SDL_UnlockAudioDevice(audio_id);
-
-        try sys.intercept(cpu, addr, kind);
-    }
-}
 
 fn sdl_panic() noreturn {
     const str = @as(?[*:0]const u8, SDL.SDL_GetError()) orelse "unknown error";
@@ -56,54 +40,76 @@ fn sdl_panic() noreturn {
     @panic(std.mem.sliceTo(str, 0));
 }
 
-fn audio_callback(u: ?*anyopaque, stream: [*c]u8, len: c_int) callconv(.C) void {
-    var sys: *varvara.VarvaraSystem = @alignCast(@ptrCast(u));
+fn Callbacks(comptime SystemType: type) type {
+    return struct {
+        pub fn intercept(
+            cpu: *uxn.Cpu,
+            addr: u8,
+            kind: uxn.Cpu.InterceptKind,
+            data: ?*anyopaque,
+        ) !void {
+            var varvara_sys: ?*SystemType = @alignCast(@ptrCast(data));
 
-    var samples_ptr = @as([*c]i16, @alignCast(@ptrCast(stream)));
-    var samples = samples_ptr[0 .. @as(usize, @intCast(len)) / 2];
+            if (varvara_sys) |sys| {
+                const lock_audio = kind == .output and addr >= 0x30 and addr < 0x70;
 
-    // TODO: 0x00 should ideally be SDL_AudioSpec.silence here
-    @memset(samples, 0x0000);
+                if (lock_audio) SDL.SDL_LockAudioDevice(audio_id);
+                defer if (lock_audio) SDL.SDL_UnlockAudioDevice(audio_id);
 
-    //var still_playing: usize = 0;
-    var event: SDL.SDL_Event = undefined;
+                try sys.intercept(cpu, addr, kind);
+            }
+        }
 
-    for (0.., &sys.audio_devices) |i, *poly| {
-        if (poly.render_audio(samples)) |r| {
-            if (r) {
-                //still_playing += 1;
-            } else {
-                event.type = AUDIO_FINISHED + @as(u32, @truncate(i));
+        pub fn audio_callback(u: ?*anyopaque, stream: [*c]u8, len: c_int) callconv(.C) void {
+            var sys: *SystemType = @alignCast(@ptrCast(u));
+
+            var samples_ptr = @as([*c]i16, @alignCast(@ptrCast(stream)));
+            var samples = samples_ptr[0 .. @as(usize, @intCast(len)) / 2];
+
+            // TODO: 0x00 should ideally be SDL_AudioSpec.silence here
+            @memset(samples, 0x0000);
+
+            //var still_playing: usize = 0;
+            var event: SDL.SDL_Event = undefined;
+
+            for (0.., &sys.audio_devices) |i, *poly| {
+                if (poly.render_audio(samples)) |r| {
+                    if (r) {
+                        //still_playing += 1;
+                    } else {
+                        event.type = AUDIO_FINISHED + @as(u32, @truncate(i));
+
+                        _ = SDL.SDL_PushEvent(&event);
+                    }
+                }
+            }
+
+            //if (still_playing == 0) {
+            //    const audio_id: *SDL.SDL_AudioDeviceID = @alignCast(@ptrCast(u.?));
+            //
+            //    SDL.SDL_PauseAudioDevice(audio_id.*, 1);
+            //}
+        }
+
+        pub fn receive_stdin(p: ?*anyopaque) callconv(.C) c_int {
+            var sys: *SystemType = @alignCast(@ptrCast(p));
+
+            const stdin = std.io.getStdIn().reader();
+
+            var event: SDL.SDL_Event = .{ .type = STDIN_RECEIVED };
+
+            while (sys.system_device.exit_code == null) {
+                const b = stdin.readByte() catch
+                    break;
+
+                event.cbutton.button = b;
 
                 _ = SDL.SDL_PushEvent(&event);
             }
+
+            return 0;
         }
-    }
-
-    //if (still_playing == 0) {
-    //    const audio_id: *SDL.SDL_AudioDeviceID = @alignCast(@ptrCast(u.?));
-    //
-    //    SDL.SDL_PauseAudioDevice(audio_id.*, 1);
-    //}
-}
-
-fn receive_stdin(p: ?*anyopaque) callconv(.C) c_int {
-    var sys: *varvara.VarvaraSystem = @alignCast(@ptrCast(p));
-
-    const stdin = std.io.getStdIn().reader();
-
-    var event: SDL.SDL_Event = .{ .type = STDIN_RECEIVED };
-
-    while (sys.system_device.exit_code == null) {
-        const b = stdin.readByte() catch
-            break;
-
-        event.cbutton.button = b;
-
-        _ = SDL.SDL_PushEvent(&event);
-    }
-
-    return 0;
+    };
 }
 
 const InputType = union(enum) {
@@ -248,7 +254,7 @@ fn draw_screen(
 
 fn main_graphical(
     cpu: *uxn.Cpu,
-    system: *varvara.VarvaraSystem,
+    system: *VarvaraDefault,
     scale: u8,
     args: [][]const u8,
 ) !u8 {
@@ -263,7 +269,7 @@ fn main_graphical(
         .freq = varvara.Audio.sample_rate,
         .format = SDL.AUDIO_S16SYS,
         .channels = 2,
-        .callback = &audio_callback,
+        .callback = &Callbacks(VarvaraDefault).audio_callback,
         .samples = 512,
         .userdata = system,
 
@@ -279,7 +285,7 @@ fn main_graphical(
     AUDIO_FINISHED = SDL.SDL_RegisterEvents(4);
     STDIN_RECEIVED = SDL.SDL_RegisterEvents(1);
 
-    var stdin = SDL.SDL_CreateThread(receive_stdin, "stdin", system);
+    var stdin = SDL.SDL_CreateThread(&Callbacks(VarvaraDefault).receive_stdin, "stdin", system);
 
     SDL.SDL_DetachThread(stdin);
 
@@ -435,6 +441,8 @@ pub fn main() !u8 {
     );
 
     var diag = clap.Diagnostic{};
+
+    var stdout = std.io.getStdOut().writer();
     var stderr = std.io.getStdErr().writer();
 
     const parsers = comptime .{
@@ -463,7 +471,7 @@ pub fn main() !u8 {
     var alloc = gpa.allocator();
 
     // Initialize system devices
-    var system = try varvara.VarvaraSystem.init(gpa.allocator());
+    var system = try VarvaraDefault.init(gpa.allocator(), stdout, stderr);
     defer system.deinit();
 
     // Setup the breakpoint hook if requested
@@ -489,7 +497,7 @@ pub fn main() !u8 {
     // Setup CPU and intercepts
     var cpu = uxn.Cpu.init(rom);
 
-    cpu.device_intercept = &intercept;
+    cpu.device_intercept = &Callbacks(VarvaraDefault).intercept;
     cpu.callback_data = &system;
 
     cpu.output_intercepts = varvara.full_intercepts.output;
