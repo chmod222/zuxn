@@ -1,5 +1,7 @@
 const Cpu = @import("uxn-core").Cpu;
+
 const std = @import("std");
+const logger = std.log.scoped(.uxn_varvara_screen);
 
 const default_window_width = 512;
 const default_window_height = 320;
@@ -302,6 +304,8 @@ pub fn force_redraw(dev: *@This()) void {
 }
 
 pub fn initialize_graphics(dev: *@This()) !void {
+    logger.debug("Initialize framebuffers ({}x{})", .{ dev.width, dev.height });
+
     dev.foreground = try dev.alloc.alloc(u2, @as(usize, dev.width) * dev.height);
     errdefer dev.alloc.free(dev.foreground);
 
@@ -315,6 +319,8 @@ pub fn initialize_graphics(dev: *@This()) !void {
 }
 
 pub fn cleanup_graphics(dev: *@This()) void {
+    logger.debug("Destroying framebuffers", .{});
+
     dev.alloc.free(dev.foreground);
     dev.alloc.free(dev.background);
 }

@@ -1,5 +1,8 @@
 const Cpu = @import("uxn-core").Cpu;
 
+const std = @import("std");
+const logger = std.log.scoped(.uxn_varvara_mouse);
+
 addr: u4,
 
 pub const ports = struct {
@@ -43,8 +46,11 @@ pub fn press_buttons(dev: *@This(), cpu: *Cpu, buttons: ButtonFlags) !void {
     const base = @as(u8, dev.addr) << 4;
 
     const old_state = cpu.load_device_mem(u8, base | ports.state);
+    const new_state = old_state | @as(u8, @bitCast(buttons));
 
-    cpu.store_device_mem(u8, base | ports.state, old_state | @as(u8, @bitCast(buttons)));
+    logger.debug("Button State: {}", .{@as(ButtonFlags, @bitCast(new_state))});
+
+    cpu.store_device_mem(u8, base | ports.state, new_state);
 
     try dev.invoke_vector(cpu);
 }
@@ -53,14 +59,19 @@ pub fn release_buttons(dev: *@This(), cpu: *Cpu, buttons: ButtonFlags) !void {
     const base = @as(u8, dev.addr) << 4;
 
     const old_state = cpu.load_device_mem(u8, base | ports.state);
+    const new_state = old_state & ~@as(u8, @bitCast(buttons));
 
-    cpu.store_device_mem(u8, base | ports.state, old_state & ~@as(u8, @bitCast(buttons)));
+    logger.debug("Button State: {}", .{@as(ButtonFlags, @bitCast(new_state))});
+
+    cpu.store_device_mem(u8, base | ports.state, new_state);
 
     try dev.invoke_vector(cpu);
 }
 
 pub fn update_position(dev: *@This(), cpu: *Cpu, x: u16, y: u16) !void {
     const base = @as(u8, dev.addr) << 4;
+
+    logger.debug("Set position: X: {}; Y: {}", .{ x, y });
 
     cpu.store_device_mem(u16, base | ports.x, x);
     cpu.store_device_mem(u16, base | ports.y, y);
@@ -70,6 +81,8 @@ pub fn update_position(dev: *@This(), cpu: *Cpu, x: u16, y: u16) !void {
 
 pub fn update_scroll(dev: *@This(), cpu: *Cpu, x: i32, y: i32) !void {
     const base = @as(u8, dev.addr) << 4;
+
+    logger.debug("Scrolling: X: {}; Y: {}", .{ x, -y });
 
     cpu.store_device_mem(i16, base | ports.scroll_x, @as(i16, @truncate(x)));
     cpu.store_device_mem(i16, base | ports.scroll_y, @as(i16, @truncate(-y)));

@@ -2,6 +2,9 @@ const Cpu = @import("uxn-core").Cpu;
 
 const Screen = @import("Screen.zig");
 
+const std = @import("std");
+const logger = std.log.scoped(.uxn_varvara_system);
+
 pub const Color = struct {
     r: u8,
     g: u8,
@@ -12,6 +15,7 @@ addr: u4,
 
 debug_callback: ?*const fn (cpu: *Cpu, data: ?*anyopaque) void = null,
 callback_data: ?*anyopaque = null,
+additional_pages: ?[][Cpu.page_size]u8 = null,
 
 exit_code: ?u8 = null,
 colors: [4]Color = .{
@@ -56,11 +60,15 @@ pub fn intercept(
     switch (port) {
         ports.state => {
             dev.exit_code = cpu.device_mem[base | ports.state] & 0x7f;
+
+            logger.debug("System exit requested (code = {?})", .{dev.exit_code});
         },
 
         ports.debug => {
             if (dev.debug_callback) |cb|
-                cb(cpu, dev.callback_data);
+                cb(cpu, dev.callback_data)
+            else
+                logger.debug("Debug port triggered, but no callback is available", .{});
         },
 
         ports.expansion + 1 => {
@@ -110,16 +118,66 @@ pub fn handle_fault(dev: @This(), cpu: *Cpu, fault: Cpu.SystemFault) !void {
     }
 }
 
-pub fn handle_expansion(dev: @This(), cpu: *Cpu, operation: u16) !void {
-    _ = dev;
+fn select_memory_page(dev: @This(), cpu: *Cpu, page: u16) ?*[Cpu.page_size]u8 {
+    if (page == 0x0000) {
+        return cpu.mem;
+    } else if (dev.additional_pages) |page_table| {
+        if (page_table.len < page) {
+            return &page_table[page];
+        }
+    }
 
+    return null;
+}
+
+pub fn handle_expansion(dev: @This(), cpu: *Cpu, operation: u16) !void {
     switch (cpu.mem[operation]) {
         // copy
         0x01 => {
             // [ operation:u8 | len:u16 | srcpg:u16 | src:u16 | dstpg:u16 | dst:u16]
-            // copy cpu.mem[srcpg * 0x10000 + src..][0..len]
-            //   to cpu.mem[dstpg * 0x10000 + dst..][0..len]
-            return error.BadExpansion;
+            const dat_len = cpu.load_mem(u16, operation + 1);
+
+            const src_pge = cpu.load_mem(u16, operation + 3);
+            const src_ptr = cpu.load_mem(u16, operation + 5);
+
+            const dst_pge = cpu.load_mem(u16, operation + 7);
+            const dst_ptr = cpu.load_mem(u16, operation + 9);
+
+            logger.debug("Expansion: Request move of #{x} bytes from {x:0>4}:{x:0>4} to {x:0>4}:{x:0>4}", .{
+                dat_len,
+                src_pge,
+                src_ptr,
+                dst_pge,
+                dst_ptr,
+            });
+
+            const src = dev.select_memory_page(cpu, src_pge) orelse {
+                logger.warn("Expansion: Invalid source page {x:0>4}:{x:0>4}", .{ src_pge, src_ptr });
+
+                return error.BadExpansion;
+            };
+
+            const dst = dev.select_memory_page(cpu, dst_pge) orelse {
+                logger.warn("Expansion: Invalid destination page {x:0>4}:{x:0>4}", .{ dst_pge, dst_ptr });
+
+                return error.BadExpansion;
+            };
+
+            const src_slice = src[src_ptr..src_ptr +| dat_len];
+            var dst_slice = dst[dst_ptr..dst_ptr +| dat_len];
+
+            if (src_slice.len != dst_slice.len) {
+                logger.warn("Expansion: Source and destination lengths do not match due to " ++
+                    "page boundary: {x:0>4}:{x:0>4} -> {x:0>4}:{x:0>4} ({} -> {})", .{
+                    src_pge,       src_ptr,
+                    dst_pge,       dst_ptr,
+                    src_slice.len, dst_slice.len,
+                });
+
+                return error.BadExpansion;
+            }
+
+            @memcpy(dst_slice, src_slice);
         },
 
         else => {},

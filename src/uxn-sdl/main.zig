@@ -10,6 +10,22 @@ pub const SDL = @cImport({
     @cInclude("SDL2/SDL.h");
 });
 
+pub const std_options = struct {
+    pub const log_scope_levels = &[_]std.log.ScopeLevel{
+        .{ .scope = .uxn_cpu, .level = .info },
+
+        .{ .scope = .uxn_varvara, .level = .info },
+        .{ .scope = .uxn_varvara_system, .level = .info },
+        .{ .scope = .uxn_varvara_console, .level = .info },
+        .{ .scope = .uxn_varvara_screen, .level = .info },
+        .{ .scope = .uxn_varvara_audio, .level = .info },
+        .{ .scope = .uxn_varvara_controller, .level = .info },
+        .{ .scope = .uxn_varvara_mouse, .level = .info },
+        .{ .scope = .uxn_varvara_file, .level = .info },
+        .{ .scope = .uxn_varvara_datetime, .level = .info },
+    };
+};
+
 var AUDIO_FINISHED: u32 = undefined;
 var STDIN_RECEIVED: u32 = undefined;
 
@@ -25,36 +41,12 @@ fn intercept(
     var varvara_sys: ?*varvara.VarvaraSystem = @alignCast(@ptrCast(data));
 
     if (varvara_sys) |sys| {
-        const port: u4 = @truncate(addr & 0xf);
         const lock_audio = kind == .output and addr >= 0x30 and addr < 0x70;
 
         if (lock_audio) SDL.SDL_LockAudioDevice(audio_id);
         defer if (lock_audio) SDL.SDL_UnlockAudioDevice(audio_id);
 
-        switch (addr >> 4) {
-            0x0 => {
-                try sys.system_device.intercept(cpu, port, kind);
-
-                if (addr & 0xf >= varvara.System.ports.red and
-                    addr & 0xf < varvara.System.ports.debug)
-                {
-                    sys.screen_device.force_redraw();
-                }
-            },
-            0x1 => try sys.console_device.intercept(cpu, port, kind),
-            0x2 => try sys.screen_device.intercept(cpu, port, kind),
-            0x3 => try sys.audio_devices[0].intercept(cpu, port, kind),
-            0x4 => try sys.audio_devices[1].intercept(cpu, port, kind),
-            0x5 => try sys.audio_devices[2].intercept(cpu, port, kind),
-            0x6 => try sys.audio_devices[3].intercept(cpu, port, kind),
-            0x8 => try sys.controller_device.intercept(cpu, port, kind),
-            0x9 => try sys.mouse_device.intercept(cpu, port, kind),
-            0xa => try sys.file_devices[0].intercept(cpu, port, kind),
-            0xb => try sys.file_devices[1].intercept(cpu, port, kind),
-            0xc => try sys.datetime_device.intercept(cpu, port, kind),
-
-            else => {},
-        }
+        try sys.intercept(cpu, addr, kind);
     }
 }
 

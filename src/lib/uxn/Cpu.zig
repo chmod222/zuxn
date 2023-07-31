@@ -3,6 +3,11 @@ const Cpu = @This();
 const std = @import("std");
 const mem = std.mem;
 
+const logger = std.log.scoped(.uxn_cpu);
+
+pub const page_size = 0x10000;
+pub const device_page_size = 0x100;
+
 pub usingnamespace @import("cpu/isa.zig");
 
 pub const SystemFault = error{
@@ -29,8 +34,8 @@ pc: u16,
 wst: Stack,
 rst: Stack,
 
-mem: *[0x10000]u8,
-device_mem: [0x100]u8,
+mem: *[page_size]u8,
+device_mem: [device_page_size]u8,
 
 input_intercepts: [0x10]u16 = [1]u16{0x0000} ** 0x10,
 output_intercepts: [0x10]u16 = [1]u16{0x0000} ** 0x10,
@@ -44,7 +49,7 @@ device_intercept: ?*const fn (
     data: ?*anyopaque,
 ) SystemFault!void = null,
 
-pub fn init(memory: *[0x10000]u8) Cpu {
+pub fn init(memory: *[page_size]u8) Cpu {
     return .{
         .pc = 0x0100,
 
@@ -59,42 +64,62 @@ pub fn init(memory: *[0x10000]u8) Cpu {
 pub fn evaluate_vector(cpu: *Cpu, vector: u16) SystemFault!void {
     cpu.pc = vector;
 
+    logger.debug("Vector {x:0>4}: Start evaluation", .{vector});
+
+    errdefer |err| {
+        logger.debug("Vector {x:0>4}: Faulted with {}", .{ vector, err });
+    }
+
     while (try cpu.step()) |new_pc|
         cpu.pc = new_pc;
+
+    logger.debug("Vector {x:0>4}: Finished evaluation", .{vector});
 }
 
 fn cast_array(comptime T: type, slice: []u8) *[@sizeOf(T)]u8 {
     return @ptrCast(slice);
 }
 
-pub fn load_mem(cpu: *Cpu, comptime T: type, addr: u16) T {
+inline fn load(
+    cpu: *Cpu,
+    comptime T: type,
+    comptime field: []const u8,
+    addr: anytype,
+) T {
     return if (T == u8)
-        cpu.mem[addr]
+        @field(cpu, field)[addr]
     else
-        mem.readIntBig(T, cast_array(T, cpu.mem[addr..addr +| @sizeOf(T)]));
+        mem.readIntBig(T, cast_array(T, @field(cpu, field)[addr..addr +| @sizeOf(T)]));
 }
 
-pub fn store_mem(cpu: *Cpu, comptime T: type, addr: u16, v: T) void {
+inline fn store(
+    cpu: *Cpu,
+    comptime T: type,
+    comptime field: []const u8,
+    addr: anytype,
+    val: T,
+) void {
     if (T == u8) {
-        cpu.mem[addr] = v;
+        @field(cpu, field)[addr] = val;
     } else {
-        mem.writeIntBig(T, cast_array(T, cpu.mem[addr..addr +| @sizeOf(T)]), v);
+        mem.writeIntBig(T, cast_array(T, @field(cpu, field)[addr..addr +| @sizeOf(T)]), val);
     }
+}
+
+pub fn load_mem(cpu: *Cpu, comptime T: type, addr: u16) T {
+    return cpu.load(T, "mem", addr);
 }
 
 pub fn load_device_mem(cpu: *Cpu, comptime T: type, addr: u8) T {
-    return if (T == u8)
-        cpu.device_mem[addr]
-    else
-        mem.readIntBig(T, cast_array(T, cpu.device_mem[addr..addr +| @sizeOf(T)]));
+    return cpu.load(T, "device_mem", addr);
+}
+
+pub fn store_mem(cpu: *Cpu, comptime T: type, addr: u16, v: T) void {
+    cpu.store(T, "mem", addr, v);
 }
 
 pub fn store_device_mem(cpu: *Cpu, comptime T: type, addr: u8, v: T) void {
-    if (T == u8) {
-        cpu.device_mem[addr] = v;
-    } else {
-        mem.writeIntSliceBig(T, cast_array(T, cpu.device_mem[addr..addr +| @sizeOf(T)]), v);
-    }
+    cpu.store(T, "device_mem", addr, v);
 }
 
 const PushFunc = fn (s: *Stack, v: u16) SystemFault!void;
@@ -152,6 +177,12 @@ pub fn step(cpu: *Cpu) SystemFault!?u16 {
         wst.thaw_read();
         rst.thaw_read();
     };
+
+    logger.debug("PC {x:0>4}: Start execute {s}", .{ cpu.pc, Cpu.mnemonics[cpu.mem[cpu.pc]] });
+
+    errdefer |err| {
+        logger.debug("PC {x:0>4}: {s}: Faulting with {}", .{ cpu.pc, Cpu.mnemonics[cpu.mem[cpu.pc]], err });
+    }
 
     switch (instruction.opcode) {
         .BRK => return null,

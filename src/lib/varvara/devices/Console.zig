@@ -1,7 +1,12 @@
 const Cpu = @import("uxn-core").Cpu;
+
 const std = @import("std");
+const logger = std.log.scoped(.uxn_varvara_console);
 
 addr: u4,
+
+var stderr = std.io.getStdErr();
+var stdout = std.io.getStdOut();
 
 pub const ports = struct {
     pub const vector = 0x0;
@@ -10,9 +15,6 @@ pub const ports = struct {
     pub const write = 0x8;
     pub const err = 0x9;
 };
-
-var stderr = std.io.getStdErr();
-var stdout = std.io.getStdOut();
 
 pub fn intercept(
     dev: @This(),

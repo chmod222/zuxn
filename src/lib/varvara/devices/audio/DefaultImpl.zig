@@ -5,6 +5,7 @@ const Impl = @This();
 const Dev = @import("../Audio.zig");
 
 const std = @import("std");
+const logger = std.log.scoped(.uxn_varvara_audio);
 
 factor: f32 = 0.0,
 
@@ -20,7 +21,22 @@ const base_frequencies: [12]f32 = .{
     12.9782717994, // G# -1
     13.7500000000, // A -1
     14.5676175474, // A# -1
-    15.4338531643, // B# -1
+    15.4338531643, // B -1
+};
+
+const pitch_names: [12][:0]const u8 = .{
+    "C",
+    "C♯ / D♭",
+    "D",
+    "D♯ / E♭",
+    "E",
+    "F",
+    "F♯ / G♭",
+    "G",
+    "G♯ / A♭",
+    "A",
+    "A♯ / B♭",
+    "B",
 };
 
 // detune_steps[i] = i'th step between selected pitch and next pitch in the chromatic scale, in 256 steps where
@@ -91,6 +107,16 @@ pub fn setup_sound(
     // Combine nominal tone frequency with sample rate adjustment to decouple from the
     // sample rate.
     impl.factor = tone_freq / rate_adjust;
+
+    logger.debug("[Audio@{x}] Start playing {s} {d}; ADSR: {x:0>4}; Volume: {x:0>2}; Detune: {x:0>2}; SL = {x:0>4}", .{
+        dev.addr,
+        pitch_names[note],
+        octave,
+        @as(u16, @bitCast(dev.adsr)),
+        @as(u8, @bitCast(dev.volume)),
+        dev.detune,
+        dev.sample.len,
+    });
 }
 
 pub fn get_playback_position(impl: *Impl, dev: *Dev) u16 {

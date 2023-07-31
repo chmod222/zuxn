@@ -3,6 +3,7 @@ const Cpu = @import("uxn-core").Cpu;
 const std = @import("std");
 const fs = std.fs;
 const io = std.io;
+const logger = std.log.scoped(.uxn_varvara_file);
 
 addr: u4,
 
@@ -61,7 +62,7 @@ const AnyTarget = union(enum) {
     directory: Directory,
     file: File,
 
-    fn read(self: *AnyTarget, buf: []u8) ?u16 {
+    fn read(self: *AnyTarget, buf: []u8) !u16 {
         switch (self.*) {
             .directory => |*dir| {
                 var offset: usize = 0;
@@ -82,7 +83,7 @@ const AnyTarget = union(enum) {
 
                             break;
                         } else {
-                            return null;
+                            return err;
                         }
                     }
                 }
@@ -93,20 +94,18 @@ const AnyTarget = union(enum) {
             },
 
             .file => |*f| {
-                return @truncate(f.file.readAll(buf) catch return null);
+                return @truncate(try f.file.readAll(buf));
             },
         }
-
-        return null;
     }
 
-    fn write(self: *AnyTarget, buf: []const u8) ?u16 {
+    fn write(self: *AnyTarget, buf: []const u8) !u16 {
         return switch (self.*) {
             .file => |f| {
-                return @truncate(f.file.write(buf) catch return null);
+                return @truncate(try f.file.write(buf));
             },
 
-            else => null,
+            else => error.NotImplemented,
         };
     }
 
@@ -142,6 +141,11 @@ fn open_file_write(path: []const u8, truncate: bool) !File {
 pub fn cleanup(dev: *@This()) void {
     if (dev.active_file) |*f| {
         f.close();
+
+        logger.debug("[File@{x}] Closed previousely open target ({s})", .{
+            dev.addr,
+            @tagName(@as(@typeInfo(AnyTarget).Union.tag_type.?, f.*)),
+        });
     }
 
     dev.active_file = null;
@@ -215,11 +219,33 @@ pub fn intercept(
             const name_slice = dev.get_current_name_slice(cpu);
             const data_slice = dev.get_current_write_slice(cpu);
 
-            var t = dev.active_file orelse open_writable(name_slice, truncate) catch {
+            var t = dev.active_file orelse open_writable(name_slice, truncate) catch |err| {
+                logger.debug("[File@{x}] Failed opening \"{s}\" for {s} access: {}", .{
+                    dev.addr,
+                    name_slice,
+                    if (truncate) "write" else "append",
+                    err,
+                });
+
                 return cpu.store_device_mem(u16, base | ports.success, 0x0000);
             };
 
-            cpu.store_device_mem(u16, base | ports.success, t.write(data_slice) orelse 0);
+            if (dev.active_file == null) {
+                logger.debug("[File@{x}] Opened \"{s}\" for {s} access", .{
+                    dev.addr,
+                    name_slice,
+                    if (truncate) "write" else "append",
+                });
+            }
+
+            const n = t.write(data_slice);
+
+            if (n) |c|
+                logger.debug("[File@{x}] Wrote {} bytes", .{ dev.addr, c })
+            else |err|
+                logger.debug("[File@{x}] Failed to write data: {}", .{ dev.addr, err });
+
+            cpu.store_device_mem(u16, base | ports.success, n catch 0);
             dev.active_file = t;
         },
 
@@ -227,25 +253,46 @@ pub fn intercept(
             const data_slice = dev.get_current_read_slice(cpu);
             const name_slice = dev.get_current_name_slice(cpu);
 
-            var t = dev.active_file orelse open_readable(name_slice) catch {
+            var t = dev.active_file orelse open_readable(name_slice) catch |err| {
+                logger.debug("[File@{x}] Failed opening \"{s}\" for read access: {}", .{ dev.addr, name_slice, err });
+
                 return cpu.store_device_mem(u16, base | ports.success, 0x0000);
             };
 
-            var r = t.read(data_slice) orelse 0;
+            if (dev.active_file == null) {
+                logger.debug("[File@{x}] Opened \"{s}\" for read access", .{ dev.addr, name_slice });
+            }
 
-            cpu.store_device_mem(u16, base | ports.success, r);
+            var r = t.read(data_slice);
+
+            if (r) |c|
+                logger.debug("[File@{x}] Read {} bytes", .{ dev.addr, c })
+            else |err|
+                logger.debug("[File@{x}] Failed to read data: {}", .{ dev.addr, err });
+
+            cpu.store_device_mem(u16, base | ports.success, r catch 0);
             dev.active_file = t;
         },
 
         ports.delete => {
             const name_slice = dev.get_current_name_slice(cpu);
 
-            fs.cwd().deleteFile(name_slice) catch {};
+            if (fs.cwd().deleteFile(name_slice)) |_| {
+                logger.debug("[File@{x}] Deleted \"{s}\"", .{ dev.addr, name_slice });
 
-            cpu.store_device_mem(u16, base | ports.success, 0x0001);
+                cpu.store_device_mem(u16, base | ports.success, 0x0001);
+            } else |err| {
+                logger.debug("[File@{x}] Failed deleting \"{s}\": {}", .{ dev.addr, name_slice, err });
+
+                cpu.store_device_mem(u16, base | ports.success, 0x0000);
+            }
         },
 
         ports.stat + 1 => {
+            const name_slice = dev.get_current_name_slice(cpu);
+
+            logger.warn("[File@{x}] Called stat on \"{s}\"; not implemented", .{ dev.addr, name_slice });
+
             cpu.store_device_mem(u16, base | ports.success, 0x0000);
         },
 

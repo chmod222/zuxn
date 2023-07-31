@@ -1,5 +1,7 @@
 const std = @import("std");
 
+const uxn = @import("uxn-core");
+
 pub const System = @import("devices/System.zig");
 pub const Console = @import("devices/Console.zig");
 pub const Screen = @import("devices/Screen.zig");
@@ -9,7 +11,12 @@ pub const Mouse = @import("devices/Mouse.zig");
 pub const File = @import("devices/File.zig");
 pub const Datetime = @import("devices/Datetime.zig");
 
+pub const pages = 4;
+
 pub const VarvaraSystem = struct {
+    allocator: std.mem.Allocator,
+    page_table: ?[][uxn.Cpu.page_size]u8 = null,
+
     system_device: System,
     console_device: Console,
     screen_device: Screen,
@@ -20,8 +27,13 @@ pub const VarvaraSystem = struct {
     datetime_device: Datetime,
 
     pub fn init(allocator: std.mem.Allocator) !VarvaraSystem {
+        const page_table = try allocator.alloc([uxn.Cpu.page_size]u8, pages);
+
         var system: VarvaraSystem = .{
-            .system_device = .{ .addr = 0x0 },
+            .allocator = allocator,
+            .page_table = page_table,
+
+            .system_device = .{ .addr = 0x0, .additional_pages = page_table },
             .console_device = .{ .addr = 0x1 },
             .screen_device = .{ .addr = 0x2, .alloc = allocator },
             .audio_devices = .{
@@ -49,6 +61,43 @@ pub const VarvaraSystem = struct {
 
         for (&sys.file_devices) |*f|
             f.cleanup();
+
+        if (sys.system_device.additional_pages) |page_table|
+            sys.allocator.free(page_table);
+    }
+
+    pub fn intercept(
+        sys: *@This(),
+        cpu: *uxn.Cpu,
+        addr: u8,
+        kind: uxn.Cpu.InterceptKind,
+    ) !void {
+        const port: u4 = @truncate(addr & 0xf);
+
+        switch (addr >> 4) {
+            0x0 => {
+                try sys.system_device.intercept(cpu, port, kind);
+
+                if (addr & 0xf >= System.ports.red and
+                    addr & 0xf < System.ports.debug)
+                {
+                    sys.screen_device.force_redraw();
+                }
+            },
+            0x1 => try sys.console_device.intercept(cpu, port, kind),
+            0x2 => try sys.screen_device.intercept(cpu, port, kind),
+            0x3 => try sys.audio_devices[0].intercept(cpu, port, kind),
+            0x4 => try sys.audio_devices[1].intercept(cpu, port, kind),
+            0x5 => try sys.audio_devices[2].intercept(cpu, port, kind),
+            0x6 => try sys.audio_devices[3].intercept(cpu, port, kind),
+            0x8 => try sys.controller_device.intercept(cpu, port, kind),
+            0x9 => try sys.mouse_device.intercept(cpu, port, kind),
+            0xa => try sys.file_devices[0].intercept(cpu, port, kind),
+            0xb => try sys.file_devices[1].intercept(cpu, port, kind),
+            0xc => try sys.datetime_device.intercept(cpu, port, kind),
+
+            else => {},
+        }
     }
 };
 

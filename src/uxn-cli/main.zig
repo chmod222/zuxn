@@ -6,6 +6,22 @@ const uxn = @import("uxn-core");
 const varvara = @import("uxn-varvara");
 const Debug = @import("uxn-shared").Debug;
 
+pub const std_options = struct {
+    pub const log_scope_levels = &[_]std.log.ScopeLevel{
+        .{ .scope = .uxn_cpu, .level = .debug },
+
+        .{ .scope = .uxn_varvara, .level = .info },
+        .{ .scope = .uxn_varvara_system, .level = .info },
+        .{ .scope = .uxn_varvara_console, .level = .info },
+        .{ .scope = .uxn_varvara_screen, .level = .info },
+        .{ .scope = .uxn_varvara_audio, .level = .info },
+        .{ .scope = .uxn_varvara_controller, .level = .info },
+        .{ .scope = .uxn_varvara_mouse, .level = .info },
+        .{ .scope = .uxn_varvara_file, .level = .info },
+        .{ .scope = .uxn_varvara_datetime, .level = .info },
+    };
+};
+
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 
 fn intercept(
@@ -16,19 +32,8 @@ fn intercept(
 ) !void {
     var varvara_sys: ?*varvara.VarvaraSystem = @alignCast(@ptrCast(data));
 
-    if (varvara_sys) |sys| {
-        const port: u4 = @truncate(addr & 0xf);
-
-        switch (addr >> 4) {
-            0x0 => try sys.system_device.intercept(cpu, port, kind),
-            0x1 => try sys.console_device.intercept(cpu, port, kind),
-            0xa => try sys.file_devices[0].intercept(cpu, port, kind),
-            0xb => try sys.file_devices[1].intercept(cpu, port, kind),
-            0xc => try sys.datetime_device.intercept(cpu, port, kind),
-
-            else => {},
-        }
-    }
+    if (varvara_sys) |sys|
+        try sys.intercept(cpu, addr, kind);
 }
 
 pub fn main() !u8 {

@@ -1,5 +1,8 @@
 const Cpu = @import("uxn-core").Cpu;
 
+const std = @import("std");
+const logger = std.log.scoped(.uxn_varvara_controller);
+
 addr: u4,
 
 pub const ButtonFlags = packed struct(u8) {
@@ -57,6 +60,8 @@ fn get_player_port(player: u2) u4 {
 pub fn press_key(dev: *@This(), cpu: *Cpu, key: u8) !void {
     const base = @as(u8, dev.addr) << 4;
 
+    logger.debug("Sending key press: {x:0>2}", .{key});
+
     cpu.store_device_mem(u8, base | ports.key, key);
 
     try dev.invoke_vector(cpu);
@@ -67,8 +72,11 @@ pub fn press_buttons(dev: *@This(), cpu: *Cpu, buttons: ButtonFlags, player: u2)
     const player_port = get_player_port(player);
 
     const old_state = cpu.load_device_mem(u8, base | player_port);
+    const new_state = old_state | @as(u8, @bitCast(buttons));
 
-    cpu.store_device_mem(u8, base | player_port, old_state | @as(u8, @bitCast(buttons)));
+    logger.debug("Button State: {}", .{@as(ButtonFlags, @bitCast(new_state))});
+
+    cpu.store_device_mem(u8, base | player_port, new_state);
 
     try dev.invoke_vector(cpu);
 }
@@ -78,8 +86,11 @@ pub fn release_buttons(dev: *@This(), cpu: *Cpu, buttons: ButtonFlags, player: u
     const player_port = get_player_port(player);
 
     const old_state = cpu.load_device_mem(u8, base | player_port);
+    const new_state = old_state & ~@as(u8, @bitCast(buttons));
 
-    cpu.store_device_mem(u8, base | player_port, old_state & ~@as(u8, @bitCast(buttons)));
+    logger.debug("Button State: {}", .{@as(ButtonFlags, @bitCast(new_state))});
+
+    cpu.store_device_mem(u8, base | player_port, new_state);
 
     try dev.invoke_vector(cpu);
 }

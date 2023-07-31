@@ -1,6 +1,9 @@
 const Cpu = @import("uxn-core").Cpu;
 const AudioImpl = @import("audio/DefaultImpl.zig");
 
+const std = @import("std");
+const logger = std.log.scoped(.uxn_varvara_audio);
+
 pub const sample_rate = 44100;
 
 addr: u4,
