@@ -165,12 +165,8 @@ pub fn render_audio(dev: *@This(), samples: []i16) ?bool {
             samples[i + j] += @intCast(@divFloor(sample_envelope * v, 0x180));
     }
 
-    // envelope may have changed it
-    if (dev.pitch == null) {
-        return false;
-    }
-
-    return true;
+    // Return whether or not this device is still playing.
+    return dev.pitch != null;
 }
 
 pub fn intercept(
