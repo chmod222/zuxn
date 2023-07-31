@@ -8,6 +8,7 @@ addr: u4,
 pitch: ?PitchFlags = null,
 volume: VolumeFlags = undefined,
 adsr: AdsrFlags = undefined,
+detune: u8 = 0,
 
 sample: []u8 = undefined,
 age: u32 = 0,
@@ -18,6 +19,7 @@ pub const ports = struct {
     pub const vector = 0x0;
     pub const position = 0x2;
     pub const output = 0x4;
+    pub const detune = 0x5;
     pub const adsr = 0x8;
     pub const length = 0xa;
     pub const addr = 0xc;
@@ -113,10 +115,12 @@ fn start_audio(dev: *@This(), cpu: *Cpu) void {
     const base = @as(u8, dev.addr) << 4;
 
     const pitch: PitchFlags = @bitCast(cpu.load_device_mem(u8, base | ports.pitch));
+    const detune: u8 = cpu.load_device_mem(u8, base | ports.detune);
 
     dev.volume = @bitCast(cpu.load_device_mem(u8, base | ports.volume));
     dev.adsr = @bitCast(cpu.load_device_mem(u16, base | ports.adsr));
     dev.pitch = pitch;
+    dev.detune = detune;
 
     const addr: u16 = cpu.load_device_mem(u16, base | ports.addr);
     const len: u16 = cpu.load_device_mem(u16, base | ports.length);
