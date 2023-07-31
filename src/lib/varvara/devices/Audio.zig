@@ -1,5 +1,5 @@
 const Cpu = @import("uxn-core").Cpu;
-const AudioImpl = @import("audio/DefaultImpl.zig");
+const Impl = @import("audio/default.zig").Impl(@This());
 
 const std = @import("std");
 const logger = std.log.scoped(.uxn_varvara_audio);
@@ -16,7 +16,9 @@ detune: u8 = 0,
 sample: []u8 = undefined,
 age: u32 = 0,
 
-audio_impl: AudioImpl = .{},
+impl: Impl = .{},
+
+pub usingnamespace Impl;
 
 pub const ports = struct {
     pub const vector = 0x0;
@@ -106,14 +108,6 @@ pub fn get_output_vu(dev: *@This()) u8 {
     return @bitCast(@as(u8, @truncate(sums[1] << 4)) | @as(u8, @truncate(sums[0])));
 }
 
-fn get_playback_position(dev: *@This()) u16 {
-    return dev.audio_impl.get_playback_position(dev);
-}
-
-fn get_vu(dev: *@This()) u8 {
-    return dev.get_output_vu();
-}
-
 fn start_audio(dev: *@This(), cpu: *Cpu) void {
     const base = @as(u8, dev.addr) << 4;
 
@@ -138,7 +132,7 @@ fn start_audio(dev: *@This(), cpu: *Cpu) void {
     }
 
     dev.age = 0;
-    dev.audio_impl.setup_sound(dev);
+    dev.setup_sound();
 }
 
 pub fn evaluate_finish_vector(dev: *@This(), cpu: *Cpu) !void {
@@ -160,7 +154,7 @@ pub fn render_audio(dev: *@This(), samples: []i16) ?bool {
         const sample_envelope: i32 = @as(i32, sample) * @as(i32, @bitCast(dev.envelope(dev.age)));
 
         dev.age += 1;
-        dev.audio_impl.advance_position(dev);
+        dev.advance_position();
 
         if (dev.get_playback_position() < pos and dev.pitch.?.dont_loop) {
             dev.pitch = null;
@@ -190,7 +184,7 @@ pub fn intercept(
 
     if (kind == .input) {
         if (port == ports.output) {
-            cpu.store_device_mem(u8, base | ports.output, dev.get_vu());
+            cpu.store_device_mem(u8, base | ports.output, dev.get_output_vu());
         } else if (port == ports.position or port == ports.position + 1) {
             cpu.store_device_mem(u16, base | ports.position, dev.get_playback_position());
         }

@@ -1,13 +1,8 @@
 // The default audio implementation uses floating point arithmetic to precisely
 // move the playhead within the sample based on the relative frequency of the selected
 // pitch in regards to the assumed default sample pitch.
-const Impl = @This();
-const Dev = @import("../Audio.zig");
-
 const std = @import("std");
 const logger = std.log.scoped(.uxn_varvara_audio);
-
-factor: f32 = 0.0,
 
 const base_frequencies: [12]f32 = .{
     8.1757989156, // C -1
@@ -87,45 +82,47 @@ const detune_steps: [256]f32 = .{
     1.0585073227945128, 1.0587461848213857, 1.058985100749698,  1.0592240705916123,
 };
 
-pub fn setup_sound(
-    impl: *Impl,
-    dev: *Dev,
-) void {
-    const pitch = dev.pitch.?;
+pub fn Impl(comptime Self: type) type {
+    return struct {
+        factor: f32 = 0.0,
 
-    const octave: u5 = @truncate(pitch.note / 12);
-    const note = pitch.note % 12;
+        pub fn setup_sound(dev: *Self) void {
+            const pitch = dev.pitch.?;
 
-    // Adjust the playback speed based on the sample rate and sample length, calculate
-    // our frequency exponential for the octave.
-    const rate_adjust: f32 = @floatFromInt(Dev.sample_rate / dev.sample.len);
-    const pitch_exponential: f32 = @floatFromInt(@as(u32, 2) << (octave - 1));
+            const octave: u5 = @truncate(pitch.note / 12);
+            const note = pitch.note % 12;
 
-    // Select our pitch, scale it by octave and apply the detune factor.
-    const tone_freq = base_frequencies[note] * pitch_exponential * detune_steps[dev.detune];
+            // Adjust the playback speed based on the sample rate and sample length, calculate
+            // our frequency exponential for the octave.
+            const rate_adjust: f32 = @floatFromInt(Self.sample_rate / dev.sample.len);
+            const pitch_exponential: f32 = @floatFromInt(@as(u32, 2) << (octave - 1));
 
-    // Combine nominal tone frequency with sample rate adjustment to decouple from the
-    // sample rate.
-    impl.factor = tone_freq / rate_adjust;
+            // Select our pitch, scale it by octave and apply the detune factor.
+            const tone_freq = base_frequencies[note] * pitch_exponential * detune_steps[dev.detune];
 
-    logger.debug("[Audio@{x}] Start playing {s} {d}; ADSR: {x:0>4}; Volume: {x:0>2}; Detune: {x:0>2}; SL = {x:0>4}", .{
-        dev.addr,
-        pitch_names[note],
-        octave,
-        @as(u16, @bitCast(dev.adsr)),
-        @as(u8, @bitCast(dev.volume)),
-        dev.detune,
-        dev.sample.len,
-    });
-}
+            // Combine nominal tone frequency with sample rate adjustment to decouple from the
+            // sample rate.
+            dev.impl.factor = tone_freq / rate_adjust;
 
-pub fn get_playback_position(impl: *Impl, dev: *Dev) u16 {
-    const exact_position: f32 = @as(f32, @floatFromInt(dev.age)) * impl.factor;
+            logger.debug("[Audio@{x}] Start playing {s} {d}; ADSR: {x:0>4}; Volume: {x:0>2}; Detune: {x:0>2}; SL = {x:0>4}", .{
+                dev.addr,
+                pitch_names[note],
+                octave,
+                @as(u16, @bitCast(dev.adsr)),
+                @as(u8, @bitCast(dev.volume)),
+                dev.detune,
+                dev.sample.len,
+            });
+        }
 
-    return @truncate(@as(usize, @intFromFloat(exact_position)) % dev.sample.len);
-}
+        pub fn get_playback_position(dev: *Self) u16 {
+            const exact_position: f32 = @as(f32, @floatFromInt(dev.age)) * dev.impl.factor;
 
-pub fn advance_position(impl: *Impl, dev: *Dev) void {
-    _ = impl;
-    _ = dev;
+            return @truncate(@as(usize, @intFromFloat(exact_position)) % dev.sample.len);
+        }
+
+        pub fn advance_position(dev: *Self) void {
+            _ = dev;
+        }
+    };
 }

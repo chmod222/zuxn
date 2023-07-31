@@ -35,42 +35,52 @@ const Directory = struct {
     }
 };
 
-pub fn open_readable(impl: @This(), path: []const u8) !Wrapper {
-    _ = impl;
+pub fn Impl(comptime Self: type) type {
+    return struct {
+        pub const Wrapper = ImplWrapper;
 
-    if (fs.cwd().openIterableDir(path, .{})) |dir| {
-        return .{ .directory = .{
-            .root = dir,
-            .iter = dir.iterate(),
-        } };
-    } else |err| {
-        if (err == error.NotDir) {
-            return .{ .file = try fs.cwd().openFile(path, .{}) };
+        pub fn open_readable(dev: *Self, path: []const u8) !Wrapper {
+            _ = dev;
+
+            if (fs.cwd().openIterableDir(path, .{})) |dir| {
+                return .{
+                    .directory = .{
+                        .root = dir,
+                        .iter = dir.iterate(),
+                    },
+                };
+            } else |err| {
+                if (err == error.NotDir) {
+                    return .{
+                        .file = try fs.cwd().openFile(path, .{}),
+                    };
+                }
+            }
+
+            return error.CannotOpen;
         }
-    }
 
-    return error.CannotOpen;
-}
+        pub fn open_writable(dev: *Self, path: []const u8, truncate: bool) !Wrapper {
+            _ = dev;
 
-pub fn open_writable(impl: @This(), path: []const u8, truncate: bool) !Wrapper {
-    _ = impl;
+            return .{
+                .file = try fs.cwd().createFile(path, .{ .truncate = truncate }),
+            };
+        }
 
-    return .{
-        .file = try fs.cwd().createFile(path, .{ .truncate = truncate }),
+        pub fn delete_file(dev: *Self, path: []const u8) !void {
+            _ = dev;
+
+            try fs.cwd().deleteFile(path);
+        }
     };
 }
 
-pub fn delete_file(impl: @This(), path: []const u8) !void {
-    _ = impl;
-
-    try fs.cwd().deleteFile(path);
-}
-
-pub const Wrapper = union(enum) {
+pub const ImplWrapper = union(enum) {
     directory: Directory,
     file: fs.File,
 
-    pub fn read(self: *Wrapper, buf: []u8) !u16 {
+    pub fn read(self: *@This(), buf: []u8) !u16 {
         switch (self.*) {
             .directory => |*dir| {
                 var offset: usize = 0;
@@ -107,7 +117,7 @@ pub const Wrapper = union(enum) {
         }
     }
 
-    pub fn write(self: *Wrapper, buf: []const u8) !u16 {
+    pub fn write(self: *@This(), buf: []const u8) !u16 {
         return switch (self.*) {
             .file => |f| {
                 return @truncate(try f.write(buf));
@@ -117,7 +127,7 @@ pub const Wrapper = union(enum) {
         };
     }
 
-    pub fn close(self: *Wrapper) void {
+    pub fn close(self: *@This()) void {
         switch (self.*) {
             .directory => |*dir| dir.root.close(),
             .file => |*file| file.close(),
