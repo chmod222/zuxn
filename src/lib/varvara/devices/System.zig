@@ -36,6 +36,8 @@ pub const ports = struct {
     pub const state = 0x0f;
 };
 
+pub usingnamespace @import("impl.zig").DeviceMixin(@This());
+
 fn split_rgb(r: u16, g: u16, b: u16, c: u2) Color {
     const sw = @as(u4, 3 - c) * 4;
 
@@ -55,11 +57,9 @@ pub fn intercept(
     if (kind != .output)
         return;
 
-    const base = @as(u8, dev.addr) << 4;
-
     switch (port) {
         ports.state => {
-            dev.exit_code = cpu.device_mem[base | ports.state] & 0x7f;
+            dev.exit_code = cpu.device_mem[dev.port_address(ports.state)] & 0x7f;
 
             logger.debug("System exit requested (code = {?})", .{dev.exit_code});
         },
@@ -72,7 +72,7 @@ pub fn intercept(
         },
 
         ports.expansion + 1 => {
-            try dev.handle_expansion(cpu, cpu.load_device_mem(u16, base | ports.expansion));
+            try dev.handle_expansion(cpu, cpu.load_device_mem(u16, dev.port_address(ports.expansion)));
         },
 
         ports.red + 1, ports.green + 1, ports.blue + 1 => {
@@ -80,9 +80,9 @@ pub fn intercept(
             //   R 0xABCD
             //   G 0xEFGH
             //   B 0xIJKL => 0xAEI 0xBFJ 0xCGK 0xDHL
-            const r = cpu.load_device_mem(u16, base | ports.red);
-            const g = cpu.load_device_mem(u16, base | ports.green);
-            const b = cpu.load_device_mem(u16, base | ports.blue);
+            const r = cpu.load_device_mem(u16, dev.port_address(ports.red));
+            const g = cpu.load_device_mem(u16, dev.port_address(ports.green));
+            const b = cpu.load_device_mem(u16, dev.port_address(ports.blue));
 
             for (0..4) |i|
                 dev.colors[i] = split_rgb(r, g, b, @truncate(i));
@@ -92,9 +92,8 @@ pub fn intercept(
     }
 }
 
-pub fn handle_fault(dev: @This(), cpu: *Cpu, fault: Cpu.SystemFault) !void {
-    const base = @as(u8, dev.addr) << 4;
-    const catch_vector = cpu.load_device_mem(u16, base | ports.catch_vector);
+pub fn handle_fault(dev: *@This(), cpu: *Cpu, fault: Cpu.SystemFault) !void {
+    const catch_vector = cpu.load_device_mem(u16, dev.port_address(ports.catch_vector));
 
     if (catch_vector > 0x0000 and Cpu.is_catchable(fault)) {
         // Clear stacks, push fault information
@@ -111,14 +110,17 @@ pub fn handle_fault(dev: @This(), cpu: *Cpu, fault: Cpu.SystemFault) !void {
             else => unreachable,
         })) catch unreachable;
 
+        // Due to some weird effects of "usingnamespace" above, handle_fault() no longer feels
+        // like resolving itself in a recursive call, so we make a little indirection via
+        // @call() to help the resolver.
         cpu.evaluate_vector(catch_vector) catch |new_fault|
-            try dev.handle_fault(cpu, new_fault);
+            try @call(.always_tail, handle_fault, .{ dev, cpu, new_fault });
     } else {
         return fault;
     }
 }
 
-fn select_memory_page(dev: @This(), cpu: *Cpu, page: u16) ?*[Cpu.page_size]u8 {
+fn select_memory_page(dev: *@This(), cpu: *Cpu, page: u16) ?*[Cpu.page_size]u8 {
     if (page == 0x0000) {
         return cpu.mem;
     } else if (dev.additional_pages) |page_table| {
@@ -130,7 +132,7 @@ fn select_memory_page(dev: @This(), cpu: *Cpu, page: u16) ?*[Cpu.page_size]u8 {
     return null;
 }
 
-pub fn handle_expansion(dev: @This(), cpu: *Cpu, operation: u16) !void {
+pub fn handle_expansion(dev: *@This(), cpu: *Cpu, operation: u16) !void {
     switch (cpu.mem[operation]) {
         // copy
         0x01 => {

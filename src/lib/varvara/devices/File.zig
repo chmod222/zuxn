@@ -22,6 +22,8 @@ pub const ports = struct {
     pub const write = 0xe;
 };
 
+pub usingnamespace @import("impl.zig").DeviceMixin(@This());
+
 pub fn cleanup(dev: *@This()) void {
     if (dev.active_file) |*f| {
         f.close();
@@ -35,12 +37,12 @@ pub fn cleanup(dev: *@This()) void {
 }
 
 fn get_port_slice(dev: *@This(), cpu: *Cpu, comptime port: comptime_int) []u8 {
-    const ptr: usize = cpu.load_device_mem(u16, @as(u8, dev.addr) << 4 | port);
+    const ptr: usize = cpu.load_device_mem(u16, dev.port_address(port));
 
     return if (port == ports.name)
         std.mem.sliceTo(cpu.mem[ptr..], 0x00)
     else
-        return cpu.mem[ptr..ptr +| cpu.load_device_mem(u16, @as(u8, dev.addr) << 4 | ports.length)];
+        return cpu.mem[ptr..ptr +| cpu.load_device_mem(u16, dev.port_address(ports.length))];
 }
 
 pub fn intercept(
@@ -52,18 +54,16 @@ pub fn intercept(
     if (kind != .output)
         return;
 
-    const base = @as(u8, dev.addr) << 4;
-
     switch (port) {
         ports.name + 1 => {
             // Close a previously opened file
             dev.cleanup();
 
-            cpu.store_device_mem(u16, base | ports.success, 0x0001);
+            cpu.store_device_mem(u16, dev.port_address(ports.success), 0x0001);
         },
 
         ports.write + 1 => {
-            const truncate = cpu.load_device_mem(u8, base | ports.append) == 0x00;
+            const truncate = cpu.load_device_mem(u8, dev.port_address(ports.append)) == 0x00;
 
             const name_slice = dev.get_port_slice(cpu, ports.name);
             const data_slice = dev.get_port_slice(cpu, ports.write);
@@ -76,7 +76,7 @@ pub fn intercept(
                     err,
                 });
 
-                return cpu.store_device_mem(u16, base | ports.success, 0x0000);
+                return cpu.store_device_mem(u16, dev.port_address(ports.success), 0x0000);
             };
 
             if (dev.active_file == null) {
@@ -97,7 +97,7 @@ pub fn intercept(
                 break :r 0x0000;
             };
 
-            cpu.store_device_mem(u16, base | ports.success, res);
+            cpu.store_device_mem(u16, dev.port_address(ports.success), res);
             dev.active_file = t;
         },
 
@@ -108,7 +108,7 @@ pub fn intercept(
             var t = dev.active_file orelse dev.open_readable(name_slice) catch |err| {
                 logger.debug("[File@{x}] Failed opening \"{s}\" for read access: {}", .{ dev.addr, name_slice, err });
 
-                return cpu.store_device_mem(u16, base | ports.success, 0x0000);
+                return cpu.store_device_mem(u16, dev.port_address(ports.success), 0x0000);
             };
 
             if (dev.active_file == null) {
@@ -125,7 +125,7 @@ pub fn intercept(
                 break :r 0x0000;
             };
 
-            cpu.store_device_mem(u16, base | ports.success, res);
+            cpu.store_device_mem(u16, dev.port_address(ports.success), res);
             dev.active_file = t;
         },
 
@@ -142,7 +142,7 @@ pub fn intercept(
                 break :r 0x0000;
             };
 
-            cpu.store_device_mem(u16, base | ports.success, res);
+            cpu.store_device_mem(u16, dev.port_address(ports.success), res);
         },
 
         ports.stat + 1 => {
@@ -150,7 +150,7 @@ pub fn intercept(
 
             logger.warn("[File@{x}] Called stat on \"{s}\"; not implemented", .{ dev.addr, name_slice });
 
-            cpu.store_device_mem(u16, base | ports.success, 0x0000);
+            cpu.store_device_mem(u16, dev.port_address(ports.success), 0x0000);
         },
 
         else => {},

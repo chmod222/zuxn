@@ -71,6 +71,8 @@ pub const ports = struct {
     pub const sprite = 0xf;
 };
 
+pub usingnamespace @import("impl.zig").DeviceMixin(@This());
+
 fn normalize_region(
     dev: *@This(),
     region: *Rect,
@@ -130,31 +132,29 @@ pub fn intercept(
     port: u4,
     kind: Cpu.InterceptKind,
 ) !void {
-    const base = @as(u8, dev.addr) << 4;
-
     if (kind == .input) {
         switch (port) {
             ports.width, ports.width + 1 => {
-                cpu.store_device_mem(u16, base | ports.width, dev.width);
+                cpu.store_device_mem(u16, dev.port_address(ports.width), dev.width);
             },
 
             ports.height, ports.height + 1 => {
-                cpu.store_device_mem(u16, base | ports.height, dev.height);
+                cpu.store_device_mem(u16, dev.port_address(ports.height), dev.height);
             },
 
             else => {},
         }
     } else {
         switch (port) {
-            ports.width + 1 => dev.width = cpu.load_device_mem(u16, base | ports.width),
-            ports.height + 1 => dev.height = cpu.load_device_mem(u16, base | ports.height),
+            ports.width + 1 => dev.width = cpu.load_device_mem(u16, dev.port_address(ports.width)),
+            ports.height + 1 => dev.height = cpu.load_device_mem(u16, dev.port_address(ports.height)),
 
             ports.pixel => {
-                const flags: PixelFlags = @bitCast(cpu.load_device_mem(u8, base | ports.pixel));
-                const auto: AutoFlags = @bitCast(cpu.load_device_mem(u8, base | ports.auto));
+                const flags: PixelFlags = @bitCast(cpu.load_device_mem(u8, dev.port_address(ports.pixel)));
+                const auto: AutoFlags = @bitCast(cpu.load_device_mem(u8, dev.port_address(ports.auto)));
 
-                var x0 = cpu.load_device_mem(u16, base | ports.x);
-                var y0 = cpu.load_device_mem(u16, base | ports.y);
+                var x0 = cpu.load_device_mem(u16, dev.port_address(ports.x));
+                var y0 = cpu.load_device_mem(u16, dev.port_address(ports.y));
 
                 var x1: u16 = undefined;
                 var y1: u16 = undefined;
@@ -176,19 +176,19 @@ pub fn intercept(
                     if (x0 < dev.width and y0 < dev.height)
                         layer[@as(usize, y0) * dev.width + x0] = flags.color;
 
-                    if (auto.x) cpu.store_device_mem(u16, base | ports.x, x1);
-                    if (auto.y) cpu.store_device_mem(u16, base | ports.y, y1);
+                    if (auto.x) cpu.store_device_mem(u16, dev.port_address(ports.x), x1);
+                    if (auto.y) cpu.store_device_mem(u16, dev.port_address(ports.y), y1);
                 }
 
                 dev.update_dirty_region(x0, y0, x1, y1);
             },
 
             ports.sprite => {
-                const flags: SpriteFlags = @bitCast(cpu.load_device_mem(u8, base | ports.sprite));
-                const auto: AutoFlags = @bitCast(cpu.load_device_mem(u8, base | ports.auto));
+                const flags: SpriteFlags = @bitCast(cpu.load_device_mem(u8, dev.port_address(ports.sprite)));
+                const auto: AutoFlags = @bitCast(cpu.load_device_mem(u8, dev.port_address(ports.auto)));
 
-                const x = cpu.load_device_mem(u16, base | ports.x);
-                const y = cpu.load_device_mem(u16, base | ports.y);
+                const x = cpu.load_device_mem(u16, dev.port_address(ports.x));
+                const y = cpu.load_device_mem(u16, dev.port_address(ports.y));
 
                 const dx: u16 = if (auto.x) 8 else 0;
                 const dy: u16 = if (auto.y) 8 else 0;
@@ -197,7 +197,7 @@ pub fn intercept(
 
                 const layer = if (flags.layer == 0x00) dev.background else dev.foreground;
 
-                var addr = cpu.load_device_mem(u16, base | ports.addr);
+                var addr = cpu.load_device_mem(u16, dev.port_address(ports.addr));
 
                 for (0..l) |i| {
                     // dy and dx flipped in original implementation
@@ -220,9 +220,9 @@ pub fn intercept(
                     @as(usize, y) +% (dx * l) +% 8,
                 );
 
-                if (auto.x) cpu.store_device_mem(u16, base | ports.x, x +% dx);
-                if (auto.y) cpu.store_device_mem(u16, base | ports.y, y +% dy);
-                if (auto.addr) cpu.store_device_mem(u16, base | ports.addr, addr);
+                if (auto.x) cpu.store_device_mem(u16, dev.port_address(ports.x), x +% dx);
+                if (auto.y) cpu.store_device_mem(u16, dev.port_address(ports.y), y +% dy);
+                if (auto.addr) cpu.store_device_mem(u16, dev.port_address(ports.addr), addr);
             },
 
             else => {
@@ -326,7 +326,7 @@ pub fn cleanup_graphics(dev: *@This()) void {
 }
 
 pub fn evaluate_frame(dev: *@This(), cpu: *Cpu) !void {
-    const vector = cpu.load_device_mem(u16, @as(u8, dev.addr) << 4 | ports.vector);
+    const vector = cpu.load_device_mem(u16, dev.port_address(ports.vector));
 
     if (vector != 0x0000)
         return cpu.evaluate_vector(vector);

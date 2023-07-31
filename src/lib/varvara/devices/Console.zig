@@ -13,6 +13,8 @@ pub const ports = struct {
     pub const err = 0x9;
 };
 
+pub usingnamespace @import("impl.zig").DeviceMixin(@This());
+
 pub fn intercept(
     dev: @This(),
     cpu: *Cpu,
@@ -27,8 +29,7 @@ pub fn intercept(
     if (port != ports.write and port != ports.err)
         return;
 
-    const base = @as(u8, dev.addr) << 4;
-    const octet = cpu.device_mem[base | port];
+    const octet = cpu.device_mem[dev.port_address(port)];
 
     if (port == ports.write) {
         _ = stdout_writer.write(&[_]u8{octet}) catch return;
@@ -42,20 +43,18 @@ pub fn push_arguments(
     cpu: *Cpu,
     args: [][]const u8,
 ) !void {
-    const base = @as(u8, dev.addr) << 4;
-
     for (0.., args) |i, arg| {
         for (arg) |oct| {
-            cpu.device_mem[base | ports.typ] = 0x2;
-            cpu.device_mem[base | ports.read] = oct;
+            cpu.device_mem[dev.port_address(ports.typ)] = 0x2;
+            cpu.device_mem[dev.port_address(ports.read)] = oct;
 
-            try cpu.evaluate_vector(cpu.load_device_mem(u16, base | ports.vector));
+            try cpu.evaluate_vector(cpu.load_device_mem(u16, dev.port_address(ports.vector)));
         }
 
-        cpu.device_mem[base | ports.typ] = if (i == args.len - 1) 0x4 else 0x3;
-        cpu.device_mem[base | ports.read] = 0x10;
+        cpu.device_mem[dev.port_address(ports.typ)] = if (i == args.len - 1) 0x4 else 0x3;
+        cpu.device_mem[dev.port_address(ports.read)] = 0x10;
 
-        try cpu.evaluate_vector(cpu.load_device_mem(u16, base | ports.vector));
+        try cpu.evaluate_vector(cpu.load_device_mem(u16, dev.port_address(ports.vector)));
     }
 }
 
@@ -64,9 +63,7 @@ pub fn set_argc(
     cpu: *Cpu,
     args: [][]const u8,
 ) void {
-    const base = @as(u8, dev.addr) << 4;
-
-    cpu.device_mem[base | ports.typ] = @intFromBool(args.len > 0);
+    cpu.device_mem[dev.port_address(ports.typ)] = @intFromBool(args.len > 0);
 }
 
 pub fn push_stdin_byte(
@@ -74,11 +71,10 @@ pub fn push_stdin_byte(
     cpu: *Cpu,
     byte: u8,
 ) !void {
-    const base = @as(u8, dev.addr) << 4;
-    const vector = cpu.load_device_mem(u16, base | ports.vector);
+    const vector = cpu.load_device_mem(u16, dev.port_address(ports.vector));
 
-    cpu.device_mem[base | ports.typ] = 0x1;
-    cpu.device_mem[base | ports.read] = byte;
+    cpu.device_mem[dev.port_address(ports.typ)] = 0x1;
+    cpu.device_mem[dev.port_address(ports.read)] = byte;
 
     if (vector > 0x0000)
         try cpu.evaluate_vector(vector);

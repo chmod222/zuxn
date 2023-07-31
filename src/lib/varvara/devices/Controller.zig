@@ -25,24 +25,22 @@ pub const ports = struct {
     pub const p4 = 0x7;
 };
 
+pub usingnamespace @import("impl.zig").DeviceMixin(@This());
+
 pub fn intercept(
     dev: *@This(),
     cpu: *Cpu,
     port: u4,
     kind: Cpu.InterceptKind,
 ) !void {
-    const base = @as(u8, dev.addr) << 4;
-
+    _ = dev;
     _ = cpu;
     _ = port;
     _ = kind;
-    _ = base;
 }
 
 fn invoke_vector(dev: *@This(), cpu: *Cpu) !void {
-    const base = @as(u8, dev.addr) << 4;
-
-    const vector = cpu.load_device_mem(u16, base | ports.vector);
+    const vector = cpu.load_device_mem(u16, dev.port_address(ports.vector));
 
     if (vector > 0)
         try cpu.evaluate_vector(vector);
@@ -58,39 +56,35 @@ fn get_player_port(player: u2) u4 {
 }
 
 pub fn press_key(dev: *@This(), cpu: *Cpu, key: u8) !void {
-    const base = @as(u8, dev.addr) << 4;
-
     logger.debug("Sending key press: {x:0>2}", .{key});
 
-    cpu.store_device_mem(u8, base | ports.key, key);
+    cpu.store_device_mem(u8, dev.port_address(ports.key), key);
 
     try dev.invoke_vector(cpu);
 }
 
 pub fn press_buttons(dev: *@This(), cpu: *Cpu, buttons: ButtonFlags, player: u2) !void {
-    const base = @as(u8, dev.addr) << 4;
     const player_port = get_player_port(player);
 
-    const old_state = cpu.load_device_mem(u8, base | player_port);
+    const old_state = cpu.load_device_mem(u8, dev.port_address(player_port));
     const new_state = old_state | @as(u8, @bitCast(buttons));
 
     logger.debug("Button State: {}", .{@as(ButtonFlags, @bitCast(new_state))});
 
-    cpu.store_device_mem(u8, base | player_port, new_state);
+    cpu.store_device_mem(u8, dev.port_address(player_port), new_state);
 
     try dev.invoke_vector(cpu);
 }
 
 pub fn release_buttons(dev: *@This(), cpu: *Cpu, buttons: ButtonFlags, player: u2) !void {
-    const base = @as(u8, dev.addr) << 4;
     const player_port = get_player_port(player);
 
-    const old_state = cpu.load_device_mem(u8, base | player_port);
+    const old_state = cpu.load_device_mem(u8, dev.port_address(player_port));
     const new_state = old_state & ~@as(u8, @bitCast(buttons));
 
     logger.debug("Button State: {}", .{@as(ButtonFlags, @bitCast(new_state))});
 
-    cpu.store_device_mem(u8, base | player_port, new_state);
+    cpu.store_device_mem(u8, dev.port_address(player_port), new_state);
 
     try dev.invoke_vector(cpu);
 }

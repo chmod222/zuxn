@@ -18,8 +18,6 @@ age: u32 = 0,
 
 impl: Impl = .{},
 
-pub usingnamespace Impl;
-
 pub const ports = struct {
     pub const vector = 0x0;
     pub const position = 0x2;
@@ -31,6 +29,9 @@ pub const ports = struct {
     pub const volume = 0xe;
     pub const pitch = 0xf;
 };
+
+pub usingnamespace @import("impl.zig").DeviceMixin(@This());
+pub usingnamespace Impl;
 
 pub const AdsrFlags = packed struct(u16) {
     release: u4,
@@ -109,18 +110,16 @@ pub fn get_output_vu(dev: *@This()) u8 {
 }
 
 fn start_audio(dev: *@This(), cpu: *Cpu) void {
-    const base = @as(u8, dev.addr) << 4;
+    const pitch: PitchFlags = @bitCast(cpu.load_device_mem(u8, dev.port_address(ports.pitch)));
+    const detune: u8 = cpu.load_device_mem(u8, dev.port_address(ports.detune));
 
-    const pitch: PitchFlags = @bitCast(cpu.load_device_mem(u8, base | ports.pitch));
-    const detune: u8 = cpu.load_device_mem(u8, base | ports.detune);
-
-    dev.volume = @bitCast(cpu.load_device_mem(u8, base | ports.volume));
-    dev.adsr = @bitCast(cpu.load_device_mem(u16, base | ports.adsr));
+    dev.volume = @bitCast(cpu.load_device_mem(u8, dev.port_address(ports.volume)));
+    dev.adsr = @bitCast(cpu.load_device_mem(u16, dev.port_address(ports.adsr)));
     dev.pitch = pitch;
     dev.detune = detune;
 
-    const addr: u16 = cpu.load_device_mem(u16, base | ports.addr);
-    const len: u16 = cpu.load_device_mem(u16, base | ports.length);
+    const addr: u16 = cpu.load_device_mem(u16, dev.port_address(ports.addr));
+    const len: u16 = cpu.load_device_mem(u16, dev.port_address(ports.length));
 
     dev.sample = cpu.mem[addr..addr +| len];
 
@@ -136,7 +135,7 @@ fn start_audio(dev: *@This(), cpu: *Cpu) void {
 }
 
 pub fn evaluate_finish_vector(dev: *@This(), cpu: *Cpu) !void {
-    const vector = cpu.load_device_mem(u16, @as(u8, dev.addr) << 4 | ports.vector);
+    const vector = cpu.load_device_mem(u16, dev.port_address(ports.vector));
 
     if (vector != 0x0000)
         return cpu.evaluate_vector(vector);
@@ -180,13 +179,11 @@ pub fn intercept(
     port: u4,
     kind: Cpu.InterceptKind,
 ) !void {
-    const base = @as(u8, dev.addr) << 4;
-
     if (kind == .input) {
         if (port == ports.output) {
-            cpu.store_device_mem(u8, base | ports.output, dev.get_output_vu());
+            cpu.store_device_mem(u8, dev.port_address(ports.output), dev.get_output_vu());
         } else if (port == ports.position or port == ports.position + 1) {
-            cpu.store_device_mem(u16, base | ports.position, dev.get_playback_position());
+            cpu.store_device_mem(u16, dev.port_address(ports.position), dev.get_playback_position());
         }
     } else if (kind == .output and port == ports.pitch) {
         dev.start_audio(cpu);
