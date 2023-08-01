@@ -77,20 +77,34 @@ pub fn build(b: *std.Build) void {
     uxn_cli.addModule("clap", dep_clap.module("clap"));
     uxn_cli.linkLibC();
 
-    const uxn_sdl = b.addExecutable(.{
-        .name = "uxn-sdl",
-        .root_source_file = .{ .path = "src/uxn-sdl/main.zig" },
-        .target = target,
-        .optimize = optimize,
-    });
+    if (target.cpu_arch != .wasm32) {
+        const uxn_sdl = b.addExecutable(.{
+            .name = "uxn-sdl",
+            .root_source_file = .{ .path = "src/uxn-sdl/main.zig" },
+            .target = target,
+            .optimize = optimize,
+        });
 
-    uxn_sdl.addModule("uxn-shared", shared_mod);
-    uxn_sdl.addModule("uxn-core", core_mod);
-    uxn_sdl.addModule("uxn-varvara", varvara_mod);
-    uxn_sdl.addModule("clap", dep_clap.module("clap"));
-    uxn_sdl.linkLibC();
-    uxn_sdl.linkSystemLibrary("SDL2_image");
-    uxn_sdl.linkSystemLibrary("SDL2");
+        uxn_sdl.addModule("uxn-shared", shared_mod);
+        uxn_sdl.addModule("uxn-core", core_mod);
+        uxn_sdl.addModule("uxn-varvara", varvara_mod);
+        uxn_sdl.addModule("clap", dep_clap.module("clap"));
+        uxn_sdl.linkLibC();
+        uxn_sdl.linkSystemLibrary("SDL2_image");
+        uxn_sdl.linkSystemLibrary("SDL2");
+
+        b.installArtifact(uxn_sdl);
+
+        const run_sdl_cmd = b.addRunArtifact(uxn_sdl);
+
+        run_sdl_cmd.step.dependOn(b.getInstallStep());
+
+        if (b.args) |args|
+            run_sdl_cmd.addArgs(args);
+
+        const run_sdl_step = b.step("run-sdl", "Run the SDL evaluator");
+        run_sdl_step.dependOn(&run_sdl_cmd.step);
+    }
 
     const uxn_asm = b.addExecutable(.{
         .name = "uxn-asm",
@@ -102,29 +116,22 @@ pub fn build(b: *std.Build) void {
     uxn_asm.addModule("uxn-asm", asm_mod);
     uxn_asm.addModule("clap", dep_clap.module("clap"));
 
-    b.installArtifact(uxn_sdl);
     b.installArtifact(uxn_cli);
     b.installArtifact(uxn_asm);
 
     const run_cli_cmd = b.addRunArtifact(uxn_cli);
-    const run_sdl_cmd = b.addRunArtifact(uxn_sdl);
     const run_asm_cmd = b.addRunArtifact(uxn_asm);
 
     run_cli_cmd.step.dependOn(b.getInstallStep());
-    run_sdl_cmd.step.dependOn(b.getInstallStep());
     run_asm_cmd.step.dependOn(b.getInstallStep());
 
     if (b.args) |args| {
         run_cli_cmd.addArgs(args);
-        run_sdl_cmd.addArgs(args);
         run_asm_cmd.addArgs(args);
     }
 
     const run_cli_step = b.step("run-cli", "Run the CLI evaluator");
     run_cli_step.dependOn(&run_cli_cmd.step);
-
-    const run_sdl_step = b.step("run-sdl", "Run the SDL evaluator");
-    run_sdl_step.dependOn(&run_sdl_cmd.step);
 
     const run_asm_step = b.step("run-asm", "Run the uxn assembler");
     run_asm_step.dependOn(&run_asm_cmd.step);

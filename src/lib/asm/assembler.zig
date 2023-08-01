@@ -463,7 +463,7 @@ pub fn Assembler(comptime lim: scan.Limits) type {
             //      while this one includes pads. A pad without writes at the end
             //      of the source will include 0x00 bytes in the output while the
             //      reference will implicitely fill in those 0x00 when loading the rom.
-            assembler.rom_length = try seekable.getPos();
+            assembler.rom_length = @truncate(try seekable.getPos());
 
             try assembler.resolve_references(output, seekable);
         }
@@ -480,8 +480,12 @@ pub fn Assembler(comptime lim: scan.Limits) type {
             var full_path_buffer: [fs.MAX_PATH_BYTES]u8 = undefined;
 
             // Determine canonical path to included file
-            const full_path = dir.realpath(path, &full_path_buffer) catch
-                return error.IncludeNotFound;
+            const builtin = @import("builtin");
+
+            const full_path = if (builtin.target.cpu.arch != .wasm32)
+                dir.realpath(path, &full_path_buffer) catch return error.IncludeNotFound
+            else
+                path;
 
             // Open the include file
             const file = dir.openFile(full_path, .{}) catch

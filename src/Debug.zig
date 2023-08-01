@@ -38,7 +38,7 @@ pub fn load_symbols(alloc: Allocator, reader: anytype) !Debug {
 
         try reader.streamUntilDelimiter(fbs.writer(), 0x00, null);
 
-        @memset(temp.symbol[fbs.getPos() catch unreachable ..], 0x00);
+        @memset(temp.symbol[@truncate(fbs.getPos() catch unreachable)..], 0x00);
 
         try symbol_list.append(temp);
     } else unreachable;

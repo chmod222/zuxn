@@ -1,9 +1,13 @@
 const Cpu = @import("uxn-core").Cpu;
 
+const builtin = @import("builtin");
 const std = @import("std");
 const logger = std.log.scoped(.uxn_varvara_file);
 
-const Impl = @import("fs/default.zig").Impl(@This());
+const Impl = if (builtin.target.os.tag != .freestanding)
+    @import("fs/default.zig").Impl(@This())
+else
+    @import("fs/noop.zig").Impl(@This());
 
 pub usingnamespace Impl;
 

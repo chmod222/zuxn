@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const std = @import("std");
 const fs = std.fs;
 const io = std.io;
@@ -21,12 +22,21 @@ const Directory = struct {
         var writer = fbw.writer();
 
         if (entry.kind != .directory) {
-            var stat = try dir.root.dir.statFile(entry.name);
+            const file_size = if (comptime builtin.os.tag == .wasi) s: {
+                // Some problems with statFile not working under WASI
+                if (dir.root.dir.openFile(entry.name, .{})) |f| {
+                    defer f.close();
 
-            try if (stat.size > 0xffff)
+                    break :s f.getEndPos() catch 0x10000;
+                } else |_| {
+                    break :s 0x10000;
+                }
+            } else (try dir.root.dir.statFile(entry.name)).size;
+
+            try if (file_size > 0xffff)
                 writer.print("???? {s}\n", .{entry.name})
             else
-                writer.print("{x:0>4} {s}\n", .{ stat.size, entry.name });
+                writer.print("{x:0>4} {s}\n", .{ file_size, entry.name });
         } else {
             try writer.print("---- {s}/\n", .{entry.name});
         }

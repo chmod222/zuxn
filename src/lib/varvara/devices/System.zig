@@ -114,7 +114,7 @@ pub fn handle_fault(dev: *@This(), cpu: *Cpu, fault: Cpu.SystemFault) !void {
         // like resolving itself in a recursive call, so we make a little indirection via
         // @call() to help the resolver.
         cpu.evaluate_vector(catch_vector) catch |new_fault|
-            try @call(.always_tail, handle_fault, .{ dev, cpu, new_fault });
+            try @call(.auto, handle_fault, .{ dev, cpu, new_fault });
     } else {
         return fault;
     }
@@ -134,8 +134,9 @@ fn select_memory_page(dev: *@This(), cpu: *Cpu, page: u16) ?*[Cpu.page_size]u8 {
 
 pub fn handle_expansion(dev: *@This(), cpu: *Cpu, operation: u16) !void {
     switch (cpu.mem[operation]) {
-        // copy
         0x01 => {
+            // copy
+
             // [ operation:u8 | len:u16 | srcpg:u16 | src:u16 | dstpg:u16 | dst:u16]
             const dat_len = cpu.load_mem(u16, operation + 1);
 
