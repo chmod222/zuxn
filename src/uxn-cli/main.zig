@@ -8,7 +8,7 @@ const Debug = @import("uxn-shared").Debug;
 
 pub const std_options = struct {
     pub const log_scope_levels = &[_]std.log.ScopeLevel{
-        .{ .scope = .uxn_cpu, .level = .debug },
+        .{ .scope = .uxn_cpu, .level = .info },
 
         .{ .scope = .uxn_varvara, .level = .info },
         .{ .scope = .uxn_varvara_system, .level = .info },
