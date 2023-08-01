@@ -183,6 +183,36 @@ pub fn handle_expansion(dev: *@This(), cpu: *Cpu, operation: u16) !void {
             @memcpy(dst_slice, src_slice);
         },
 
+        // Let's use >0x80 for our own things until the reference implementation assigns them values
+        0x80 => {
+            // Retrieve environment variable
+
+            // [ operation:u8 | name:u16 | dest:u16 | len:u16]
+            // Retrieve the environment variable with the 0-terminated name referenced by "name" and store
+            // its value (if any) into the memory pointed to by "dest" (of max. length "len")
+            const name_ptr = cpu.load_mem(u16, operation + 1);
+
+            const dest_ptr = cpu.load_mem(u16, operation + 3);
+            const dest_len = cpu.load_mem(u16, operation + 5);
+
+            const env_name = std.mem.sliceTo(cpu.mem[name_ptr..], 0);
+            var dest = cpu.mem[dest_ptr .. dest_ptr + dest_len];
+
+            logger.debug("Expansion: Fetch environment variable \"{s}\" (dest len = {})", .{ env_name, dest_len });
+
+            const env = std.os.getenv(env_name) orelse "";
+            const cpy_len = @min(env.len, dest.len);
+
+            if (cpy_len > 0) {
+                @memcpy(dest[0..cpy_len], env[0..cpy_len]);
+
+                if (dest.len > env.len)
+                    dest[cpy_len] = 0x00
+                else
+                    dest[cpy_len - 1] = 0x00;
+            }
+        },
+
         else => {},
     }
 }
