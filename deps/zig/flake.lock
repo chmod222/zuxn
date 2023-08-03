@@ -1,17 +1,5 @@
 {
   "nodes": {
-    "clap": {
-      "flake": false,
-      "locked": {
-        "narHash": "sha256-wQADKm6c51ML1OnRkf1km/AHvNoZN05wQztHDKs/Xq0=",
-        "type": "tarball",
-        "url": "https://github.com/Hejsil/zig-clap/archive/bdb5853b678d68f342ec65b04a6785af522ca6c9.tar.gz"
-      },
-      "original": {
-        "type": "tarball",
-        "url": "https://github.com/Hejsil/zig-clap/archive/bdb5853b678d68f342ec65b04a6785af522ca6c9.tar.gz"
-      }
-    },
     "flake-utils": {
       "locked": {
         "lastModified": 1652776076,
@@ -44,30 +32,8 @@
     },
     "root": {
       "inputs": {
-        "clap": "clap",
         "flake-utils": "flake-utils",
-        "nixpkgs": "nixpkgs",
-        "zig": "zig"
-      }
-    },
-    "zig": {
-      "inputs": {
-        "flake-utils": [
-          "flake-utils"
-        ],
-        "nixpkgs": [
-          "nixpkgs"
-        ]
-      },
-      "locked": {
-        "lastModified": 1,
-        "narHash": "sha256-dDwMu8uC8lcSsAaTH3pURTANnYHp59+IyDVFAom6wfA=",
-        "path": "deps/zig",
-        "type": "path"
-      },
-      "original": {
-        "path": "deps/zig",
-        "type": "path"
+        "nixpkgs": "nixpkgs"
       }
     }
   },
