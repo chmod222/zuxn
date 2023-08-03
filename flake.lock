@@ -1,0 +1,76 @@
+{
+  "nodes": {
+    "clap": {
+      "flake": false,
+      "locked": {
+        "narHash": "sha256-wQADKm6c51ML1OnRkf1km/AHvNoZN05wQztHDKs/Xq0=",
+        "type": "tarball",
+        "url": "https://github.com/Hejsil/zig-clap/archive/bdb5853b678d68f342ec65b04a6785af522ca6c9.tar.gz"
+      },
+      "original": {
+        "type": "tarball",
+        "url": "https://github.com/Hejsil/zig-clap/archive/bdb5853b678d68f342ec65b04a6785af522ca6c9.tar.gz"
+      }
+    },
+    "flake-utils": {
+      "locked": {
+        "lastModified": 1652776076,
+        "narHash": "sha256-gzTw/v1vj4dOVbpBSJX4J0DwUR6LIyXo7/SuuTJp1kM=",
+        "owner": "numtide",
+        "repo": "flake-utils",
+        "rev": "04c1b180862888302ddfb2e3ad9eaa63afc60cf8",
+        "type": "github"
+      },
+      "original": {
+        "owner": "numtide",
+        "ref": "v1.0.0",
+        "repo": "flake-utils",
+        "type": "github"
+      }
+    },
+    "nixpkgs": {
+      "locked": {
+        "lastModified": 1691003216,
+        "narHash": "sha256-Qq/MPkhS12Bl0X060pPvX3v9ac3f2rRQfHjjozPh/Qs=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "4a56ce9727a0c5478a836a0d8a8f641c5b9a3d5f",
+        "type": "github"
+      },
+      "original": {
+        "id": "nixpkgs",
+        "type": "indirect"
+      }
+    },
+    "root": {
+      "inputs": {
+        "clap": "clap",
+        "flake-utils": "flake-utils",
+        "nixpkgs": "nixpkgs",
+        "zig": "zig"
+      }
+    },
+    "zig": {
+      "inputs": {
+        "flake-utils": [
+          "flake-utils"
+        ],
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1,
+        "narHash": "sha256-xVSqD8K5Z8clcVC2+st2sY4EjN6udXhTbHq8aS5Cdok=",
+        "path": "deps/zig",
+        "type": "path"
+      },
+      "original": {
+        "path": "deps/zig",
+        "type": "path"
+      }
+    }
+  },
+  "root": "root",
+  "version": 7
+}
