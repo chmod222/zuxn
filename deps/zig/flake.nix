@@ -8,13 +8,13 @@
       in {
         packages.default = pkgs.zig.overrideAttrs(f: p: rec {
           name = "zig";
-          version = "0.11.0-dev.4410+76f7b40e1";
+          version = "0.11.0";
 
           src = pkgs.fetchFromGitHub {
             owner = "ziglang";
             repo = "zig";
-            rev = "76f7b40e15456ed6ec2249607a91e8398a0d39e8";
-            hash = "sha256-MwY2EeDVs2ZKiaF3n2Lu0W+wC3HUAa7cftKIfz8KyXY=";
+            rev = "0.11.0";
+            hash = "sha256-iuU1fzkbJxI+0N1PiLQM013Pd1bzrgqkbIyTxo5gB2I=";
           };
 
           patches = [];
@@ -25,7 +25,7 @@
           ];
 
           cmakeFlags = p.cmakeFlags ++ [
-            "-DZIG_VERSION=0.11.0-dev.4410+76f7b40e1"
+            "-DZIG_VERSION=0.11.0"
           ];
 
           # There is one error during the build that does
