@@ -2,14 +2,14 @@ const std = @import("std");
 
 const uxn = @import("uxn-core");
 
-pub const System = @import("devices/System.zig");
-pub const Console = @import("devices/Console.zig");
-pub const Screen = @import("devices/Screen.zig");
-pub const Audio = @import("devices/Audio.zig");
-pub const Controller = @import("devices/Controller.zig");
-pub const Mouse = @import("devices/Mouse.zig");
-pub const File = @import("devices/File.zig");
-pub const Datetime = @import("devices/Datetime.zig");
+pub const system = @import("devices/system.zig");
+pub const console = @import("devices/console.zig");
+pub const screen = @import("devices/screen.zig");
+pub const audio = @import("devices/audio.zig");
+pub const controller = @import("devices/controller.zig");
+pub const mouse = @import("devices/mouse.zig");
+pub const file = @import("devices/file.zig");
+pub const datetime = @import("devices/datetime.zig");
 
 pub const pages = 4;
 
@@ -21,14 +21,14 @@ pub fn VarvaraSystem(comptime StdoutWriter: type, comptime StderrWriter: type) t
         allocator: std.mem.Allocator,
         page_table: ?[][uxn.Cpu.page_size]u8 = null,
 
-        system_device: System,
-        console_device: Console,
-        screen_device: Screen,
-        audio_devices: [4]Audio,
-        controller_device: Controller,
-        mouse_device: Mouse,
-        file_devices: [2]File,
-        datetime_device: Datetime,
+        system_device: system.System,
+        console_device: console.Console,
+        screen_device: screen.Screen,
+        audio_devices: [4]audio.Audio,
+        controller_device: controller.Controller,
+        mouse_device: mouse.Mouse,
+        file_devices: [2]file.File,
+        datetime_device: datetime.Datetime,
 
         pub fn init(
             allocator: std.mem.Allocator,
@@ -37,7 +37,7 @@ pub fn VarvaraSystem(comptime StdoutWriter: type, comptime StderrWriter: type) t
         ) !@This() {
             const page_table = try allocator.alloc([uxn.Cpu.page_size]u8, pages);
 
-            var system: @This() = .{
+            var sys: @This() = .{
                 .stderr = stdout,
                 .stdout = stderr,
 
@@ -62,9 +62,9 @@ pub fn VarvaraSystem(comptime StdoutWriter: type, comptime StderrWriter: type) t
                 .datetime_device = .{ .addr = 0xc },
             };
 
-            try system.screen_device.initialize_graphics();
+            try sys.screen_device.initialize_graphics();
 
-            return system;
+            return sys;
         }
 
         pub fn deinit(sys: *@This()) void {
@@ -89,8 +89,8 @@ pub fn VarvaraSystem(comptime StdoutWriter: type, comptime StderrWriter: type) t
                 0x0 => {
                     try sys.system_device.intercept(cpu, port, kind);
 
-                    if (addr & 0xf >= System.ports.red and
-                        addr & 0xf < System.ports.debug)
+                    if (addr & 0xf >= system.ports.red and
+                        addr & 0xf < system.ports.debug)
                     {
                         sys.screen_device.force_redraw();
                     }

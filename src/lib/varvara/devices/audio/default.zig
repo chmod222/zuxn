@@ -94,7 +94,7 @@ pub fn Impl(comptime Self: type) type {
 
             // Adjust the playback speed based on the sample rate and sample length, calculate
             // our frequency exponential for the octave.
-            const rate_adjust: f32 = @floatFromInt(Self.sample_rate / dev.sample.len);
+            const rate_adjust: f32 = @floatFromInt(@import("../audio.zig").sample_rate / dev.sample.len);
             const pitch_exponential: f32 = @floatFromInt(@as(u32, 2) << (octave - 1));
 
             // Select our pitch, scale it by octave and apply the detune factor.

@@ -113,7 +113,7 @@ fn Callbacks(comptime SystemType: type) type {
 }
 
 const InputType = union(enum) {
-    buttons: varvara.Controller.ButtonFlags,
+    buttons: varvara.controller.ButtonFlags,
     key: u8,
 };
 
@@ -217,8 +217,8 @@ fn resize_window(
 }
 
 fn draw_screen(
-    screen_device: *varvara.Screen,
-    system_device: *const varvara.System,
+    screen_device: *varvara.screen.Screen,
+    system_device: *const varvara.system.System,
     texture: *SDL.SDL_Texture,
     renderer: *SDL.SDL_Renderer,
 ) void {
@@ -266,7 +266,7 @@ fn main_graphical(
     _ = SDL.SDL_ShowCursor(SDL.SDL_DISABLE);
 
     var audio_spec: SDL.SDL_AudioSpec = .{
-        .freq = varvara.Audio.sample_rate,
+        .freq = varvara.audio.sample_rate,
         .format = SDL.AUDIO_S16SYS,
         .channels = 2,
         .callback = &Callbacks(VarvaraDefault).audio_callback,
