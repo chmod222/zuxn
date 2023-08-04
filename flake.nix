@@ -12,7 +12,7 @@
     };
 
     # build.zig.zon
-    clap.url = "https://github.com/Hejsil/zig-clap/archive/bdb5853b678d68f342ec65b04a6785af522ca6c9.tar.gz";
+    clap.url = "https://github.com/Hejsil/zig-clap/archive/f49b94700e0761b7514abdca0e4f0e7f3f938a93.tar.gz";
     clap.flake = false;
   };
 
@@ -41,7 +41,7 @@
             mkdir -p $out
             mkdir -p .cache/{p,z,tmp}
 
-            cp -r ${clap} .cache/p/12202af04ec78191f2018458a7be29f54e0d9118f7688e7a226857acf754d68b8473
+            cp -r ${clap} .cache/p/1220f48518ce22882e102255ed3bcdb7aeeb4891f50b2cdd3bd74b5b2e24d3149ba2
 
             zig build --cache-dir $(pwd)/zig-cache --global-cache-dir $(pwd)/.cache -p $out
           '';

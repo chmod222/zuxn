@@ -3,13 +3,13 @@
     "clap": {
       "flake": false,
       "locked": {
-        "narHash": "sha256-wQADKm6c51ML1OnRkf1km/AHvNoZN05wQztHDKs/Xq0=",
+        "narHash": "sha256-DXQ1GBR9YABHGLTtxDfgzSfIId53zcLApniL8V2pkEg=",
         "type": "tarball",
-        "url": "https://github.com/Hejsil/zig-clap/archive/bdb5853b678d68f342ec65b04a6785af522ca6c9.tar.gz"
+        "url": "https://github.com/Hejsil/zig-clap/archive/f49b94700e0761b7514abdca0e4f0e7f3f938a93.tar.gz"
       },
       "original": {
         "type": "tarball",
-        "url": "https://github.com/Hejsil/zig-clap/archive/bdb5853b678d68f342ec65b04a6785af522ca6c9.tar.gz"
+        "url": "https://github.com/Hejsil/zig-clap/archive/f49b94700e0761b7514abdca0e4f0e7f3f938a93.tar.gz"
       }
     },
     "flake-utils": {
