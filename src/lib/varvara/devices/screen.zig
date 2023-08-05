@@ -188,11 +188,15 @@ pub const Screen = struct {
                     const flags: SpriteFlags = @bitCast(cpu.load_device_mem(u8, dev.port_address(ports.sprite)));
                     const auto: AutoFlags = @bitCast(cpu.load_device_mem(u8, dev.port_address(ports.auto)));
 
-                    const x = cpu.load_device_mem(u16, dev.port_address(ports.x));
-                    const y = cpu.load_device_mem(u16, dev.port_address(ports.y));
+                    const x = cpu.load_device_mem(i16, dev.port_address(ports.x));
+                    const y = cpu.load_device_mem(i16, dev.port_address(ports.y));
 
-                    const dx: u16 = if (auto.x) 8 else 0;
-                    const dy: u16 = if (auto.y) 8 else 0;
+                    const dx: i16 = if (auto.x) 8 else 0;
+                    const dy: i16 = if (auto.y) 8 else 0;
+
+                    const fx: i16 = if (flags.flip_x) -1 else 1;
+                    const fy: i16 = if (flags.flip_y) -1 else 1;
+
                     const da: u16 = if (auto.addr) if (flags.two_bpp) 16 else 8 else 0;
                     const l: u8 = @as(u8, auto.add_length) + 1;
 
@@ -201,13 +205,15 @@ pub const Screen = struct {
                     var addr = cpu.load_device_mem(u16, dev.port_address(ports.addr));
 
                     for (0..l) |i| {
+                        const ic: i16 = @intCast(i);
+
                         // dy and dx flipped in original implementation
                         dev.render_sprite(
                             cpu,
                             layer,
                             flags,
-                            x +% dy * @as(u16, @truncate(i)),
-                            y +% dx * @as(u16, @truncate(i)),
+                            @bitCast(x +% (dy * fx * ic)),
+                            @bitCast(y +% (dx * fy * ic)),
                             addr,
                         );
 
@@ -215,14 +221,14 @@ pub const Screen = struct {
                     }
 
                     dev.update_dirty_region(
-                        x,
-                        y,
-                        @as(usize, x) +% (dy * l) +% 8,
-                        @as(usize, y) +% (dx * l) +% 8,
+                        @as(u16, @bitCast(x)),
+                        @as(u16, @bitCast(y)),
+                        @as(u16, @truncate(@as(usize, @bitCast(@as(isize, x) +% (dy * fx * l) +% 8)))),
+                        @as(u16, @truncate(@as(usize, @bitCast(@as(isize, y) +% (dx * fy * l) +% 8)))),
                     );
 
-                    if (auto.x) cpu.store_device_mem(u16, dev.port_address(ports.x), x +% dx);
-                    if (auto.y) cpu.store_device_mem(u16, dev.port_address(ports.y), y +% dy);
+                    if (auto.x) cpu.store_device_mem(i16, dev.port_address(ports.x), x +% dx * fx);
+                    if (auto.y) cpu.store_device_mem(i16, dev.port_address(ports.y), y +% dy * fy);
                     if (auto.addr) cpu.store_device_mem(u16, dev.port_address(ports.addr), addr);
                 },
 
