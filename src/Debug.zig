@@ -19,6 +19,12 @@ const Location = struct {
 
 symbols: std.ArrayList(Symbol),
 
+fn cmp_addr(ctx: void, a: Symbol, b: Symbol) bool {
+    _ = ctx;
+
+    return a.addr < b.addr;
+}
+
 pub fn load_symbols(alloc: Allocator, reader: anytype) !Debug {
     var symbol_list = std.ArrayList(Symbol).init(alloc);
 
@@ -31,9 +37,12 @@ pub fn load_symbols(alloc: Allocator, reader: anytype) !Debug {
             .pos = 0,
         };
 
-        temp.addr = reader.readIntBig(u16) catch
+        temp.addr = reader.readIntBig(u16) catch {
+            std.mem.sort(Symbol, symbol_list.items, {}, cmp_addr);
+
             return .{
-            .symbols = symbol_list,
+                .symbols = symbol_list,
+            };
         };
 
         try reader.streamUntilDelimiter(fbs.writer(), 0x00, null);
