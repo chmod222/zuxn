@@ -8,6 +8,9 @@ A mostly complete implementation of most of the components of a complete [Uxntal
 
 The tools support different arguments but are pretty basic. (see `--help` for each)
 
+If compiled with `-Denable_jit_assembly`, uxn-cli and uxn-sdl will accept assemble passed .tal files and run the result
+directly, much like a bytecode interpreter.
+
 All three major components (Uxn core VM, Varvara devices and assembler) are exposed as Zig modules for embedding in other environments. The modules are named as such:
 
  - `uxn-core`
