@@ -4,7 +4,9 @@ const clap = @import("clap");
 
 const uxn = @import("uxn-core");
 const varvara = @import("uxn-varvara");
-const Debug = @import("uxn-shared").Debug;
+const shared = @import("uxn-shared");
+
+const Debug = shared.Debug;
 
 pub const SDL = @cImport({
     @cInclude("SDL2/SDL.h");
@@ -432,6 +434,8 @@ fn main_graphical(
 }
 
 pub fn main() !u8 {
+    const alloc = gpa.allocator();
+
     const params = comptime clap.parseParamsComptime(
         \\-h, --help                 Display this help and exit.
         \\-s, --scale <INT>          Display scale factor
@@ -445,13 +449,7 @@ pub fn main() !u8 {
     var stdout = std.io.getStdOut().writer();
     var stderr = std.io.getStdErr().writer();
 
-    const parsers = comptime .{
-        .FILE = clap.parsers.string,
-        .ARG = clap.parsers.string,
-        .INT = clap.parsers.int(u8, 10),
-    };
-
-    var res = clap.parse(clap.Help, &params, parsers, .{
+    var res = clap.parse(clap.Help, &params, shared.parsers, .{
         .diagnostic = &diag,
     }) catch |err| {
         // Report useful error and exit
@@ -462,40 +460,30 @@ pub fn main() !u8 {
 
     defer res.deinit();
 
-    if (res.args.help != 0) {
-        try clap.help(stderr, clap.Help, &params, .{});
-
-        return 0;
+    if (shared.handle_common_args(res, params)) |exit| {
+        return exit;
     }
 
-    var alloc = gpa.allocator();
+    var env = try shared.load_or_assemble_rom(
+        alloc,
+        res.positionals[0],
+        res.args.symbols,
+    );
+
+    defer env.deinit();
 
     // Initialize system devices
     var system = try VarvaraDefault.init(gpa.allocator(), stdout, stderr);
     defer system.deinit();
 
     // Setup the breakpoint hook if requested
-    var debug = if (res.args.symbols) |debug_symbols| b: {
-        var symbols_file = try std.fs.cwd().openFile(debug_symbols, .{});
-        defer symbols_file.close();
-
-        break :b try Debug.load_symbols(alloc, symbols_file.reader());
-    } else null;
-
-    system.system_device.debug_callback = &Debug.on_debug_hook;
-
-    if (debug) |*s|
-        system.system_device.callback_data = s;
-
-    // Load input ROM
-    const rom_file = try std.fs.cwd().openFile(res.positionals[0], .{});
-    defer rom_file.close();
-
-    var rom = try uxn.load_rom(alloc, rom_file);
-    defer alloc.free(rom);
+    if (env.debug_symbols) |*d| {
+        system.system_device.debug_callback = &Debug.on_debug_hook;
+        system.system_device.callback_data = d;
+    }
 
     // Setup CPU and intercepts
-    var cpu = uxn.Cpu.init(rom);
+    var cpu = uxn.Cpu.init(env.rom);
 
     cpu.device_intercept = &Callbacks(VarvaraDefault).intercept;
     cpu.callback_data = &system;

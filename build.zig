@@ -53,14 +53,39 @@ pub fn build(b: *std.Build) void {
     );
 
     // Utility programs based on core libraries
+    const build_options = b.addOptions();
+    const enable_jit_assembly = b.option(
+        bool,
+        "enable_jit_assembly",
+        \\Enable just in time assembly of Uxntal (increases program size)
+        ,
+    ) orelse false;
+
+    build_options.addOption(
+        bool,
+        "enable_jit_assembly",
+        enable_jit_assembly,
+    );
+
+    const build_options_mod = build_options.createModule();
+
     const shared_mod = b.addModule(
         "uxn-shared",
         .{
             .source_file = .{ .path = "src/shared.zig" },
-            .dependencies = &.{.{
+            .dependencies = &.{ .{
                 .name = "uxn-core",
                 .module = core_mod,
-            }},
+            }, .{
+                .name = "uxn-asm",
+                .module = asm_mod,
+            }, .{
+                .name = "clap",
+                .module = dep_clap.module("clap"),
+            }, .{
+                .name = "build_options",
+                .module = build_options_mod,
+            } },
         },
     );
 
@@ -75,7 +100,11 @@ pub fn build(b: *std.Build) void {
     uxn_cli.addModule("uxn-core", core_mod);
     uxn_cli.addModule("uxn-varvara", varvara_mod);
     uxn_cli.addModule("clap", dep_clap.module("clap"));
+    uxn_cli.addModule("build_options", build_options_mod);
     uxn_cli.linkLibC();
+
+    if (enable_jit_assembly)
+        uxn_cli.addModule("uxn-asm", asm_mod);
 
     if (target.cpu_arch != .wasm32) {
         const uxn_sdl = b.addExecutable(.{
@@ -89,9 +118,13 @@ pub fn build(b: *std.Build) void {
         uxn_sdl.addModule("uxn-core", core_mod);
         uxn_sdl.addModule("uxn-varvara", varvara_mod);
         uxn_sdl.addModule("clap", dep_clap.module("clap"));
+        uxn_sdl.addModule("build_options", build_options_mod);
         uxn_sdl.linkLibC();
         uxn_sdl.linkSystemLibrary("SDL2_image");
         uxn_sdl.linkSystemLibrary("SDL2");
+
+        if (enable_jit_assembly)
+            uxn_sdl.addModule("uxn-asm", asm_mod);
 
         b.installArtifact(uxn_sdl);
 

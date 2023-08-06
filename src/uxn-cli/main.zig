@@ -1,10 +1,18 @@
+const build_options = @import("build_options");
+
 const std = @import("std");
+const os = std.os;
 
 const clap = @import("clap");
 
+const uxn_asm = @import("uxn-asm");
 const uxn = @import("uxn-core");
 const varvara = @import("uxn-varvara");
-const Debug = @import("uxn-shared").Debug;
+const shared = @import("uxn-shared");
+
+const Debug = shared.Debug;
+
+const logger = std.log.scoped(.uxn_cli);
 
 pub const std_options = struct {
     pub const log_scope_levels = &[_]std.log.ScopeLevel{
@@ -39,61 +47,62 @@ fn intercept(
 }
 
 pub fn main() !u8 {
-    const params = comptime clap.parseParamsComptime(
-        \\-h, --help                 Display this help and exit.
-        \\<FILE>                     Input ROM
-        \\-S, --symbols <FILE>       Load debug symbols
-        \\<ARG>...                   Command line arguments for the module
-    );
-
-    var diag = clap.Diagnostic{};
+    const alloc = gpa.allocator();
 
     const stdin = std.io.getStdIn().reader();
     const stdout = std.io.getStdOut().writer();
     const stderr = std.io.getStdErr().writer();
 
-    const parsers = comptime .{
-        .FILE = clap.parsers.string,
-        .ARG = clap.parsers.string,
-    };
+    const params = comptime clap.parseParamsComptime(
+        \\-h, --help                 Display this help and exit.
+        \\
+    ++ (if (build_options.enable_jit_assembly)
+        \\-S, --symbols <FILE>       Load debug symbols (argument ignored if self-assembling)
+        \\<FILE>                     Input ROM or Tal
+        \\
+    else
+        \\-S, --symbols <FILE>       Load debug symbols
+        \\<FILE>                     Input ROM
+        \\
+    ) ++
+        \\
+        \\<ARG>...                   Command line arguments for the module
+    );
 
-    var res = clap.parse(clap.Help, &params, parsers, .{
-        .diagnostic = &diag,
-    }) catch |err| {
+    var diag = clap.Diagnostic{};
+    var clap_args = .{ .diagnostic = &diag };
+
+    const res = clap.parse(clap.Help, &params, shared.parsers, clap_args) catch |err| {
         // Report useful error and exit
         diag.report(stderr, err) catch {};
 
         return err;
     };
 
-    var alloc = gpa.allocator();
+    defer res.deinit();
 
-    // Initialize system devices
+    if (shared.handle_common_args(res, params)) |exit| {
+        return exit;
+    }
+
+    var env = try shared.load_or_assemble_rom(
+        alloc,
+        res.positionals[0],
+        res.args.symbols,
+    );
+
+    defer env.deinit();
+
     var system = try VarvaraDefault.init(gpa.allocator(), stdout, stderr);
     defer system.deinit();
 
-    // Setup the breakpoint hook if requested
-    var debug = if (res.args.symbols) |debug_symbols| b: {
-        var symbols_file = try std.fs.cwd().openFile(debug_symbols, .{});
-        defer symbols_file.close();
-
-        break :b try Debug.load_symbols(alloc, symbols_file.reader());
-    } else null;
-
-    system.system_device.debug_callback = &Debug.on_debug_hook;
-
-    if (debug) |*s|
-        system.system_device.callback_data = s;
-
-    // Load input ROM
-    const rom_file = try std.fs.cwd().openFile(res.positionals[0], .{});
-    defer rom_file.close();
-
-    var rom = try uxn.load_rom(alloc, rom_file);
-    defer alloc.free(rom);
+    if (env.debug_symbols) |*d| {
+        system.system_device.debug_callback = &Debug.on_debug_hook;
+        system.system_device.callback_data = d;
+    }
 
     // Setup CPU and intercepts
-    var cpu = uxn.Cpu.init(rom);
+    var cpu = uxn.Cpu.init(env.rom);
 
     cpu.device_intercept = &intercept;
     cpu.callback_data = &system;
