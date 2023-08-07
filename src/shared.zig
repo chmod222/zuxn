@@ -142,10 +142,6 @@ pub const parsers = .{
     .INT = clap.parsers.int(u8, 10),
 };
 
-fn ResultType(comptime params: anytype) type {
-    return clap.Result(clap.Help, &params, &parsers);
-}
-
 pub const LoadResult = struct {
     alloc: std.mem.Allocator,
 
