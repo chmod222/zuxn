@@ -8,6 +8,8 @@ const shared = @import("uxn-shared");
 
 const Debug = shared.Debug;
 
+const logger = std.log.scoped(.uxn_sdl);
+
 pub const SDL = @cImport({
     @cInclude("SDL2/SDL.h");
 });
@@ -291,6 +293,10 @@ fn main_graphical(
 
     SDL.SDL_DetachThread(stdin);
 
+    _ = SDL.SDL_JoystickOpen(0) orelse {
+        logger.debug("Couldn't open joystick {}: {s}", .{ 0, SDL.SDL_GetError() });
+    };
+
     system.console_device.set_argc(cpu, args);
 
     var window_width = system.screen_device.width;
@@ -389,6 +395,55 @@ fn main_graphical(
 
                         else => {},
                     };
+                },
+
+                SDL.SDL_JOYBUTTONDOWN, SDL.SDL_JOYBUTTONUP => b: {
+                    const player: u2 = @truncate(@as(c_uint, @bitCast(ev.jbutton.which)));
+                    const btn: varvara.controller.ButtonFlags = switch (ev.jbutton.button) {
+                        0x0 => .{ .ctrl = true },
+                        0x1 => .{ .alt = true },
+                        0x06 => .{ .shift = true },
+                        0x07 => .{ .start = true },
+                        else => break :b,
+                    };
+
+                    if (ev.type == SDL.SDL_JOYBUTTONUP)
+                        system.controller_device.release_buttons(cpu, btn, player) catch |fault|
+                            try system.system_device.handle_fault(cpu, fault)
+                    else
+                        system.controller_device.press_buttons(cpu, btn, player) catch |fault|
+                            try system.system_device.handle_fault(cpu, fault);
+                },
+
+                SDL.SDL_JOYHATMOTION => {
+                    const player: u2 = @truncate(@as(c_uint, @bitCast(ev.jhat.which)));
+                    const btn: varvara.controller.ButtonFlags = switch (ev.jhat.value) {
+                        SDL.SDL_HAT_UP => .{ .up = true },
+                        SDL.SDL_HAT_DOWN => .{ .down = true },
+                        SDL.SDL_HAT_LEFT => .{ .left = true },
+                        SDL.SDL_HAT_RIGHT => .{ .right = true },
+                        SDL.SDL_HAT_LEFTDOWN => .{ .left = true, .down = true },
+                        SDL.SDL_HAT_LEFTUP => .{ .left = true, .up = true },
+                        SDL.SDL_HAT_RIGHTDOWN => .{ .right = true, .down = true },
+                        SDL.SDL_HAT_RIGHTUP => .{ .right = true, .up = true },
+                        else => .{},
+                    };
+
+                    // Release all the non-pressed buttons
+                    const inverse = .{
+                        .up = !btn.up,
+                        .down = !btn.down,
+                        .left = !btn.left,
+                        .right = !btn.right,
+                    };
+
+                    system.controller_device.release_buttons(cpu, inverse, player) catch |fault|
+                        try system.system_device.handle_fault(cpu, fault);
+
+                    if (@as(u8, @bitCast(btn)) != 0) {
+                        system.controller_device.press_buttons(cpu, btn, player) catch |fault|
+                            try system.system_device.handle_fault(cpu, fault);
+                    }
                 },
 
                 else => {

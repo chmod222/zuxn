@@ -70,7 +70,7 @@ pub const Controller = struct {
         const old_state = cpu.load_device_mem(u8, dev.port_address(player_port));
         const new_state = old_state | @as(u8, @bitCast(buttons));
 
-        logger.debug("Button State: {}", .{@as(ButtonFlags, @bitCast(new_state))});
+        logger.debug("Button State: {} (Player: {})", .{ @as(ButtonFlags, @bitCast(new_state)), player });
 
         cpu.store_device_mem(u8, dev.port_address(player_port), new_state);
 
@@ -83,7 +83,7 @@ pub const Controller = struct {
         const old_state = cpu.load_device_mem(u8, dev.port_address(player_port));
         const new_state = old_state & ~@as(u8, @bitCast(buttons));
 
-        logger.debug("Button State: {}", .{@as(ButtonFlags, @bitCast(new_state))});
+        logger.debug("Button State: {} (Player: {})", .{ @as(ButtonFlags, @bitCast(new_state)), player });
 
         cpu.store_device_mem(u8, dev.port_address(player_port), new_state);
 
