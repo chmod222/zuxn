@@ -397,6 +397,14 @@ fn main_graphical(
                     };
                 },
 
+                SDL.SDL_JOYAXISMOTION => {
+                    const player: u2 = @truncate(@as(c_uint, @bitCast(ev.jbutton.which)));
+
+                    _ = player;
+
+                    // TODO
+                },
+
                 SDL.SDL_JOYBUTTONDOWN, SDL.SDL_JOYBUTTONUP => b: {
                     const player: u2 = @truncate(@as(c_uint, @bitCast(ev.jbutton.which)));
                     const btn: varvara.controller.ButtonFlags = switch (ev.jbutton.button) {
