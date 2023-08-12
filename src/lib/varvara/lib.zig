@@ -1,6 +1,10 @@
 const std = @import("std");
+const fs = std.fs;
+const mem = std.mem;
 
 const uxn = @import("uxn-core");
+
+const logger = std.log.scoped(.uxn_varvara);
 
 pub const system = @import("devices/system.zig");
 pub const console = @import("devices/console.zig");
@@ -20,6 +24,7 @@ pub fn VarvaraSystem(comptime StdoutWriter: type, comptime StderrWriter: type) t
 
         allocator: std.mem.Allocator,
         page_table: ?[][uxn.Cpu.page_size]u8 = null,
+        sandbox_base: ?fs.Dir = null,
 
         system_device: system.System,
         console_device: console.Console,
@@ -75,6 +80,40 @@ pub fn VarvaraSystem(comptime StdoutWriter: type, comptime StderrWriter: type) t
 
             if (sys.system_device.additional_pages) |page_table|
                 sys.allocator.free(page_table);
+        }
+
+        fn filter_file_access(dev: *file.File, data: ?*anyopaque, path: []const u8, mode: file.File.Mode) bool {
+            _ = dev;
+
+            var buffer_path: [256]u8 = undefined;
+            var buffer_self: [256]u8 = undefined;
+
+            const ptr: *const @This() = @ptrCast(@alignCast(data));
+
+            const file_path = ptr.sandbox_base.?.realpath(path, &buffer_path) catch return false;
+            const self_path = ptr.sandbox_base.?.realpath(".", &buffer_self) catch return false;
+
+            if (!mem.startsWith(u8, file_path, self_path)) {
+                logger.warn("Preventing out-of-sandbox {s} access to {s}", .{ @tagName(mode), file_path });
+
+                return false;
+            } else {
+                return true;
+            }
+        }
+
+        pub fn sandbox_files(sys: *@This(), base_dir: fs.Dir) bool {
+            if (!@hasDecl(file.File, "set_access_filter")) {
+                return false;
+            }
+
+            sys.sandbox_base = base_dir;
+
+            for (&sys.file_devices) |*fd| {
+                fd.set_access_filter(sys, filter_file_access);
+            }
+
+            return true;
         }
 
         pub fn intercept(

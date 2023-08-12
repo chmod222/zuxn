@@ -22,12 +22,12 @@ pub const File = struct {
     else
         @import("fs/noop.zig").Impl(@This());
 
-    pub usingnamespace Impl;
-
     addr: u4,
     active_file: ?Impl.Wrapper = null,
+    impl: Impl = .{},
 
     pub usingnamespace @import("impl.zig").DeviceMixin(@This());
+    pub usingnamespace Impl;
 
     pub fn cleanup(dev: *@This()) void {
         if (dev.active_file) |*f| {

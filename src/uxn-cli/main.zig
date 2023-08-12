@@ -2,6 +2,7 @@ const build_options = @import("build_options");
 
 const std = @import("std");
 const os = std.os;
+const fs = std.fs;
 
 const clap = @import("clap");
 
@@ -95,6 +96,10 @@ pub fn main() !u8 {
 
     var system = try VarvaraDefault.init(gpa.allocator(), stdout, stderr);
     defer system.deinit();
+
+    if (!system.sandbox_files(fs.cwd())) {
+        logger.debug("File implementation does not suport sandboxing", .{});
+    }
 
     if (env.debug_symbols) |*d| {
         system.system_device.debug_callback = &Debug.on_debug_hook;

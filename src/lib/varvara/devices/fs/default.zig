@@ -47,10 +47,29 @@ const Directory = struct {
 
 pub fn Impl(comptime Self: type) type {
     return struct {
+        pub const Mode = enum {
+            read,
+            write,
+            append,
+            delete,
+        };
+
+        access_filter: ?*const fn (
+            dev: *Self,
+            data: ?*anyopaque,
+            path: []const u8,
+            access_type: Mode,
+        ) bool = null,
+
+        access_filter_arg: ?*anyopaque = null,
+
         pub const Wrapper = ImplWrapper;
 
         pub fn open_readable(dev: *Self, path: []const u8) !Wrapper {
-            _ = dev;
+            if (dev.impl.access_filter) |filter| {
+                if (!filter(dev, dev.impl.access_filter_arg, path, .read))
+                    return error.Sandboxed;
+            }
 
             if (fs.cwd().openIterableDir(path, .{})) |dir| {
                 return .{
@@ -70,8 +89,25 @@ pub fn Impl(comptime Self: type) type {
             return error.CannotOpen;
         }
 
+        pub fn set_access_filter(
+            dev: *Self,
+            context: anytype,
+            filter_fun: *const fn (
+                dev: *Self,
+                data: ?*anyopaque,
+                path: []const u8,
+                access_type: Mode,
+            ) bool,
+        ) void {
+            dev.impl.access_filter = filter_fun;
+            dev.impl.access_filter_arg = context;
+        }
+
         pub fn open_writable(dev: *Self, path: []const u8, truncate: bool) !Wrapper {
-            _ = dev;
+            if (dev.impl.access_filter) |filter| {
+                if (!filter(dev, dev.impl.access_filter_arg, path, if (truncate) .write else .append))
+                    return error.Sandboxed;
+            }
 
             return .{
                 .file = try fs.cwd().createFile(path, .{ .truncate = truncate }),
@@ -79,7 +115,10 @@ pub fn Impl(comptime Self: type) type {
         }
 
         pub fn delete_file(dev: *Self, path: []const u8) !void {
-            _ = dev;
+            if (dev.impl.access_filter) |filter| {
+                if (!filter(dev, dev.impl.access_filter_arg, path, .delete))
+                    return error.Sandboxed;
+            }
 
             try fs.cwd().deleteFile(path);
         }

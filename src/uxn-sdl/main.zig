@@ -1,4 +1,5 @@
 const std = @import("std");
+const fs = std.fs;
 
 const clap = @import("clap");
 
@@ -538,6 +539,10 @@ pub fn main() !u8 {
     // Initialize system devices
     var system = try VarvaraDefault.init(gpa.allocator(), stdout, stderr);
     defer system.deinit();
+
+    if (!system.sandbox_files(fs.cwd())) {
+        logger.debug("File implementation does not suport sandboxing", .{});
+    }
 
     // Setup the breakpoint hook if requested
     if (env.debug_symbols) |*d| {
