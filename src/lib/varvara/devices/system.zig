@@ -12,6 +12,8 @@ pub const Color = struct {
 pub const ports = struct {
     pub const catch_vector = 0x00;
     pub const expansion = 0x02;
+    pub const wsp = 0x04;
+    pub const rsp = 0x05;
     pub const metadata = 0x06;
     pub const red = 0x08;
     pub const green = 0x0a;
@@ -53,41 +55,50 @@ pub const System = struct {
         port: u4,
         kind: Cpu.InterceptKind,
     ) !void {
-        if (kind != .output)
-            return;
+        if (kind == .input) {
+            switch (port) {
+                ports.wsp => cpu.device_mem[dev.port_address(ports.wsp)] = cpu.wst.sp,
+                ports.rsp => cpu.device_mem[dev.port_address(ports.rsp)] = cpu.rst.sp,
 
-        switch (port) {
-            ports.state => {
-                dev.exit_code = cpu.device_mem[dev.port_address(ports.state)] & 0x7f;
+                else => {},
+            }
+        } else {
+            switch (port) {
+                ports.state => {
+                    dev.exit_code = cpu.device_mem[dev.port_address(ports.state)] & 0x7f;
 
-                logger.debug("System exit requested (code = {?})", .{dev.exit_code});
-            },
+                    logger.debug("System exit requested (code = {?})", .{dev.exit_code});
+                },
 
-            ports.debug => {
-                if (dev.debug_callback) |cb|
-                    cb(cpu, dev.callback_data)
-                else
-                    logger.debug("Debug port triggered, but no callback is available", .{});
-            },
+                ports.wsp => cpu.wst.sp = cpu.device_mem[dev.port_address(ports.wsp)],
+                ports.rsp => cpu.rst.sp = cpu.device_mem[dev.port_address(ports.rsp)],
 
-            ports.expansion + 1 => {
-                try dev.handle_expansion(cpu, cpu.load_device_mem(u16, dev.port_address(ports.expansion)));
-            },
+                ports.debug => {
+                    if (dev.debug_callback) |cb|
+                        cb(cpu, dev.callback_data)
+                    else
+                        logger.debug("Debug port triggered, but no callback is available", .{});
+                },
 
-            ports.red + 1, ports.green + 1, ports.blue + 1 => {
-                // Layout:
-                //   R 0xABCD
-                //   G 0xEFGH
-                //   B 0xIJKL => 0xAEI 0xBFJ 0xCGK 0xDHL
-                const r = cpu.load_device_mem(u16, dev.port_address(ports.red));
-                const g = cpu.load_device_mem(u16, dev.port_address(ports.green));
-                const b = cpu.load_device_mem(u16, dev.port_address(ports.blue));
+                ports.expansion + 1 => {
+                    try dev.handle_expansion(cpu, cpu.load_device_mem(u16, dev.port_address(ports.expansion)));
+                },
 
-                for (0..4) |i|
-                    dev.colors[i] = split_rgb(r, g, b, @truncate(i));
-            },
+                ports.red + 1, ports.green + 1, ports.blue + 1 => {
+                    // Layout:
+                    //   R 0xABCD
+                    //   G 0xEFGH
+                    //   B 0xIJKL => 0xAEI 0xBFJ 0xCGK 0xDHL
+                    const r = cpu.load_device_mem(u16, dev.port_address(ports.red));
+                    const g = cpu.load_device_mem(u16, dev.port_address(ports.green));
+                    const b = cpu.load_device_mem(u16, dev.port_address(ports.blue));
 
-            else => {},
+                    for (0..4) |i|
+                        dev.colors[i] = split_rgb(r, g, b, @truncate(i));
+                },
+
+                else => {},
+            }
         }
     }
 
