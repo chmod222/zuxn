@@ -66,7 +66,10 @@ fn Callbacks(comptime SystemType: type) type {
         }
 
         pub fn audio_callback(u: ?*anyopaque, stream: [*c]u8, len: c_int) callconv(.C) void {
-            var sys: *SystemType = @alignCast(@ptrCast(u));
+            const cpu, const sys = @as(
+                *struct { *uxn.Cpu, *SystemType },
+                @alignCast(@ptrCast(u)),
+            ).*;
 
             var samples_ptr = @as([*c]i16, @alignCast(@ptrCast(stream)));
             var samples = samples_ptr[0 .. @as(usize, @intCast(len)) / 2];
@@ -74,19 +77,17 @@ fn Callbacks(comptime SystemType: type) type {
             // TODO: 0x00 should ideally be SDL_AudioSpec.silence here
             @memset(samples, 0x0000);
 
-            //var still_playing: usize = 0;
-            var event: SDL.SDL_Event = undefined;
-
-            for (0.., &sys.audio_devices) |i, *poly| {
-                if (poly.render_audio(samples)) |r| {
-                    if (r) {
-                        //still_playing += 1;
-                    } else {
-                        event.type = AUDIO_FINISHED + @as(u32, @truncate(i));
-
-                        _ = SDL.SDL_PushEvent(&event);
-                    }
+            for (&sys.audio_devices) |*poly| {
+                if (poly.duration <= 0) {
+                    poly.evaluate_finish_vector(cpu) catch unreachable;
                 }
+
+                poly.update_duration();
+                poly.render_audio(samples);
+            }
+
+            for (0..samples.len) |i| {
+                samples[i] <<= 6;
             }
 
             //if (still_playing == 0) {
@@ -270,13 +271,15 @@ fn main_graphical(
 
     _ = SDL.SDL_ShowCursor(SDL.SDL_DISABLE);
 
+    var callback_data = .{ cpu, system };
+
     var audio_spec: SDL.SDL_AudioSpec = .{
         .freq = varvara.audio.sample_rate,
         .format = SDL.AUDIO_S16SYS,
         .channels = 2,
         .callback = &Callbacks(VarvaraDefault).audio_callback,
-        .samples = 512,
-        .userdata = system,
+        .samples = varvara.audio.sample_count,
+        .userdata = &callback_data,
 
         .silence = 0,
         .size = 0,
@@ -287,7 +290,6 @@ fn main_graphical(
 
     SDL.SDL_PauseAudioDevice(audio_id, 0);
 
-    AUDIO_FINISHED = SDL.SDL_RegisterEvents(4);
     STDIN_RECEIVED = SDL.SDL_RegisterEvents(1);
 
     var stdin = SDL.SDL_CreateThread(&Callbacks(VarvaraDefault).receive_stdin, "stdin", system);
@@ -456,12 +458,7 @@ fn main_graphical(
                 },
 
                 else => {
-                    if (ev.type >= AUDIO_FINISHED and ev.type < AUDIO_FINISHED + 4) {
-                        const dev = ev.type - AUDIO_FINISHED;
-
-                        system.audio_devices[dev].evaluate_finish_vector(cpu) catch |fault|
-                            try system.system_device.handle_fault(cpu, fault);
-                    } else if (ev.type == STDIN_RECEIVED) {
+                    if (ev.type == STDIN_RECEIVED) {
                         system.console_device.push_stdin_byte(cpu, ev.cbutton.button) catch |fault|
                             try system.system_device.handle_fault(cpu, fault);
                     }
