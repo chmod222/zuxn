@@ -110,7 +110,7 @@
       },
       "locked": {
         "lastModified": 1,
-        "narHash": "sha256-xHEAbOcZZa4ZJihgK8phHlY6I24RpAzNrdY/kTo6UoQ=",
+        "narHash": "sha256-DtwBcBiGMrxXYFbDVNtjd99kC0TkkWB631wLNbm5iQA=",
         "path": "deps/zig",
         "type": "path"
       },

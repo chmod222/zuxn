@@ -1,6 +1,7 @@
 {
   inputs.flake-utils.url = "github:numtide/flake-utils/v1.0.0";
   inputs.zig.url = "github:mitchellh/zig-overlay";
+  inputs.nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
 
   outputs = { self, zig, flake-utils, nixpkgs, ... }:
     flake-utils.lib.eachDefaultSystem (system:
