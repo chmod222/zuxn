@@ -2,14 +2,14 @@ const Stack = @This();
 
 const std = @import("std");
 
-data: [0xff]u8,
+data: [0x100]u8,
 sp: u8,
 spt: u8,
 spr: ?*u8,
 
 pub fn init() Stack {
     return .{
-        .data = [1]u8{0x00} ** 0xff,
+        .data = [1]u8{0x00} ** 0x100,
         .sp = 0,
         .spt = 0,
         .spr = null,
