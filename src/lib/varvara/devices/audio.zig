@@ -73,7 +73,7 @@ fn get_duration(pitch: PitchFlags, sample: []const u8) f32 {
     const tone_freq = get_frequency(pitch);
     const base_freq = get_frequency(@bitCast(@as(u8, 60)));
 
-    return @as(f32, @floatFromInt(sample.len)) / ((tone_freq / base_freq));
+    return @as(f32, @floatFromInt(sample.len)) / (tone_freq / base_freq);
 }
 
 const pitch_names: [12][:0]const u8 = .{
@@ -114,11 +114,11 @@ pub const Audio = struct {
 
     fn start_audio(dev: *@This(), cpu: *Cpu) void {
         var pitch: PitchFlags = @bitCast(cpu.load_device_mem(u8, dev.port_address(ports.pitch)));
-        const duration: u16 = cpu.load_device_mem(u16, dev.port_address(ports.duration));
 
         const volume: VolumeFlags = @bitCast(cpu.load_device_mem(u8, dev.port_address(ports.volume)));
         const adsr: AdsrFlags = @bitCast(cpu.load_device_mem(u16, dev.port_address(ports.adsr)));
 
+        const duration: u16 = cpu.load_device_mem(u16, dev.port_address(ports.duration));
         const addr: u16 = cpu.load_device_mem(u16, dev.port_address(ports.addr));
         const len: u16 = cpu.load_device_mem(u16, dev.port_address(ports.length));
 
@@ -150,8 +150,6 @@ pub const Audio = struct {
         // Adjust the playback speed based on the sample rate and sample length, calculate
         // our frequency exponential for the octave.
         const rate_adjust: f32 = sample_rate / @as(f32, @floatFromInt(sample.len));
-
-        // Select our pitch, scale it by octave and apply the detune factor.
         const tone_freq = get_frequency(pitch);
 
         const sample_data = Sample{
@@ -277,16 +275,17 @@ pub const Audio = struct {
             if (port == ports.output) {
                 cpu.store_device_mem(u8, dev.port_address(ports.output), dev.get_output_vu());
             } else if (port == ports.position or port == ports.position + 1) {
-                if (dev.active_sample) |sample| {
-                    cpu.store_device_mem(u16, dev.port_address(ports.position), @intFromFloat(sample.position));
-                } else {
-                    cpu.store_device_mem(u16, dev.port_address(ports.position), 0);
-                }
+                cpu.store_device_mem(
+                    u16,
+                    dev.port_address(ports.position),
+                    if (dev.active_sample) |sample|
+                        @intFromFloat(sample.position)
+                    else
+                        0,
+                );
             }
         } else if (kind == .output and port == ports.pitch) {
             dev.start_audio(cpu);
-
-            //SDL.SDL_PauseAudioDevice(dev.audio_id, 0);
         }
     }
 };
