@@ -20,10 +20,11 @@ pub fn push(s: *Stack, comptime T: type, v: T) !void {
     if (s.sp > 0xff - @sizeOf(T))
         return error.StackOverflow;
 
-    std.mem.writeIntBig(
+    std.mem.writeInt(
         T,
         @as(*[@sizeOf(T)]u8, @ptrCast(s.data[s.sp .. s.sp + @sizeOf(T)])),
         v,
+        .big,
     );
 
     s.sp += @sizeOf(T);
@@ -39,9 +40,10 @@ pub fn pop(s: *Stack, comptime T: type) !T {
         sp.* -= @sizeOf(T);
     }
 
-    return std.mem.readIntBig(
+    return std.mem.readInt(
         T,
         @as(*[@sizeOf(T)]u8, @ptrCast(s.data[sp.* - @sizeOf(T) .. sp.*])),
+        .big,
     );
 }
 

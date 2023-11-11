@@ -20,7 +20,6 @@
     flake-utils.lib.eachSystem ["x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin"] (system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
-        zigc = zig.packages.${system}.default;
       in {
         packages.default = pkgs.stdenv.mkDerivation {
           name = "zuxn";
@@ -28,8 +27,8 @@
 
           src = ./.;
 
-          nativeBuildInputs = [
-            zigc
+          nativeBuildInputs = with pkgs; [
+            zig.packages.${system}.precompiled
           ];
 
           buildInputs = with pkgs; [
@@ -51,7 +50,9 @@
           name = "zuxn-dev";
 
           buildInputs = [
-            zigc
+            zig.packages.${system}.precompiled
+
+            pkgs.zls
 
             pkgs.SDL2.dev
             pkgs.SDL2_image

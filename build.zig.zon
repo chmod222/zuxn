@@ -2,6 +2,8 @@
     .name = "zuxn",
     .version = "0.0.1",
 
+    .paths = .{"src/"},
+
     .dependencies = .{
         .clap = .{
             .url = "https://github.com/Hejsil/zig-clap/archive/f49b94700e0761b7514abdca0e4f0e7f3f938a93.tar.gz",

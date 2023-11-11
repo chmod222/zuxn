@@ -310,7 +310,7 @@ pub fn Assembler(comptime lim: scan.Limits) type {
 
                     switch (lit) {
                         .byte => |b| try output.writeByte(b),
-                        .short => |s| try output.writeIntBig(u16, s),
+                        .short => |s| try output.writeInt(u16, s, .big),
                     }
                 },
 
@@ -329,12 +329,12 @@ pub fn Assembler(comptime lim: scan.Limits) type {
                     ref.definition = assembler.lexical_information_from_token(token);
 
                     try switch (addr.type) {
-                        .zero => output.writeIntBig(u16, 0x80aa),
+                        .zero => output.writeInt(u16, 0x80aa, .big),
                         .zero_raw => output.writeByte(0xaa),
-                        .relative => output.writeIntBig(u16, 0x80aa),
+                        .relative => output.writeInt(u16, 0x80aa, .big),
                         .relative_raw => output.writeByte(0xaa),
-                        .absolute => output.writeIntBig(u24, 0xa0aaaa),
-                        .absolute_raw => output.writeIntBig(u16, 0xaaaa),
+                        .absolute => output.writeInt(u24, 0xa0aaaa, .big),
+                        .absolute_raw => output.writeInt(u16, 0xaaaa, .big),
                     };
                 },
                 .padding => |pad| try switch (pad) {
@@ -370,7 +370,7 @@ pub fn Assembler(comptime lim: scan.Limits) type {
                         else => 0x60,
                     });
 
-                    try output.writeIntBig(u16, 0xaaaa);
+                    try output.writeInt(u16, 0xaaaa, .big);
                 },
 
                 .word => |w| try output.writeAll(mem.sliceTo(&w, 0)),
@@ -426,7 +426,7 @@ pub fn Assembler(comptime lim: scan.Limits) type {
 
                     ref.definition = assembler.lexical_information_from_token(token);
 
-                    try output.writeIntBig(u24, 0x60aaaa);
+                    try output.writeInt(u24, 0x60aaaa, .big);
                 },
 
                 .curly_close => {
@@ -567,7 +567,7 @@ pub fn Assembler(comptime lim: scan.Limits) type {
                                 },
 
                                 .absolute, .absolute_raw => {
-                                    try output.writeIntBig(u16, addr -% ref.offset);
+                                    try output.writeInt(u16, addr -% ref.offset, .big);
                                 },
 
                                 .relative, .relative_raw => {
@@ -579,7 +579,7 @@ pub fn Assembler(comptime lim: scan.Limits) type {
                                     if (relative > 127 or relative < -128)
                                         return error.ReferenceOutOfBounds;
 
-                                    try output.writeIntBig(i8, @as(i8, @truncate(relative)));
+                                    try output.writeInt(i8, @as(i8, @truncate(relative)), .big);
                                 },
                             }
                         }
@@ -594,9 +594,10 @@ pub fn Assembler(comptime lim: scan.Limits) type {
             assembler: *@This(),
             output: anytype,
         ) @TypeOf(output).Error!void {
+            // TODO: sort these
             for (assembler.labels.items) |label| {
                 if (label.addr) |addr| {
-                    try output.writeIntBig(u16, addr);
+                    try output.writeInt(u16, addr, .big);
                     try output.print("{s}\x00", .{mem.sliceTo(&label.label, 0)});
                 }
             }

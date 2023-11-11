@@ -89,7 +89,7 @@ inline fn load(
     return if (T == u8)
         @field(cpu, field)[addr]
     else
-        mem.readIntBig(T, cast_array(T, @field(cpu, field)[addr..addr +| @sizeOf(T)]));
+        mem.readInt(T, cast_array(T, @field(cpu, field)[addr..addr +| @sizeOf(T)]), .big);
 }
 
 inline fn store(
@@ -102,7 +102,7 @@ inline fn store(
     if (T == u8) {
         @field(cpu, field)[addr] = val;
     } else {
-        mem.writeIntBig(T, cast_array(T, @field(cpu, field)[addr..addr +| @sizeOf(T)]), val);
+        mem.writeInt(T, cast_array(T, @field(cpu, field)[addr..addr +| @sizeOf(T)]), val, .big);
     }
 }
 

@@ -37,7 +37,7 @@ pub fn load_symbols(alloc: Allocator, reader: anytype) !Debug {
             .pos = 0,
         };
 
-        temp.addr = reader.readIntBig(u16) catch {
+        temp.addr = reader.readInt(u16, .big) catch {
             std.mem.sort(Symbol, symbol_list.items, {}, cmp_addr);
 
             return .{
