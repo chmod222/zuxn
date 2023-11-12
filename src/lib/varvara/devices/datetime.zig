@@ -37,31 +37,31 @@ pub const Datetime = struct {
 
         switch (port) {
             ports.year, ports.year + 1 => {
-                cpu.store_device_mem(u16, dev.port_address(ports.year), @as(u16, @intCast(local.*.tm_year + 1900)));
+                dev.store_port(u16, cpu, ports.year, @as(u16, @intCast(local.*.tm_year + 1900)));
             },
             ports.month => {
-                cpu.store_device_mem(u8, dev.port_address(ports.month), @as(u8, @intCast(local.*.tm_mon)));
+                dev.store_port(u8, cpu, ports.month, @as(u8, @intCast(local.*.tm_mon)));
             },
             ports.day => {
-                cpu.store_device_mem(u8, dev.port_address(ports.day), @as(u8, @intCast(local.*.tm_mday)));
+                dev.store_port(u8, cpu, ports.day, @as(u8, @intCast(local.*.tm_mday)));
             },
             ports.hour => {
-                cpu.store_device_mem(u8, dev.port_address(ports.hour), @as(u8, @intCast(local.*.tm_hour)));
+                dev.store_port(u8, cpu, ports.hour, @as(u8, @intCast(local.*.tm_hour)));
             },
             ports.minute => {
-                cpu.store_device_mem(u8, dev.port_address(ports.minute), @as(u8, @intCast(local.*.tm_min)));
+                dev.store_port(u8, cpu, ports.minute, @as(u8, @intCast(local.*.tm_min)));
             },
             ports.second => {
-                cpu.store_device_mem(u8, dev.port_address(ports.second), @as(u8, @intCast(local.*.tm_sec)));
+                dev.store_port(u8, cpu, ports.second, @as(u8, @intCast(local.*.tm_sec)));
             },
             ports.dotw => {
-                cpu.store_device_mem(u8, dev.port_address(ports.dotw), @as(u8, @intCast(local.*.tm_wday)));
+                dev.store_port(u8, cpu, ports.dotw, @as(u8, @intCast(local.*.tm_wday)));
             },
             ports.doty, ports.doty + 1 => {
-                cpu.store_device_mem(u16, dev.port_address(ports.doty), @as(u8, @intCast(local.*.tm_yday)));
+                dev.store_port(u16, cpu, ports.doty, @as(u8, @intCast(local.*.tm_yday)));
             },
             ports.isdst => {
-                cpu.store_device_mem(u8, dev.port_address(ports.isdst), @as(u8, @intCast(local.*.tm_isdst)));
+                dev.store_port(u8, cpu, ports.isdst, @as(u8, @intCast(local.*.tm_isdst)));
             },
 
             else => {},

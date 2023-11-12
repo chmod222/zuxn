@@ -37,30 +37,30 @@ pub const Mouse = struct {
     }
 
     fn invoke_vector(dev: *@This(), cpu: *Cpu) !void {
-        const vector = cpu.load_device_mem(u16, dev.port_address(ports.vector));
+        const vector = dev.load_port(u16, cpu, ports.vector);
 
         if (vector > 0)
             try cpu.evaluate_vector(vector);
     }
 
     pub fn press_buttons(dev: *@This(), cpu: *Cpu, buttons: ButtonFlags) !void {
-        const old_state = cpu.load_device_mem(u8, dev.port_address(ports.state));
+        const old_state = dev.load_port(u8, cpu, ports.state);
         const new_state = old_state | @as(u8, @bitCast(buttons));
 
         logger.debug("Button State: {}", .{@as(ButtonFlags, @bitCast(new_state))});
 
-        cpu.store_device_mem(u8, dev.port_address(ports.state), new_state);
+        dev.store_port(u8, cpu, ports.state, new_state);
 
         try dev.invoke_vector(cpu);
     }
 
     pub fn release_buttons(dev: *@This(), cpu: *Cpu, buttons: ButtonFlags) !void {
-        const old_state = cpu.load_device_mem(u8, dev.port_address(ports.state));
+        const old_state = dev.load_port(u8, cpu, ports.state);
         const new_state = old_state & ~@as(u8, @bitCast(buttons));
 
         logger.debug("Button State: {}", .{@as(ButtonFlags, @bitCast(new_state))});
 
-        cpu.store_device_mem(u8, dev.port_address(ports.state), new_state);
+        dev.store_port(u8, cpu, ports.state, new_state);
 
         try dev.invoke_vector(cpu);
     }
@@ -68,8 +68,8 @@ pub const Mouse = struct {
     pub fn update_position(dev: *@This(), cpu: *Cpu, x: u16, y: u16) !void {
         logger.debug("Set position: X: {}; Y: {}", .{ x, y });
 
-        cpu.store_device_mem(u16, dev.port_address(ports.x), x);
-        cpu.store_device_mem(u16, dev.port_address(ports.y), y);
+        dev.store_port(u16, cpu, ports.x, x);
+        dev.store_port(u16, cpu, ports.y, y);
 
         try dev.invoke_vector(cpu);
     }
@@ -77,12 +77,12 @@ pub const Mouse = struct {
     pub fn update_scroll(dev: *@This(), cpu: *Cpu, x: i32, y: i32) !void {
         logger.debug("Scrolling: X: {}; Y: {}", .{ x, -y });
 
-        cpu.store_device_mem(i16, dev.port_address(ports.scroll_x), @as(i16, @truncate(x)));
-        cpu.store_device_mem(i16, dev.port_address(ports.scroll_y), @as(i16, @truncate(-y)));
+        dev.store_port(i16, cpu, ports.scroll_x, @as(i16, @truncate(x)));
+        dev.store_port(i16, cpu, ports.scroll_y, @as(i16, @truncate(-y)));
 
         defer {
-            cpu.store_device_mem(i16, dev.port_address(ports.scroll_x), 0);
-            cpu.store_device_mem(i16, dev.port_address(ports.scroll_y), 0);
+            dev.store_port(u16, cpu, ports.scroll_x, 0);
+            dev.store_port(u16, cpu, ports.scroll_y, 0);
         }
 
         try dev.invoke_vector(cpu);

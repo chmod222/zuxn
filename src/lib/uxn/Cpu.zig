@@ -76,20 +76,24 @@ pub fn evaluate_vector(cpu: *Cpu, vector: u16) SystemFault!void {
     logger.debug("Vector {x:0>4}: Finished evaluation", .{vector});
 }
 
-fn cast_array(comptime T: type, slice: []u8) *[@sizeOf(T)]u8 {
-    return @ptrCast(slice);
-}
-
 inline fn load(
-    cpu: *Cpu,
+    cpu: *const Cpu,
     comptime T: type,
     comptime field: []const u8,
     addr: anytype,
 ) T {
     return if (T == u8)
         @field(cpu, field)[addr]
-    else
-        mem.readInt(T, cast_array(T, @field(cpu, field)[addr..addr +| @sizeOf(T)]), .big);
+    else switch (@typeInfo(T)) {
+        .Struct => |s| if (s.backing_integer) |U|
+            @bitCast(cpu.load(U, field, addr))
+        else
+            @panic("Cannot read arbitrary struct types"),
+
+        .Int => mem.readInt(T, @as(*const [@sizeOf(T)]u8, @ptrCast(@field(cpu, field)[addr..addr +| @sizeOf(T)])), .big),
+
+        else => @panic("Can only read bitfield structures and integers"),
+    };
 }
 
 inline fn store(
@@ -99,18 +103,25 @@ inline fn store(
     addr: anytype,
     val: T,
 ) void {
-    if (T == u8) {
-        @field(cpu, field)[addr] = val;
-    } else {
-        mem.writeInt(T, cast_array(T, @field(cpu, field)[addr..addr +| @sizeOf(T)]), val, .big);
+    if (T == u8)
+        @field(cpu, field)[addr] = val
+    else switch (@typeInfo(T)) {
+        .Struct => |s| if (s.backing_integer) |U|
+            cpu.store(U, field, addr, val)
+        else
+            @panic("Cannot store arbitrary struct types"),
+
+        .Int => mem.writeInt(T, @as(*[@sizeOf(T)]u8, @ptrCast(@field(cpu, field)[addr..addr +| @sizeOf(T)])), val, .big),
+
+        else => @panic("Can only store bitfield structures and integers"),
     }
 }
 
-pub fn load_mem(cpu: *Cpu, comptime T: type, addr: u16) T {
+pub fn load_mem(cpu: *const Cpu, comptime T: type, addr: u16) T {
     return cpu.load(T, "mem", addr);
 }
 
-pub fn load_device_mem(cpu: *Cpu, comptime T: type, addr: u8) T {
+pub fn load_device_mem(cpu: *const Cpu, comptime T: type, addr: u8) T {
     return cpu.load(T, "device_mem", addr);
 }
 

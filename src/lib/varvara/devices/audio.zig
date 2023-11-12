@@ -113,14 +113,14 @@ pub const Audio = struct {
     }
 
     fn start_audio(dev: *@This(), cpu: *Cpu) void {
-        var pitch: PitchFlags = @bitCast(cpu.load_device_mem(u8, dev.port_address(ports.pitch)));
+        var pitch = dev.load_port(PitchFlags, cpu, ports.pitch);
 
-        const volume: VolumeFlags = @bitCast(cpu.load_device_mem(u8, dev.port_address(ports.volume)));
-        const adsr: AdsrFlags = @bitCast(cpu.load_device_mem(u16, dev.port_address(ports.adsr)));
+        const volume = dev.load_port(VolumeFlags, cpu, ports.volume);
+        const adsr = dev.load_port(AdsrFlags, cpu, ports.adsr);
 
-        const duration: u16 = cpu.load_device_mem(u16, dev.port_address(ports.duration));
-        const addr: u16 = cpu.load_device_mem(u16, dev.port_address(ports.addr));
-        const len: u16 = cpu.load_device_mem(u16, dev.port_address(ports.length));
+        const duration = dev.load_port(u16, cpu, ports.duration);
+        const addr = dev.load_port(u16, cpu, ports.addr);
+        const len = dev.load_port(u16, cpu, ports.length);
 
         const sample = cpu.mem[addr..addr +| len];
 
@@ -213,7 +213,7 @@ pub const Audio = struct {
     }
 
     pub fn evaluate_finish_vector(dev: *@This(), cpu: *Cpu) !void {
-        const vector = cpu.load_device_mem(u16, dev.port_address(ports.vector));
+        const vector = dev.load_port(u16, cpu, ports.vector);
 
         if (vector != 0x0000) {
             return cpu.evaluate_vector(vector);
@@ -273,11 +273,12 @@ pub const Audio = struct {
     ) !void {
         if (kind == .input) {
             if (port == ports.output) {
-                cpu.store_device_mem(u8, dev.port_address(ports.output), dev.get_output_vu());
+                dev.store_port(u8, cpu, ports.output, dev.get_output_vu());
             } else if (port == ports.position or port == ports.position + 1) {
-                cpu.store_device_mem(
+                dev.store_port(
                     u16,
-                    dev.port_address(ports.position),
+                    cpu,
+                    ports.position,
                     if (dev.active_sample) |sample|
                         @intFromFloat(sample.position)
                     else

@@ -42,12 +42,12 @@ pub const File = struct {
     }
 
     fn get_port_slice(dev: *@This(), cpu: *Cpu, comptime port: comptime_int) []u8 {
-        const ptr: usize = cpu.load_device_mem(u16, dev.port_address(port));
+        const ptr: usize = dev.load_port(u16, cpu, port);
 
         return if (port == ports.name)
             std.mem.sliceTo(cpu.mem[ptr..], 0x00)
         else
-            return cpu.mem[ptr..ptr +| cpu.load_device_mem(u16, dev.port_address(ports.length))];
+            return cpu.mem[ptr..ptr +| dev.load_port(u16, cpu, ports.length)];
     }
 
     pub fn intercept(
@@ -63,12 +63,11 @@ pub const File = struct {
             ports.name + 1 => {
                 // Close a previously opened file
                 dev.cleanup();
-
-                cpu.store_device_mem(u16, dev.port_address(ports.success), 0x0001);
+                dev.store_port(u16, cpu, ports.success, 0x0001);
             },
 
             ports.write + 1 => {
-                const truncate = cpu.load_device_mem(u8, dev.port_address(ports.append)) == 0x00;
+                const truncate = dev.load_port(u8, cpu, ports.append) == 0x00;
 
                 const name_slice = dev.get_port_slice(cpu, ports.name);
                 const data_slice = dev.get_port_slice(cpu, ports.write);
@@ -81,7 +80,7 @@ pub const File = struct {
                         err,
                     });
 
-                    return cpu.store_device_mem(u16, dev.port_address(ports.success), 0x0000);
+                    return dev.store_port(u16, cpu, ports.success, 0x0000);
                 };
 
                 if (dev.active_file == null) {
@@ -102,7 +101,7 @@ pub const File = struct {
                     break :r 0x0000;
                 };
 
-                cpu.store_device_mem(u16, dev.port_address(ports.success), res);
+                dev.store_port(u16, cpu, ports.success, res);
                 dev.active_file = t;
             },
 
@@ -113,7 +112,7 @@ pub const File = struct {
                 var t = dev.active_file orelse dev.open_readable(name_slice) catch |err| {
                     logger.debug("[File@{x}] Failed opening \"{s}\" for read access: {}", .{ dev.addr, name_slice, err });
 
-                    return cpu.store_device_mem(u16, dev.port_address(ports.success), 0x0000);
+                    return dev.store_port(u16, cpu, ports.success, 0x0000);
                 };
 
                 if (dev.active_file == null) {
@@ -130,7 +129,7 @@ pub const File = struct {
                     break :r 0x0000;
                 };
 
-                cpu.store_device_mem(u16, dev.port_address(ports.success), res);
+                dev.store_port(u16, cpu, ports.success, res);
                 dev.active_file = t;
             },
 
@@ -147,7 +146,7 @@ pub const File = struct {
                     break :r 0x0000;
                 };
 
-                cpu.store_device_mem(u16, dev.port_address(ports.success), res);
+                dev.store_port(u16, cpu, ports.success, res);
             },
 
             ports.stat + 1 => {
@@ -155,7 +154,7 @@ pub const File = struct {
 
                 logger.warn("[File@{x}] Called stat on \"{s}\"; not implemented", .{ dev.addr, name_slice });
 
-                cpu.store_device_mem(u16, dev.port_address(ports.success), 0x0000);
+                dev.store_port(u16, cpu, ports.success, 0x0000);
             },
 
             else => {},

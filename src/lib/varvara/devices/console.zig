@@ -30,7 +30,7 @@ pub const Console = struct {
         if (port != ports.write and port != ports.err)
             return;
 
-        const octet = cpu.device_mem[dev.port_address(port)];
+        const octet = dev.load_port(u8, cpu, port);
 
         if (port == ports.write) {
             _ = stdout_writer.write(&[_]u8{octet}) catch return;
@@ -46,16 +46,16 @@ pub const Console = struct {
     ) !void {
         for (0.., args) |i, arg| {
             for (arg) |oct| {
-                cpu.device_mem[dev.port_address(ports.typ)] = 0x2;
-                cpu.device_mem[dev.port_address(ports.read)] = oct;
+                dev.store_port(u8, cpu, ports.typ, 0x2);
+                dev.store_port(u8, cpu, ports.read, oct);
 
-                try cpu.evaluate_vector(cpu.load_device_mem(u16, dev.port_address(ports.vector)));
+                try cpu.evaluate_vector(dev.load_port(u16, cpu, ports.vector));
             }
 
-            cpu.device_mem[dev.port_address(ports.typ)] = if (i == args.len - 1) 0x4 else 0x3;
-            cpu.device_mem[dev.port_address(ports.read)] = 0x10;
+            dev.store_port(u8, cpu, ports.typ, if (i == args.len - 1) 0x4 else 0x3);
+            dev.store_port(u8, cpu, ports.read, 0x10);
 
-            try cpu.evaluate_vector(cpu.load_device_mem(u16, dev.port_address(ports.vector)));
+            try cpu.evaluate_vector(dev.load_port(u16, cpu, ports.vector));
         }
     }
 
@@ -64,7 +64,7 @@ pub const Console = struct {
         cpu: *Cpu,
         args: [][]const u8,
     ) void {
-        cpu.device_mem[dev.port_address(ports.typ)] = @intFromBool(args.len > 0);
+        dev.store_port(u8, cpu, ports.typ, @intFromBool(args.len > 0));
     }
 
     pub fn push_stdin_byte(
@@ -72,10 +72,10 @@ pub const Console = struct {
         cpu: *Cpu,
         byte: u8,
     ) !void {
-        const vector = cpu.load_device_mem(u16, dev.port_address(ports.vector));
+        const vector = dev.load_port(u16, cpu, ports.vector);
 
-        cpu.device_mem[dev.port_address(ports.typ)] = 0x1;
-        cpu.device_mem[dev.port_address(ports.read)] = byte;
+        dev.store_port(u8, cpu, ports.typ, 0x1);
+        dev.store_port(u8, cpu, ports.read, byte);
 
         if (vector > 0x0000)
             try cpu.evaluate_vector(vector);

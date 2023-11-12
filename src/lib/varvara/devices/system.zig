@@ -57,21 +57,21 @@ pub const System = struct {
     ) !void {
         if (kind == .input) {
             switch (port) {
-                ports.wsp => cpu.device_mem[dev.port_address(ports.wsp)] = cpu.wst.sp,
-                ports.rsp => cpu.device_mem[dev.port_address(ports.rsp)] = cpu.rst.sp,
+                ports.wsp => dev.store_port(u8, cpu, ports.wsp, cpu.wst.sp),
+                ports.rsp => dev.store_port(u8, cpu, ports.rsp, cpu.rst.sp),
 
                 else => {},
             }
         } else {
             switch (port) {
                 ports.state => {
-                    dev.exit_code = cpu.device_mem[dev.port_address(ports.state)] & 0x7f;
+                    dev.exit_code = dev.load_port(u8, cpu, ports.state) & 0x7f;
 
                     logger.debug("System exit requested (code = {?})", .{dev.exit_code});
                 },
 
-                ports.wsp => cpu.wst.sp = cpu.device_mem[dev.port_address(ports.wsp)],
-                ports.rsp => cpu.rst.sp = cpu.device_mem[dev.port_address(ports.rsp)],
+                ports.wsp => cpu.wst.sp = dev.load_port(u8, cpu, ports.wsp),
+                ports.rsp => cpu.rst.sp = dev.load_port(u8, cpu, ports.rsp),
 
                 ports.debug => {
                     if (dev.debug_callback) |cb|
@@ -81,7 +81,7 @@ pub const System = struct {
                 },
 
                 ports.expansion + 1 => {
-                    try dev.handle_expansion(cpu, cpu.load_device_mem(u16, dev.port_address(ports.expansion)));
+                    try dev.handle_expansion(cpu, dev.load_port(u16, cpu, ports.expansion));
                 },
 
                 ports.red + 1, ports.green + 1, ports.blue + 1 => {
@@ -89,9 +89,9 @@ pub const System = struct {
                     //   R 0xABCD
                     //   G 0xEFGH
                     //   B 0xIJKL => 0xAEI 0xBFJ 0xCGK 0xDHL
-                    const r = cpu.load_device_mem(u16, dev.port_address(ports.red));
-                    const g = cpu.load_device_mem(u16, dev.port_address(ports.green));
-                    const b = cpu.load_device_mem(u16, dev.port_address(ports.blue));
+                    const r = dev.load_port(u16, cpu, ports.red);
+                    const g = dev.load_port(u16, cpu, ports.green);
+                    const b = dev.load_port(u16, cpu, ports.blue);
 
                     for (0..4) |i|
                         dev.colors[i] = split_rgb(r, g, b, @truncate(i));
@@ -103,7 +103,7 @@ pub const System = struct {
     }
 
     pub fn handle_fault(dev: *@This(), cpu: *Cpu, fault: Cpu.SystemFault) !void {
-        const catch_vector = cpu.load_device_mem(u16, dev.port_address(ports.catch_vector));
+        const catch_vector = dev.load_port(u16, cpu, ports.catch_vector);
 
         if (catch_vector > 0x0000 and Cpu.is_catchable(fault)) {
             // Clear stacks, push fault information
