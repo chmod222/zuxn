@@ -145,6 +145,34 @@ fn opcode_color(i: uxn.Cpu.Instruction) struct { u8, u8, u8 } {
     };
 }
 
+fn dump_stack(stack: *const uxn.Cpu.Stack) void {
+    const offset: u8 = 8;
+
+    var i: u8 = stack.sp -% offset;
+
+    while (i != stack.sp +% offset + 1) : (i +%= 1) {
+        if (i == stack.sp) {
+            std.debug.print("\x1b[1;31m[{x:0>2}]\x1b[0m ", .{i});
+        } else {
+            std.debug.print("{x:0>2} ", .{i});
+        }
+    }
+
+    std.debug.print("\n", .{});
+
+    i = stack.sp -% offset;
+
+    while (i != stack.sp +% offset + 1) : (i +%= 1) {
+        if (i == stack.sp) {
+            std.debug.print("\x1b[1;31m[{x:0>2}]\x1b[0m ", .{stack.data[i]});
+        } else {
+            std.debug.print("{x:0>2} ", .{stack.data[i]});
+        }
+    }
+
+    std.debug.print("\n", .{});
+}
+
 pub fn on_debug_hook(cpu: *uxn.Cpu, data: ?*anyopaque) void {
     const debug_data: ?*const Debug = @alignCast(@ptrCast(data));
 
@@ -180,21 +208,15 @@ pub fn on_debug_hook(cpu: *uxn.Cpu, data: ?*anyopaque) void {
         });
     }
 
-    std.debug.print("Working Stack: \n", .{});
+    std.debug.print("\n", .{});
 
-    for (0..cpu.wst.sp) |sp| {
-        std.debug.print("{x:0>2} | ", .{cpu.wst.data[sp]});
-    }
+    std.debug.print("Working Stack: \n", .{});
+    dump_stack(&cpu.wst);
 
     std.debug.print("\n", .{});
+
     std.debug.print("Return Stack: \n", .{});
-
-    for (0..cpu.rst.sp) |sp| {
-        std.debug.print("{x:0>2}", .{cpu.rst.data[sp]});
-
-        if (sp != cpu.rst.sp - 1)
-            std.debug.print(" ", .{});
-    }
+    dump_stack(&cpu.rst);
 
     std.debug.print("\n", .{});
 }

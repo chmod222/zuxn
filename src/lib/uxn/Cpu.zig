@@ -1,5 +1,7 @@
 const Cpu = @This();
 
+pub const Stack = @import("cpu/Stack.zig");
+
 const std = @import("std");
 const mem = std.mem;
 
@@ -28,8 +30,6 @@ pub const InterceptKind = enum {
     input,
     output,
 };
-
-const Stack = @import("cpu/Stack.zig");
 
 pc: u16,
 
