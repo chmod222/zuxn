@@ -226,7 +226,22 @@ pub fn Assembler(comptime lim: scan.Limits) type {
 
         fn full_label(assembler: *@This(), label: Scanner.TypedLabel) !Scanner.Label {
             switch (label) {
-                .root => |l| return l,
+                .root => |l| {
+                    // Special case "smart" lambda labels that get a unique identifier whenever encountered.
+                    if (std.mem.eql(u8, "{", mem.sliceTo(&l, 0))) {
+                        const ll = generate_lambda_label(assembler.lambda_counter).root;
+
+                        assembler.lambdas.append(assembler.lambda_counter) catch
+                            return error.TooManyNestedLambas;
+
+                        assembler.lambda_counter += 1;
+
+                        return ll;
+                    } else {
+                        return l;
+                    }
+                },
+
                 .scoped => |s| {
                     const parent = mem.sliceTo(&(assembler.last_root_label orelse return error.MissingScopeLabel), 0);
                     const child = mem.sliceTo(&s, 0);
@@ -379,16 +394,28 @@ pub fn Assembler(comptime lim: scan.Limits) type {
                     const start = try scanner.read_token(input) orelse
                         return error.InvalidMacroDefinition;
 
-                    if (start.token != .curly_open)
+                    // %MACRO { } gets scanned as: <macro_definition> <jsi: '{'> so we expect that here.
+                    if (start.token != .jsi and start.token.jsi != .root) {
+                        return error.InvalidMacroDefinition;
+                    }
+
+                    // Special case it a bit so that "{}" and "{ }" both work as empty body definitions
+                    const empty_body = if (mem.eql(u8, "{", mem.sliceTo(&start.token.jsi.root, 0)))
+                        false
+                    else if (mem.eql(u8, "{}", mem.sliceTo(&start.token.jsi.root, 0)))
+                        true
+                    else
                         return error.InvalidMacroDefinition;
 
                     var body = std.ArrayList(Scanner.SourceToken).init(assembler.allocator);
 
-                    while (try scanner.read_token(input)) |tok| {
-                        if (tok.token == .curly_close)
-                            break;
+                    if (!empty_body) {
+                        while (try scanner.read_token(input)) |tok| {
+                            if (tok.token == .curly_close)
+                                break;
 
-                        body.append(tok) catch return error.MacroBodyTooLong;
+                            body.append(tok) catch return error.MacroBodyTooLong;
+                        }
                     }
 
                     assembler.macros.append(.{
@@ -407,28 +434,6 @@ pub fn Assembler(comptime lim: scan.Limits) type {
                         try assembler.process_token(scanner, macro_token, input, output, seekable);
                 },
 
-                .curly_open => {
-                    const label = generate_lambda_label(assembler.lambda_counter);
-                    const pos = try seekable.getPos();
-
-                    assembler.lambdas.append(assembler.lambda_counter) catch
-                        return error.TooManyNestedLambas;
-
-                    assembler.lambda_counter += 1;
-
-                    // Write JSI to location to be defined below
-                    const reference = .{
-                        .type = .absolute,
-                        .label = label,
-                    };
-
-                    var ref = try assembler.remember_location(reference, @truncate(pos), @truncate(pos + 3));
-
-                    ref.definition = assembler.lexical_information_from_token(token);
-
-                    try output.writeInt(u24, 0x60aaaa, .big);
-                },
-
                 .curly_close => {
                     const lambda = assembler.lambdas.popOrNull() orelse return error.UnbalancedLambda;
                     const label = generate_lambda_label(lambda);
@@ -436,9 +441,6 @@ pub fn Assembler(comptime lim: scan.Limits) type {
                     var label_def = try assembler.define_label(label, @truncate(try seekable.getPos()));
 
                     label_def.definition = assembler.lexical_information_from_token(token);
-
-                    // STH2r to put the lambda entry onto the main stack
-                    try output.writeByte(0x6f);
                 },
             }
         }

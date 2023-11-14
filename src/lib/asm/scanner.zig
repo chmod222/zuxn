@@ -90,7 +90,6 @@ pub fn Scanner(comptime lim: Limits) type {
 
         pub const Token = union(enum) {
             macro_definition: Label,
-            curly_open: void,
             curly_close: void,
             macro_expansion: Label,
 
@@ -361,13 +360,10 @@ pub fn Scanner(comptime lim: Limits) type {
                         break :b .{ .macro_definition = ident };
                     },
 
-                    '{', '}' => b: {
+                    '}' => b: {
                         end = Location{ start[0], start[1] + 1 };
 
-                        break :b if (b == '{')
-                            .curly_open
-                        else
-                            .curly_close;
+                        break :b .curly_close;
                     },
 
                     '"' => b: {
