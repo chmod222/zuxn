@@ -1,6 +1,8 @@
 pub const Cpu = @import("Cpu.zig");
 //pub const Debug = @import("Debug.zig");
 
+pub const faults_enabled = false;
+
 const std = @import("std");
 
 const Allocator = std.mem.Allocator;

@@ -2,6 +2,8 @@ const Stack = @This();
 
 const std = @import("std");
 
+pub const faults_enabled = @import("../lib.zig").faults_enabled;
+
 data: [0x100]u8,
 sp: u8,
 spt: u8,
@@ -16,35 +18,43 @@ pub fn init() Stack {
     };
 }
 
-pub fn push(s: *Stack, comptime T: type, v: T) !void {
-    if (s.sp > 0xff - @sizeOf(T))
+inline fn push_byte(s: *Stack, byte: u8) !void {
+    if (faults_enabled and s.sp > 0xfe) {
         return error.StackOverflow;
+    }
 
-    std.mem.writeInt(
-        T,
-        @as(*[@sizeOf(T)]u8, @ptrCast(s.data[s.sp .. s.sp + @sizeOf(T)])),
-        v,
-        .big,
-    );
+    s.data[s.sp] = byte;
+    s.sp +%= 1;
+}
 
-    s.sp += @sizeOf(T);
+inline fn pop_byte(s: *Stack) !u8 {
+    const sp = s.spr orelse &s.sp;
+
+    if (faults_enabled and sp.* == 0) {
+        return error.StackUnderflow;
+    }
+
+    defer {
+        sp.* -%= 1;
+    }
+
+    return s.data[sp.* -% 1];
+}
+
+pub fn push(s: *Stack, comptime T: type, v: T) !void {
+    for (0..@sizeOf(T)) |i| {
+        try s.push_byte(@truncate(v >> @truncate((@sizeOf(T) - 1 - i) * 8)));
+    }
 }
 
 pub fn pop(s: *Stack, comptime T: type) !T {
-    const sp = s.spr orelse &s.sp;
+    var res: T = 0;
 
-    if (sp.* < @sizeOf(T))
-        return error.StackUnderflow;
-
-    defer {
-        sp.* -= @sizeOf(T);
+    for (0..@sizeOf(T)) |i| {
+        res |= @as(T, try s.pop_byte()) << @truncate(i * 8);
     }
 
-    return std.mem.readInt(
-        T,
-        @as(*[@sizeOf(T)]u8, @ptrCast(s.data[sp.* - @sizeOf(T) .. sp.*])),
-        .big,
-    );
+    return res;
 }
 
 pub fn freeze_read(s: *Stack) void {

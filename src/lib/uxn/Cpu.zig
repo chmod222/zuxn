@@ -5,6 +5,7 @@ const mem = std.mem;
 
 const logger = std.log.scoped(.uxn_cpu);
 
+pub const faults_enabled = @import("lib.zig").faults_enabled;
 pub const page_size = 0x10000;
 pub const device_page_size = 0x100;
 
@@ -13,6 +14,7 @@ pub usingnamespace @import("cpu/isa.zig");
 pub const SystemFault = error{
     StackOverflow,
     StackUnderflow,
+
     DivisionByZero,
 
     BadExpansion,
@@ -373,6 +375,8 @@ pub fn step(cpu: *Cpu) SystemFault!?u16 {
                 .MUL => a *% b,
                 .DIV => if (b != 0)
                     a / b
+                else if (!faults_enabled)
+                    0
                 else
                     return error.DivisionByZero,
 
