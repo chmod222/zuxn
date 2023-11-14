@@ -253,7 +253,7 @@ pub const Screen = struct {
         y0: u16,
         addr: u16,
     ) void {
-        const opaq = flags.blending % 5 != 0 or flags.blending == 0x0;
+        const opaq = flags.blending % 5 != 0;
 
         var y: u16 = 0;
 
