@@ -177,7 +177,7 @@ pub const System = struct {
                 };
 
                 const src_slice = src[src_ptr..src_ptr +| dat_len];
-                var dst_slice = dst[dst_ptr..dst_ptr +| dat_len];
+                const dst_slice = dst[dst_ptr..dst_ptr +| dat_len];
 
                 if (src_slice.len != dst_slice.len) {
                     logger.warn("Expansion: Source and destination lengths do not match due to " ++
@@ -210,7 +210,7 @@ pub const System = struct {
 
                 logger.debug("Expansion: Fetch environment variable \"{s}\" (dest len = {})", .{ env_name, dest_len });
 
-                const env = std.os.getenv(env_name) orelse "";
+                const env = std.posix.getenv(env_name) orelse "";
                 const cpy_len = @min(env.len, dest.len);
 
                 if (cpy_len > 0) {

@@ -40,7 +40,7 @@
             mkdir -p $out
             mkdir -p .cache/{p,z,tmp}
 
-            cp -r ${clap} .cache/p/1220f48518ce22882e102255ed3bcdb7aeeb4891f50b2cdd3bd74b5b2e24d3149ba2
+            cp -r ${clap} .cache/p/12204b2fb733b2de9184d1907032709e79c2595b4adc9bed12a8383b114d4c0da932
 
             zig build --cache-dir $(pwd)/zig-cache --global-cache-dir $(pwd)/.cache -p $out
           '';

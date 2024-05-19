@@ -113,7 +113,7 @@ fn dump_opcodes() void {
         if (ins != 0 and ins & 0xf == 0)
             std.debug.print("\n", .{});
 
-        var color = opcode_color(i);
+        const color = opcode_color(i);
 
         std.debug.print("{x:0>2}: \x1b[38;2;{d};{d};{d}m{s: <8}\x1b[0m", .{
             ins,

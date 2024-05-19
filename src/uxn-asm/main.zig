@@ -29,7 +29,10 @@ pub fn main() !void {
     );
 
     var diag = clap.Diagnostic{};
-    var stderr = std.io.getStdErr().writer();
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+
+    const stderr = std.io.getStdErr().writer();
+    const alloc = gpa.allocator();
 
     const parsers = comptime .{
         .FILE = clap.parsers.string,
@@ -37,6 +40,7 @@ pub fn main() !void {
 
     var res = clap.parse(clap.Help, &params, parsers, .{
         .diagnostic = &diag,
+        .allocator = alloc,
     }) catch |err| {
         // Report useful error and exit
         diag.report(stderr, err) catch {};
@@ -57,9 +61,6 @@ pub fn main() !void {
     const input_file_name = res.positionals[0];
     const input_file = try std.fs.cwd().openFile(input_file_name, .{});
     defer input_file.close();
-
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    const alloc = gpa.allocator();
 
     var assembler = Assembler.init(alloc, std.fs.cwd());
     defer assembler.deinit();

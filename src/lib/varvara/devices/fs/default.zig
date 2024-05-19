@@ -4,14 +4,14 @@ const fs = std.fs;
 const io = std.io;
 
 const Directory = struct {
-    root: fs.IterableDir,
-    iter: fs.IterableDir.Iterator,
+    root: fs.Dir,
+    iter: fs.Dir.Iterator,
 
-    cached_entry: ?fs.IterableDir.Entry = null,
+    cached_entry: ?fs.Dir.Entry = null,
 
     fn render_dir_entry(
         dir: *Directory,
-        entry: fs.IterableDir.Entry,
+        entry: fs.Dir.Entry,
         slice: []u8,
     ) !usize {
         var fbw = io.FixedBufferStream([]u8){
@@ -31,7 +31,7 @@ const Directory = struct {
                 } else |_| {
                     break :s 0x10000;
                 }
-            } else (try dir.root.dir.statFile(entry.name)).size;
+            } else (try dir.root.statFile(entry.name)).size;
 
             try if (file_size > 0xffff)
                 writer.print("???? {s}\n", .{entry.name})
@@ -71,7 +71,7 @@ pub fn Impl(comptime Self: type) type {
                     return error.Sandboxed;
             }
 
-            if (fs.cwd().openIterableDir(path, .{})) |dir| {
+            if (fs.cwd().openDir(path, .{ .iterate = true })) |dir| {
                 return .{
                     .directory = .{
                         .root = dir,

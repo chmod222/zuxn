@@ -175,7 +175,7 @@ pub fn Scanner(comptime lim: Limits) type {
             var writer = fbs.writer();
 
             while (true) {
-                var oct = scanner.read_byte(input) orelse ' ';
+                const oct = scanner.read_byte(input) orelse ' ';
 
                 if (ascii.isWhitespace(oct))
                     break;

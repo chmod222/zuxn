@@ -192,7 +192,7 @@ pub fn Assembler(comptime lim: scan.Limits) type {
                 return def;
             }
 
-            var definition = assembler.labels.addOne() catch return error.TooManyLabels;
+            const definition = assembler.labels.addOne() catch return error.TooManyLabels;
 
             definition.* = .{
                 .definition = null,
@@ -205,7 +205,7 @@ pub fn Assembler(comptime lim: scan.Limits) type {
         }
 
         fn define_label(assembler: *@This(), label: Scanner.TypedLabel, addr: u16) !*DefinedLabel {
-            var definition = try assembler.retrieve_label(label);
+            const definition = try assembler.retrieve_label(label);
 
             if (definition.addr != null)
                 return error.LabelAlreadyDefined;
@@ -273,7 +273,7 @@ pub fn Assembler(comptime lim: scan.Limits) type {
         ) !*Reference {
             var definition = try assembler.retrieve_label(reference.label);
 
-            var ref = definition.references.addOne() catch
+            const ref = definition.references.addOne() catch
                 return error.TooManyReferences;
 
             ref.* = .{
@@ -518,7 +518,7 @@ pub fn Assembler(comptime lim: scan.Limits) type {
             assembler.include_stack.appendAssumeCapacity(included_path);
 
             // Do assemble
-            var reader = file.reader();
+            const reader = file.reader();
             var scanner = Scanner.init();
 
             errdefer {

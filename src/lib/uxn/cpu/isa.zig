@@ -118,7 +118,7 @@ fn generate_mnemonics() [0x100][]const u8 {
     var raw_instruction: u8 = 0x00;
 
     while (true) : (raw_instruction += 1) {
-        var instruction = Instruction.decode(raw_instruction);
+        const instruction = Instruction.decode(raw_instruction);
 
         mnemonics_r[raw_instruction] = std.fmt.comptimePrint("{s}{s}", .{
             @tagName(instruction.opcode),

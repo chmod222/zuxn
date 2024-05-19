@@ -15,8 +15,8 @@ const Debug = shared.Debug;
 
 const logger = std.log.scoped(.uxn_cli);
 
-pub const std_options = struct {
-    pub const log_scope_levels = &[_]std.log.ScopeLevel{
+pub const std_options = .{
+    .log_scope_levels = &[_]std.log.ScopeLevel{
         .{ .scope = .uxn_cpu, .level = .info },
 
         .{ .scope = .uxn_varvara, .level = .info },
@@ -28,7 +28,7 @@ pub const std_options = struct {
         .{ .scope = .uxn_varvara_mouse, .level = .info },
         .{ .scope = .uxn_varvara_file, .level = .info },
         .{ .scope = .uxn_varvara_datetime, .level = .info },
-    };
+    },
 };
 
 const VarvaraDefault = varvara.VarvaraSystem(std.fs.File.Writer, std.fs.File.Writer);
@@ -41,7 +41,7 @@ fn intercept(
     kind: uxn.Cpu.InterceptKind,
     data: ?*anyopaque,
 ) !void {
-    var varvara_sys: ?*VarvaraDefault = @alignCast(@ptrCast(data));
+    const varvara_sys: ?*VarvaraDefault = @alignCast(@ptrCast(data));
 
     if (varvara_sys) |sys|
         try sys.intercept(cpu, addr, kind);
@@ -71,7 +71,11 @@ pub fn main() !u8 {
     );
 
     var diag = clap.Diagnostic{};
-    var clap_args = .{ .diagnostic = &diag };
+
+    const clap_args = .{
+        .diagnostic = &diag,
+        .allocator = alloc,
+    };
 
     const res = clap.parse(clap.Help, &params, shared.parsers, clap_args) catch |err| {
         // Report useful error and exit

@@ -24,17 +24,15 @@ pub fn build(b: *std.Build) void {
     const core_mod = b.addModule(
         "uxn-core",
         .{
-            .source_file = .{
-                .path = "src/lib/uxn/lib.zig",
-            },
+            .root_source_file = b.path("src/lib/uxn/lib.zig"),
         },
     );
 
     const varvara_mod = b.addModule(
         "uxn-varvara",
         .{
-            .source_file = .{ .path = "src/lib/varvara/lib.zig" },
-            .dependencies = &.{.{
+            .root_source_file = b.path("src/lib/varvara/lib.zig"),
+            .imports = &.{.{
                 .name = "uxn-core",
                 .module = core_mod,
             }},
@@ -44,8 +42,8 @@ pub fn build(b: *std.Build) void {
     const asm_mod = b.addModule(
         "uxn-asm",
         .{
-            .source_file = .{ .path = "src/lib/asm/lib.zig" },
-            .dependencies = &.{.{
+            .root_source_file = b.path("src/lib/asm/lib.zig"),
+            .imports = &.{.{
                 .name = "uxn-core",
                 .module = core_mod,
             }},
@@ -72,8 +70,8 @@ pub fn build(b: *std.Build) void {
     const shared_mod = b.addModule(
         "uxn-shared",
         .{
-            .source_file = .{ .path = "src/shared.zig" },
-            .dependencies = &.{ .{
+            .root_source_file = b.path("src/shared.zig"),
+            .imports = &.{ .{
                 .name = "uxn-core",
                 .module = core_mod,
             }, .{
@@ -91,40 +89,40 @@ pub fn build(b: *std.Build) void {
 
     const uxn_cli = b.addExecutable(.{
         .name = "uxn-cli",
-        .root_source_file = .{ .path = "src/uxn-cli/main.zig" },
+        .root_source_file = b.path("src/uxn-cli/main.zig"),
         .target = target,
         .optimize = optimize,
     });
 
-    uxn_cli.addModule("uxn-shared", shared_mod);
-    uxn_cli.addModule("uxn-core", core_mod);
-    uxn_cli.addModule("uxn-varvara", varvara_mod);
-    uxn_cli.addModule("clap", dep_clap.module("clap"));
-    uxn_cli.addModule("build_options", build_options_mod);
+    uxn_cli.root_module.addImport("uxn-shared", shared_mod);
+    uxn_cli.root_module.addImport("uxn-core", core_mod);
+    uxn_cli.root_module.addImport("uxn-varvara", varvara_mod);
+    uxn_cli.root_module.addImport("clap", dep_clap.module("clap"));
+    uxn_cli.root_module.addImport("build_options", build_options_mod);
     uxn_cli.linkLibC();
 
     if (enable_jit_assembly)
-        uxn_cli.addModule("uxn-asm", asm_mod);
+        uxn_cli.root_module.addImport("uxn-asm", asm_mod);
 
-    if (target.cpu_arch != .wasm32) {
+    if (target.result.cpu.arch != .wasm32) {
         const uxn_sdl = b.addExecutable(.{
             .name = "uxn-sdl",
-            .root_source_file = .{ .path = "src/uxn-sdl/main.zig" },
+            .root_source_file = b.path("src/uxn-sdl/main.zig"),
             .target = target,
             .optimize = optimize,
         });
 
-        uxn_sdl.addModule("uxn-shared", shared_mod);
-        uxn_sdl.addModule("uxn-core", core_mod);
-        uxn_sdl.addModule("uxn-varvara", varvara_mod);
-        uxn_sdl.addModule("clap", dep_clap.module("clap"));
-        uxn_sdl.addModule("build_options", build_options_mod);
+        uxn_sdl.root_module.addImport("uxn-shared", shared_mod);
+        uxn_sdl.root_module.addImport("uxn-core", core_mod);
+        uxn_sdl.root_module.addImport("uxn-varvara", varvara_mod);
+        uxn_sdl.root_module.addImport("clap", dep_clap.module("clap"));
+        uxn_sdl.root_module.addImport("build_options", build_options_mod);
         uxn_sdl.linkLibC();
         uxn_sdl.linkSystemLibrary("SDL2_image");
         uxn_sdl.linkSystemLibrary("SDL2");
 
         if (enable_jit_assembly)
-            uxn_sdl.addModule("uxn-asm", asm_mod);
+            uxn_sdl.root_module.addImport("uxn-asm", asm_mod);
 
         b.installArtifact(uxn_sdl);
 
@@ -141,13 +139,13 @@ pub fn build(b: *std.Build) void {
 
     const uxn_asm = b.addExecutable(.{
         .name = "uxn-asm",
-        .root_source_file = .{ .path = "src/uxn-asm/main.zig" },
+        .root_source_file = b.path("src/uxn-asm/main.zig"),
         .target = target,
         .optimize = optimize,
     });
 
-    uxn_asm.addModule("uxn-asm", asm_mod);
-    uxn_asm.addModule("clap", dep_clap.module("clap"));
+    uxn_asm.root_module.addImport("uxn-asm", asm_mod);
+    uxn_asm.root_module.addImport("clap", dep_clap.module("clap"));
 
     b.installArtifact(uxn_cli);
     b.installArtifact(uxn_asm);
@@ -170,7 +168,7 @@ pub fn build(b: *std.Build) void {
     run_asm_step.dependOn(&run_asm_cmd.step);
 
     const unit_tests = b.addTest(.{
-        .root_source_file = .{ .path = "src/main.zig" },
+        .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
     });

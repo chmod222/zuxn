@@ -15,8 +15,8 @@ pub const SDL = @cImport({
     @cInclude("SDL2/SDL.h");
 });
 
-pub const std_options = struct {
-    pub const log_scope_levels = &[_]std.log.ScopeLevel{
+pub const std_options = .{
+    .log_scope_levels = &[_]std.log.ScopeLevel{
         .{ .scope = .uxn_cpu, .level = .info },
 
         .{ .scope = .uxn_varvara, .level = .info },
@@ -28,7 +28,7 @@ pub const std_options = struct {
         .{ .scope = .uxn_varvara_mouse, .level = .info },
         .{ .scope = .uxn_varvara_file, .level = .info },
         .{ .scope = .uxn_varvara_datetime, .level = .info },
-    };
+    },
 };
 
 const VarvaraDefault = varvara.VarvaraSystem(std.fs.File.Writer, std.fs.File.Writer);
@@ -53,7 +53,7 @@ fn Callbacks(comptime SystemType: type) type {
             kind: uxn.Cpu.InterceptKind,
             data: ?*anyopaque,
         ) !void {
-            var varvara_sys: ?*SystemType = @alignCast(@ptrCast(data));
+            const varvara_sys: ?*SystemType = @alignCast(@ptrCast(data));
 
             if (varvara_sys) |sys| {
                 const lock_audio = kind == .output and addr >= 0x30 and addr < 0x70;
@@ -98,7 +98,7 @@ fn Callbacks(comptime SystemType: type) type {
         }
 
         pub fn receive_stdin(p: ?*anyopaque) callconv(.C) c_int {
-            var sys: *SystemType = @alignCast(@ptrCast(p));
+            const sys: *SystemType = @alignCast(@ptrCast(p));
 
             const stdin = std.io.getStdIn().reader();
 
@@ -292,7 +292,7 @@ fn main_graphical(
 
     STDIN_RECEIVED = SDL.SDL_RegisterEvents(1);
 
-    var stdin = SDL.SDL_CreateThread(&Callbacks(VarvaraDefault).receive_stdin, "stdin", system);
+    const stdin = SDL.SDL_CreateThread(&Callbacks(VarvaraDefault).receive_stdin, "stdin", system);
 
     SDL.SDL_DetachThread(stdin);
 
@@ -507,11 +507,12 @@ pub fn main() !u8 {
 
     var diag = clap.Diagnostic{};
 
-    var stdout = std.io.getStdOut().writer();
-    var stderr = std.io.getStdErr().writer();
+    const stdout = std.io.getStdOut().writer();
+    const stderr = std.io.getStdErr().writer();
 
     var res = clap.parse(clap.Help, &params, shared.parsers, .{
         .diagnostic = &diag,
+        .allocator = alloc,
     }) catch |err| {
         // Report useful error and exit
         diag.report(stderr, err) catch {};

@@ -79,9 +79,9 @@ pub const Screen = struct {
         region: *Rect,
     ) void {
         var x0: u16 = @truncate(region.x0);
-        var x1: u16 = @truncate(region.x1);
         var y0: u16 = @truncate(region.y0);
-        var y1: u16 = @truncate(region.y1);
+        const x1: u16 = @truncate(region.x1);
+        const y1: u16 = @truncate(region.y1);
 
         if (x0 > x1) x0 = 0;
         if (y0 > y1) y0 = 0;
