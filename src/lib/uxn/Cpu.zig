@@ -166,6 +166,12 @@ fn add_relative(addr: u16, offset: u8) u16 {
 }
 
 pub fn step(cpu: *Cpu) SystemFault!?u16 {
+    logger.debug("PC {x:0>4}: Start execute {s}", .{ cpu.pc, Cpu.mnemonics[cpu.mem[cpu.pc]] });
+
+    errdefer |err| {
+        logger.debug("PC {x:0>4}: {s}: Faulting with {}", .{ cpu.pc, Cpu.mnemonics[cpu.mem[cpu.pc]], err });
+    }
+
     const instruction = Cpu.Instruction.decode(cpu.mem[cpu.pc]);
 
     var next_pc: u16 = cpu.pc + 1;
@@ -175,6 +181,37 @@ pub fn step(cpu: *Cpu) SystemFault!?u16 {
 
     if (instruction.return_mode) {
         mem.swap(*Stack, &wst, &rst);
+    }
+
+    if (instruction.opcode == .BRK) {
+        if (cpu.mem[cpu.pc] == 0) {
+            return null;
+        } else if (instruction.keep_mode) {
+            // LIT{2,}{r,}
+            if (instruction.short_mode) {
+                try wst.push(u16, cpu.load_mem(u16, next_pc));
+
+                return next_pc +% 2;
+            } else {
+                try wst.push(u8, cpu.load_mem(u8, next_pc));
+
+                return next_pc +% 1;
+            }
+        } else if (instruction.short_mode and !instruction.return_mode) {
+            // JCI
+            return if (try wst.pop(u8) > 0x00)
+                next_pc +% cpu.load_mem(u16, next_pc) + 2
+            else
+                next_pc + 2;
+        } else if (instruction.return_mode and !instruction.short_mode) {
+            // JMI
+            return next_pc +% cpu.load_mem(u16, next_pc) + 2;
+        } else {
+            // JSI
+            try cpu.rst.push(u16, next_pc + 2);
+
+            return next_pc +% cpu.load_mem(u16, next_pc) + 2;
+        }
     }
 
     var push: *const PushFunc = undefined;
@@ -198,42 +235,9 @@ pub fn step(cpu: *Cpu) SystemFault!?u16 {
         rst.thaw_read();
     };
 
-    logger.debug("PC {x:0>4}: Start execute {s}", .{ cpu.pc, Cpu.mnemonics[cpu.mem[cpu.pc]] });
-
-    errdefer |err| {
-        logger.debug("PC {x:0>4}: {s}: Faulting with {}", .{ cpu.pc, Cpu.mnemonics[cpu.mem[cpu.pc]], err });
-    }
-
     switch (instruction.opcode) {
-        .BRK => return null,
-
-        // Immediate Control Flow
-        .JMI => {
-            next_pc +%= cpu.load_mem(u16, next_pc) + 2;
-        },
-
-        .JCI => {
-            next_pc = if (try wst.pop(u8) > 0x00)
-                next_pc +% cpu.load_mem(u16, next_pc) + 2
-            else
-                next_pc + 2;
-        },
-
-        .JSI => {
-            try cpu.rst.push(u16, next_pc + 2);
-
-            next_pc +%= cpu.load_mem(u16, next_pc) + 2;
-        },
-
-        .LIT => if (instruction.short_mode) {
-            try wst.push(u16, cpu.load_mem(u16, next_pc));
-
-            next_pc += 2;
-        } else {
-            try wst.push(u8, cpu.load_mem(u8, next_pc));
-
-            next_pc += 1;
-        },
+        // Handled above
+        .BRK => unreachable,
 
         // Stack Control Flow
         .JMP => if (instruction.short_mode) {

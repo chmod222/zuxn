@@ -132,9 +132,12 @@ fn dump_opcodes() void {
 
 fn opcode_color(i: uxn.Cpu.Instruction) struct { u8, u8, u8 } {
     return switch (i.opcode) {
-        .LIT => .{ 66, 135, 245 },
-        .BRK => .{ 0xff, 0x00, 0x00 },
-        .JCI, .JMI, .JSI => .{ 105, 66, 245 },
+        .BRK => if (i.keep_mode)
+            .{ 66, 135, 245 }
+        else if (i.short_mode or i.return_mode)
+            .{ 105, 66, 245 }
+        else
+            .{ 0xff, 0x00, 0x00 },
         .JMP, .JCN, .JSR => .{ 66, 245, 170 },
         .POP, .NIP, .SWP, .ROT, .DUP, .OVR, .STH => .{ 245, 111, 66 },
         .DEI, .DEO => .{ 245, 209, 66 },
