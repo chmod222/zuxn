@@ -52,7 +52,7 @@ device_intercept: ?*const fn (
 ) SystemFault!void = null,
 
 pub fn init(memory: *[page_size]u8) Cpu {
-    return .{
+    var cpu = .{
         .pc = 0x0100,
 
         .wst = Stack.init(),
@@ -61,6 +61,13 @@ pub fn init(memory: *[page_size]u8) Cpu {
         .mem = memory,
         .device_mem = [1]u8{0x00} ** 0x100,
     };
+
+    if (faults_enabled) {
+        cpu.wst.xflow_behaviour = .fault;
+        cpu.rst.xflow_behaviour = .fault;
+    }
+
+    return cpu;
 }
 
 pub fn evaluate_vector(cpu: *Cpu, vector: u16) SystemFault!void {

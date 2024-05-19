@@ -2,12 +2,15 @@ const Stack = @This();
 
 const std = @import("std");
 
-pub const faults_enabled = @import("../lib.zig").faults_enabled;
-
 data: [0x100]u8,
 sp: u8,
 spt: u8,
 spr: ?*u8,
+
+xflow_behaviour: enum {
+    wrap,
+    fault,
+} = .wrap,
 
 pub fn init() Stack {
     return .{
@@ -19,7 +22,7 @@ pub fn init() Stack {
 }
 
 inline fn push_byte(s: *Stack, byte: u8) !void {
-    if (faults_enabled and s.sp > 0xfe) {
+    if (s.xflow_behaviour == .fault and s.sp > 0xfe) {
         return error.StackOverflow;
     }
 
@@ -30,7 +33,7 @@ inline fn push_byte(s: *Stack, byte: u8) !void {
 inline fn pop_byte(s: *Stack) !u8 {
     const sp = s.spr orelse &s.sp;
 
-    if (faults_enabled and sp.* == 0) {
+    if (s.xflow_behaviour == .fault and sp.* == 0) {
         return error.StackUnderflow;
     }
 
