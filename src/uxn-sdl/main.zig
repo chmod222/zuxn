@@ -491,7 +491,11 @@ fn main_graphical(
         draw_screen(&system.screen_device, &system.system_device, texture, renderer);
     }
 
-    return system.system_device.exit_code orelse 0;
+    if (system.system_device.exit_code == null) {
+        system.system_device.exit_code = 0;
+    }
+
+    return system.system_device.exit_code.?;
 }
 
 pub fn main() !u8 {
