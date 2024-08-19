@@ -90,16 +90,28 @@ inline fn load(
     comptime T: type,
     comptime field: []const u8,
     addr: anytype,
+    comptime boundary: usize,
 ) T {
     return if (T == u8)
         @field(cpu, field)[addr]
     else switch (@typeInfo(T)) {
         .Struct => |s| if (s.backing_integer) |U|
-            @bitCast(cpu.load(U, field, addr))
+            @bitCast(cpu.load(U, field, addr, boundary))
         else
             @panic("Cannot read arbitrary struct types"),
 
-        .Int => mem.readInt(T, @as(*const [@sizeOf(T)]u8, @ptrCast(@field(cpu, field)[addr..addr +| @sizeOf(T)])), .big),
+        .Int => if (@as(usize, addr) + @sizeOf(T) <= boundary)
+            mem.readInt(T, @as(*const [@sizeOf(T)]u8, @ptrCast(@field(cpu, field)[addr..addr +| @sizeOf(T)])), .big)
+        else r: {
+            var b: T = undefined;
+
+            for (0..@sizeOf(T)) |i| {
+                b <<= 8;
+                b |= cpu.load(u8, field, (addr +% i) % boundary, boundary);
+            }
+
+            break :r b;
+        },
 
         else => @panic("Can only read bitfield structures and integers"),
     };
@@ -111,35 +123,55 @@ inline fn store(
     comptime field: []const u8,
     addr: anytype,
     val: T,
+    comptime boundary: usize,
 ) void {
     if (T == u8)
         @field(cpu, field)[addr] = val
     else switch (@typeInfo(T)) {
         .Struct => |s| if (s.backing_integer) |U|
-            cpu.store(U, field, addr, val)
+            cpu.store(U, field, addr, val, boundary)
         else
             @panic("Cannot store arbitrary struct types"),
 
-        .Int => mem.writeInt(T, @as(*[@sizeOf(T)]u8, @ptrCast(@field(cpu, field)[addr..addr +| @sizeOf(T)])), val, .big),
+        .Int => if (@as(usize, addr) + @sizeOf(T) <= boundary) {
+            mem.writeInt(
+                T,
+                @as(*[@sizeOf(T)]u8, @ptrCast(@field(cpu, field)[addr..addr +| @sizeOf(T)])),
+                val,
+                .big,
+            );
+        } else {
+            for (0.., mem.asBytes(&mem.nativeToBig(T, val))) |i, oct| {
+                cpu.store(u8, field, (addr + i) % boundary, oct, boundary);
+            }
+        },
 
         else => @panic("Can only store bitfield structures and integers"),
     }
 }
 
+pub fn load_zero(cpu: *const Cpu, comptime T: type, addr: u8) T {
+    return cpu.load(T, "mem", addr, 0x100);
+}
+
 pub fn load_mem(cpu: *const Cpu, comptime T: type, addr: u16) T {
-    return cpu.load(T, "mem", addr);
+    return cpu.load(T, "mem", addr, 0x10000);
 }
 
 pub fn load_device_mem(cpu: *const Cpu, comptime T: type, addr: u8) T {
-    return cpu.load(T, "device_mem", addr);
+    return cpu.load(T, "device_mem", addr, 0x100);
+}
+
+pub fn store_zero(cpu: *Cpu, comptime T: type, addr: u8, v: T) void {
+    cpu.store(T, "mem", addr, v, 0x100);
 }
 
 pub fn store_mem(cpu: *Cpu, comptime T: type, addr: u16, v: T) void {
-    cpu.store(T, "mem", addr, v);
+    cpu.store(T, "mem", addr, v, 0x10000);
 }
 
 pub fn store_device_mem(cpu: *Cpu, comptime T: type, addr: u8, v: T) void {
-    cpu.store(T, "device_mem", addr, v);
+    cpu.store(T, "device_mem", addr, v, 0x100);
 }
 
 const PushFunc = fn (s: *Stack, v: u16) SystemFault!void;
@@ -319,47 +351,6 @@ pub fn step(cpu: *Cpu) SystemFault!?u16 {
             try push(rst, try pop(wst));
         },
 
-        // Device Access
-        .DEI => {
-            const dev = try wst.pop(u8);
-
-            const intercept_mask = cpu.input_intercepts[dev >> 4];
-            const intercept_port = intercept_mask >> @truncate(dev & 0xf);
-
-            if (intercept_port & 0x1 > 0)
-                if (cpu.device_intercept) |ifn|
-                    try ifn(cpu, dev, .input, cpu.callback_data);
-
-            if (instruction.short_mode and (intercept_port >> 1) & 0x1 > 0)
-                if (cpu.device_intercept) |ifn|
-                    try ifn(cpu, dev + 1, .input, cpu.callback_data);
-
-            if (instruction.short_mode)
-                try wst.push(u16, cpu.load_device_mem(u16, dev))
-            else
-                try wst.push(u8, cpu.load_device_mem(u8, dev));
-        },
-
-        .DEO => {
-            const dev = try wst.pop(u8);
-
-            const intercept_mask = cpu.output_intercepts[dev >> 4];
-            const intercept_port = intercept_mask >> @truncate(dev & 0xf);
-
-            if (instruction.short_mode)
-                cpu.store_device_mem(u16, dev, try wst.pop(u16))
-            else
-                cpu.store_device_mem(u8, dev, try wst.pop(u8));
-
-            if (intercept_port & 0x1 > 0)
-                if (cpu.device_intercept) |ifn|
-                    try ifn(cpu, dev, .output, cpu.callback_data);
-
-            if (instruction.short_mode and (intercept_port >> 1) & 0x1 > 0)
-                if (cpu.device_intercept) |ifn|
-                    try ifn(cpu, dev + 1, .output, cpu.callback_data);
-        },
-
         // Comparisons
         .EQU, .NEQ, .GTH, .LTH => |o| {
             const b = try pop(wst);
@@ -411,28 +402,74 @@ pub fn step(cpu: *Cpu) SystemFault!?u16 {
             try push(wst, try pop(wst) >> rshift << lshift);
         },
 
-        // Memory Access
-        .LDZ, .LDR, .LDA, .STZ, .STR, .STA => |o| {
+        // Device and Memory Access
+        .DEI, .LDZ, .LDR, .LDA, .DEO, .STZ, .STR, .STA => |o| {
             const addr = switch (o) {
                 .LDA, .STA => try wst.pop(u16),
-                .LDZ, .STZ => try wst.pop(u8),
+                .DEI, .DEO, .LDZ, .STZ => try wst.pop(u8),
 
                 else => add_relative(next_pc, try wst.pop(u8)),
             };
 
             switch (o) {
-                .LDZ, .LDR, .LDA => {
+                inline .DEI, .LDZ, .LDR, .LDA => |op| {
+                    const load_fn = switch (op) {
+                        .DEI => Cpu.load_device_mem,
+                        .LDZ => Cpu.load_zero,
+                        .LDR, .LDA => Cpu.load_mem,
+
+                        else => unreachable,
+                    };
+
+                    if (op == .DEI) {
+                        const dev: u8 = @truncate(addr);
+
+                        const intercept_mask = cpu.input_intercepts[dev >> 4];
+                        const intercept_port = intercept_mask >> @truncate(dev & 0xf);
+
+                        if (intercept_port & 0x1 > 0)
+                            if (cpu.device_intercept) |ifn|
+                                try ifn(cpu, dev, .input, cpu.callback_data);
+
+                        if (instruction.short_mode and (intercept_port >> 1) & 0x1 > 0)
+                            if (cpu.device_intercept) |ifn|
+                                try ifn(cpu, dev + 1, .input, cpu.callback_data);
+                    }
+
                     if (instruction.short_mode)
-                        try wst.push(u16, cpu.load_mem(u16, addr))
+                        try wst.push(u16, load_fn(cpu, u16, @truncate(addr)))
                     else
-                        try wst.push(u8, cpu.load_mem(u8, addr));
+                        try wst.push(u8, load_fn(cpu, u8, @truncate(addr)));
                 },
 
-                .STZ, .STR, .STA => {
+                inline .DEO, .STZ, .STR, .STA => |op| {
+                    const store_fn = switch (op) {
+                        .DEO => Cpu.store_device_mem,
+                        .STZ => Cpu.store_zero,
+                        .STR, .STA => Cpu.store_mem,
+
+                        else => unreachable,
+                    };
+
                     if (instruction.short_mode)
-                        cpu.store_mem(u16, addr, try wst.pop(u16))
+                        store_fn(cpu, u16, @truncate(addr), try wst.pop(u16))
                     else
-                        cpu.store_mem(u8, addr, try wst.pop(u8));
+                        store_fn(cpu, u8, @truncate(addr), try wst.pop(u8));
+
+                    if (op == .DEO) {
+                        const dev: u8 = @truncate(addr);
+
+                        const intercept_mask = cpu.output_intercepts[dev >> 4];
+                        const intercept_port = intercept_mask >> @truncate(dev & 0xf);
+
+                        if (intercept_port & 0x1 > 0)
+                            if (cpu.device_intercept) |ifn|
+                                try ifn(cpu, dev, .output, cpu.callback_data);
+
+                        if (instruction.short_mode and (intercept_port >> 1) & 0x1 > 0)
+                            if (cpu.device_intercept) |ifn|
+                                try ifn(cpu, dev + 1, .output, cpu.callback_data);
+                    }
                 },
 
                 else => unreachable,
