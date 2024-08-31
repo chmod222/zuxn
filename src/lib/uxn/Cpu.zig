@@ -95,12 +95,12 @@ inline fn load(
     return if (T == u8)
         @field(cpu, field)[addr]
     else switch (@typeInfo(T)) {
-        .Struct => |s| if (s.backing_integer) |U|
+        .@"struct" => |s| if (s.backing_integer) |U|
             @bitCast(cpu.load(U, field, addr, boundary))
         else
             @panic("Cannot read arbitrary struct types"),
 
-        .Int => if (@as(usize, addr) + @sizeOf(T) <= boundary)
+        .int => if (@as(usize, addr) + @sizeOf(T) <= boundary)
             mem.readInt(T, @as(*const [@sizeOf(T)]u8, @ptrCast(@field(cpu, field)[addr..addr +| @sizeOf(T)])), .big)
         else r: {
             var b: T = undefined;
@@ -128,12 +128,12 @@ inline fn store(
     if (T == u8)
         @field(cpu, field)[addr] = val
     else switch (@typeInfo(T)) {
-        .Struct => |s| if (s.backing_integer) |U|
+        .@"struct" => |s| if (s.backing_integer) |U|
             cpu.store(U, field, addr, val, boundary)
         else
             @panic("Cannot store arbitrary struct types"),
 
-        .Int => if (@as(usize, addr) + @sizeOf(T) <= boundary) {
+        .int => if (@as(usize, addr) + @sizeOf(T) <= boundary) {
             mem.writeInt(
                 T,
                 @as(*[@sizeOf(T)]u8, @ptrCast(@field(cpu, field)[addr..addr +| @sizeOf(T)])),

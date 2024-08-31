@@ -6,8 +6,8 @@
 
     .dependencies = .{
         .clap = .{
-            .url = "https://github.com/Hejsil/zig-clap/archive/7a2883c7b884ab3e88c9fbf29193894a844da4d5.tar.gz",
-            .hash = "12204b2fb733b2de9184d1907032709e79c2595b4adc9bed12a8383b114d4c0da932",
+            .url = "https://github.com/Hejsil/zig-clap/archive/2d9db156ae928860a9acf2f1260750d3b44a4c98.tar.gz",
+            .hash = "122005e589ab3b6bff8e589b45f5b12cd27ce79f266bdac17e9f33ebfe2fbaff7fe3",
         },
     },
 }

@@ -10,7 +10,9 @@
       in {
         packages.precompiled = zig.packages.${system}.master;
 
-        packages.default = pkgs.zig.overrideAttrs(f: p: rec {
+        packages.default = zig.packages.${system}.master;
+
+        packages.manual-build = pkgs.zig.overrideAttrs(f: p: rec {
           name = "zig";
           version = "0.12.0-dev+3fc6a2f";
 

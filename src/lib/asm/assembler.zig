@@ -479,7 +479,7 @@ pub fn Assembler(comptime lim: scan.Limits) type {
             const dir = assembler.include_base orelse
                 return error.NotAllowed;
 
-            var full_path_buffer: [fs.MAX_PATH_BYTES]u8 = undefined;
+            var full_path_buffer: [fs.max_path_bytes]u8 = undefined;
 
             // Determine canonical path to included file
             const builtin = @import("builtin");
