@@ -15,7 +15,7 @@ pub const SDL = @cImport({
     @cInclude("SDL2/SDL.h");
 });
 
-pub const std_options = .{
+pub const std_options = std.Options{
     .log_scope_levels = &[_]std.log.ScopeLevel{
         .{ .scope = .uxn_cpu, .level = .info },
 
@@ -441,7 +441,7 @@ fn main_graphical(
                     };
 
                     // Release all the non-pressed buttons
-                    const inverse = .{
+                    const inverse = varvara.controller.ButtonFlags{
                         .up = !btn.up,
                         .down = !btn.down,
                         .left = !btn.left,

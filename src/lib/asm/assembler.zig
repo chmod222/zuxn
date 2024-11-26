@@ -370,7 +370,7 @@ pub fn Assembler(comptime lim: scan.Limits) type {
                 },
                 .jci, .jmi, .jsi => |label| {
                     const pos = try seekable.getPos();
-                    const reference = .{
+                    const reference = Scanner.Address{
                         .type = .absolute,
                         .label = label,
                     };

@@ -15,7 +15,7 @@ const Debug = shared.Debug;
 
 const logger = std.log.scoped(.uxn_cli);
 
-pub const std_options = .{
+pub const std_options = std.Options{
     .log_scope_levels = &[_]std.log.ScopeLevel{
         .{ .scope = .uxn_cpu, .level = .info },
 
@@ -72,7 +72,7 @@ pub fn main() !u8 {
 
     var diag = clap.Diagnostic{};
 
-    const clap_args = .{
+    const clap_args = clap.ParseOptions{
         .diagnostic = &diag,
         .allocator = alloc,
     };

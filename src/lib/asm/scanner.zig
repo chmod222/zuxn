@@ -77,13 +77,13 @@ pub fn Scanner(comptime lim: Limits) type {
         };
 
         pub const Location = struct {
-            usize = 1,
-            usize = 1,
+            usize,
+            usize,
         };
 
         pub const Label = [limits.identifier_length:0]u8;
 
-        location: Location = .{},
+        location: Location = .{ 1, 1 },
 
         macro_names: std.BoundedArray(Label, 0x100) =
             std.BoundedArray(Label, 0x100).init(0) catch unreachable,

@@ -3,8 +3,6 @@ const Cpu = @This();
 pub const Stack = @import("cpu/Stack.zig");
 
 const std = @import("std");
-const mem = std.mem;
-
 const logger = std.log.scoped(.uxn_cpu);
 
 pub const faults_enabled = @import("lib.zig").faults_enabled;
@@ -52,7 +50,7 @@ device_intercept: ?*const fn (
 ) SystemFault!void = null,
 
 pub fn init(memory: *[page_size]u8) Cpu {
-    var cpu = .{
+    var cpu = Cpu{
         .pc = 0x0100,
 
         .wst = Stack.init(),
@@ -101,7 +99,7 @@ inline fn load(
             @panic("Cannot read arbitrary struct types"),
 
         .int => if (@as(usize, addr) + @sizeOf(T) <= boundary)
-            mem.readInt(T, @as(*const [@sizeOf(T)]u8, @ptrCast(@field(cpu, field)[addr..addr +| @sizeOf(T)])), .big)
+            std.mem.readInt(T, @as(*const [@sizeOf(T)]u8, @ptrCast(@field(cpu, field)[addr..addr +| @sizeOf(T)])), .big)
         else r: {
             var b: T = undefined;
 
@@ -134,14 +132,14 @@ inline fn store(
             @panic("Cannot store arbitrary struct types"),
 
         .int => if (@as(usize, addr) + @sizeOf(T) <= boundary) {
-            mem.writeInt(
+            std.mem.writeInt(
                 T,
                 @as(*[@sizeOf(T)]u8, @ptrCast(@field(cpu, field)[addr..addr +| @sizeOf(T)])),
                 val,
                 .big,
             );
         } else {
-            for (0.., mem.asBytes(&mem.nativeToBig(T, val))) |i, oct| {
+            for (0.., std.mem.asBytes(&std.mem.nativeToBig(T, val))) |i, oct| {
                 cpu.store(u8, field, (addr + i) % boundary, oct, boundary);
             }
         },
@@ -212,7 +210,7 @@ pub fn step(cpu: *Cpu) SystemFault!?u16 {
     var rst = &cpu.rst;
 
     if (instruction.return_mode) {
-        mem.swap(*Stack, &wst, &rst);
+        std.mem.swap(*Stack, &wst, &rst);
     }
 
     if (instruction.opcode == .BRK) {

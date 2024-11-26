@@ -38,7 +38,7 @@ pub fn main() !void {
         .FILE = clap.parsers.string,
     };
 
-    var res = clap.parse(clap.Help, &params, parsers, .{
+    var res = clap.parse(clap.Help, &params, parsers, clap.ParseOptions{
         .diagnostic = &diag,
         .allocator = alloc,
     }) catch |err| {
