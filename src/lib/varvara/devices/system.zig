@@ -142,55 +142,99 @@ pub const System = struct {
         return null;
     }
 
+    fn getPagedSlice(dev: *@This(), cpu: *Cpu, page: u16, offset: u16, len: u16) ?[]u8 {
+        const src = dev.selectMemoryPage(cpu, page) orelse {
+            return null;
+        };
+
+        return src[offset..offset +| len];
+    }
+
     pub fn handleExpansion(dev: *@This(), cpu: *Cpu, operation: u16) !void {
         switch (cpu.mem[operation]) {
-            0x01 => {
-                // copy
+            0x00 => {
+                // fill [ operation:u8 | len:u16 | srcpg:u16 | src:u16 | value ]
+                const len = cpu.loadMem(u16, operation + 1);
+                const page = cpu.loadMem(u16, operation + 3);
+                const offset = cpu.loadMem(u16, operation + 5);
+                const value = cpu.loadMem(u8, operation + 7);
 
-                // [ operation:u8 | len:u16 | srcpg:u16 | src:u16 | dstpg:u16 | dst:u16]
-                const dat_len = cpu.loadMem(u16, operation + 1);
-
-                const src_pge = cpu.loadMem(u16, operation + 3);
-                const src_ptr = cpu.loadMem(u16, operation + 5);
-
-                const dst_pge = cpu.loadMem(u16, operation + 7);
-                const dst_ptr = cpu.loadMem(u16, operation + 9);
-
-                logger.debug("Expansion: Request move of #{x} bytes from {x:0>4}:{x:0>4} to {x:0>4}:{x:0>4}", .{
-                    dat_len,
-                    src_pge,
-                    src_ptr,
-                    dst_pge,
-                    dst_ptr,
+                logger.debug("Expansion: Request fill off #{x} bytes (#{x:0>2}) from {x:0>4}:{x:0>4} to {x:0>4}:{x:0>4}", .{
+                    len,
+                    value,
+                    page,
+                    offset,
+                    page,
+                    offset + len,
                 });
 
-                const src = dev.selectMemoryPage(cpu, src_pge) orelse {
-                    logger.warn("Expansion: Invalid source page {x:0>4}:{x:0>4}", .{ src_pge, src_ptr });
+                const dst = dev.getPagedSlice(cpu, page, offset, len) orelse {
+                    logger.warn("Expansion: Invalid source page {x:0>4}:{x:0>4}", .{ page, offset });
 
                     return error.BadExpansion;
                 };
 
-                const dst = dev.selectMemoryPage(cpu, dst_pge) orelse {
-                    logger.warn("Expansion: Invalid destination page {x:0>4}:{x:0>4}", .{ dst_pge, dst_ptr });
+                @memset(dst, value);
+            },
+
+            0x01, 0x02 => {
+                // cpyl, copyr [ operation:u8 | len:u16 | srcpg:u16 | src:u16 | dstpg:u16 | dst:u16]
+
+                const len = cpu.loadMem(u16, operation + 1);
+
+                const src_page = cpu.loadMem(u16, operation + 3);
+                const src_offset = cpu.loadMem(u16, operation + 5);
+
+                const dst_page = cpu.loadMem(u16, operation + 7);
+                const dst_offset = cpu.loadMem(u16, operation + 9);
+
+                logger.debug("Expansion: Request move of #{x} bytes from {x:0>4}:{x:0>4} to {x:0>4}:{x:0>4}", .{
+                    len,
+                    src_page,
+                    src_offset,
+                    dst_page,
+                    dst_offset,
+                });
+
+                const src = dev.getPagedSlice(cpu, src_page, src_offset, len) orelse {
+                    logger.warn("Expansion: Invalid source page {x:0>4}:{x:0>4}", .{ src_page, src_offset });
 
                     return error.BadExpansion;
                 };
 
-                const src_slice = src[src_ptr..src_ptr +| dat_len];
-                const dst_slice = dst[dst_ptr..dst_ptr +| dat_len];
+                const dst = dev.getPagedSlice(cpu, dst_page, dst_offset, len) orelse {
+                    logger.warn("Expansion: Invalid destination page {x:0>4}:{x:0>4}", .{ dst_page, dst_offset });
 
-                if (src_slice.len != dst_slice.len) {
+                    return error.BadExpansion;
+                };
+
+                // N.B. this is impossible because all pages are equally sized
+                //      for now, but who knows what the future holds.
+                if (src.len != dst.len) {
                     logger.warn("Expansion: Source and destination lengths do not match due to " ++
                         "page boundary: {x:0>4}:{x:0>4} -> {x:0>4}:{x:0>4} ({} -> {})", .{
-                        src_pge,       src_ptr,
-                        dst_pge,       dst_ptr,
-                        src_slice.len, dst_slice.len,
+                        src_page, src_offset,
+                        dst_page, dst_offset,
+                        src.len,  dst.len,
                     });
 
                     return error.BadExpansion;
                 }
 
-                @memcpy(dst_slice, src_slice);
+                if (cpu.mem[operation] == 0x01) {
+                    // Copy left to right
+                    for (dst[0..len], src) |*d, s| {
+                        d.* = s;
+                    }
+                } else {
+                    // Copy right to left
+                    var i = src.len;
+
+                    while (i > 0) {
+                        i -= 1;
+                        dst[i] = src[i];
+                    }
+                }
             },
 
             // Let's use >0x80 for our own things until the reference implementation assigns them values
