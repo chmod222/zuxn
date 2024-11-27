@@ -37,31 +37,31 @@ pub const Datetime = struct {
 
         switch (port) {
             ports.year, ports.year + 1 => {
-                dev.store_port(u16, cpu, ports.year, @as(u16, @intCast(local.*.tm_year + 1900)));
+                dev.storePort(u16, cpu, ports.year, @as(u16, @intCast(local.*.tm_year + 1900)));
             },
             ports.month => {
-                dev.store_port(u8, cpu, ports.month, @as(u8, @intCast(local.*.tm_mon)));
+                dev.storePort(u8, cpu, ports.month, @as(u8, @intCast(local.*.tm_mon)));
             },
             ports.day => {
-                dev.store_port(u8, cpu, ports.day, @as(u8, @intCast(local.*.tm_mday)));
+                dev.storePort(u8, cpu, ports.day, @as(u8, @intCast(local.*.tm_mday)));
             },
             ports.hour => {
-                dev.store_port(u8, cpu, ports.hour, @as(u8, @intCast(local.*.tm_hour)));
+                dev.storePort(u8, cpu, ports.hour, @as(u8, @intCast(local.*.tm_hour)));
             },
             ports.minute => {
-                dev.store_port(u8, cpu, ports.minute, @as(u8, @intCast(local.*.tm_min)));
+                dev.storePort(u8, cpu, ports.minute, @as(u8, @intCast(local.*.tm_min)));
             },
             ports.second => {
-                dev.store_port(u8, cpu, ports.second, @as(u8, @intCast(local.*.tm_sec)));
+                dev.storePort(u8, cpu, ports.second, @as(u8, @intCast(local.*.tm_sec)));
             },
             ports.dotw => {
-                dev.store_port(u8, cpu, ports.dotw, @as(u8, @intCast(local.*.tm_wday)));
+                dev.storePort(u8, cpu, ports.dotw, @as(u8, @intCast(local.*.tm_wday)));
             },
             ports.doty, ports.doty + 1 => {
-                dev.store_port(u16, cpu, ports.doty, @as(u8, @intCast(local.*.tm_yday)));
+                dev.storePort(u16, cpu, ports.doty, @as(u8, @intCast(local.*.tm_yday)));
             },
             ports.isdst => {
-                dev.store_port(u8, cpu, ports.isdst, @as(u8, @intCast(local.*.tm_isdst)));
+                dev.storePort(u8, cpu, ports.isdst, @as(u8, @intCast(local.*.tm_isdst)));
             },
 
             else => {},

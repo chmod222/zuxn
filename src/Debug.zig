@@ -19,13 +19,13 @@ const Location = struct {
 
 symbols: std.ArrayList(Symbol),
 
-fn cmp_addr(ctx: void, a: Symbol, b: Symbol) bool {
+fn cmpAddr(ctx: void, a: Symbol, b: Symbol) bool {
     _ = ctx;
 
     return a.addr < b.addr;
 }
 
-pub fn load_symbols(alloc: Allocator, reader: anytype) !Debug {
+pub fn loadSymbols(alloc: Allocator, reader: anytype) !Debug {
     var symbol_list = std.ArrayList(Symbol).init(alloc);
 
     errdefer symbol_list.deinit();
@@ -38,7 +38,7 @@ pub fn load_symbols(alloc: Allocator, reader: anytype) !Debug {
         };
 
         temp.addr = reader.readInt(u16, .big) catch {
-            std.mem.sort(Symbol, symbol_list.items, {}, cmp_addr);
+            std.mem.sort(Symbol, symbol_list.items, {}, cmpAddr);
 
             return .{
                 .symbols = symbol_list,
@@ -57,7 +57,7 @@ pub fn unload(debug: Debug) void {
     debug.symbols.deinit();
 }
 
-pub fn locate_symbol(debug: *const Debug, addr: u16, allow_negative: bool) ?Location {
+pub fn locateSymbol(debug: *const Debug, addr: u16, allow_negative: bool) ?Location {
     var left: usize = 0;
     var right: usize = debug.symbols.items.len;
     var nearest_smaller: usize = 0;
@@ -104,7 +104,7 @@ pub fn locate_symbol(debug: *const Debug, addr: u16, allow_negative: bool) ?Loca
     }
 }
 
-fn dump_opcodes() void {
+fn dumpOpcodes() void {
     var ins: u8 = 0x00;
 
     while (true) : (ins += 1) {
@@ -113,7 +113,7 @@ fn dump_opcodes() void {
         if (ins != 0 and ins & 0xf == 0)
             std.debug.print("\n", .{});
 
-        const color = opcode_color(i);
+        const color = opcodeColor(i);
 
         std.debug.print("{x:0>2}: \x1b[38;2;{d};{d};{d}m{s: <8}\x1b[0m", .{
             ins,
@@ -130,7 +130,7 @@ fn dump_opcodes() void {
     std.debug.print("\n", .{});
 }
 
-fn opcode_color(i: uxn.Cpu.Instruction) struct { u8, u8, u8 } {
+fn opcodeColor(i: uxn.Cpu.Instruction) struct { u8, u8, u8 } {
     return switch (i.opcode) {
         .BRK => if (i.keep_mode)
             .{ 66, 135, 245 }
@@ -148,7 +148,7 @@ fn opcode_color(i: uxn.Cpu.Instruction) struct { u8, u8, u8 } {
     };
 }
 
-fn dump_stack(stack: *const uxn.Cpu.Stack) void {
+fn dumpStack(stack: *const uxn.Cpu.Stack) void {
     const offset: u8 = 8;
 
     var i: u8 = stack.sp -% offset;
@@ -176,17 +176,17 @@ fn dump_stack(stack: *const uxn.Cpu.Stack) void {
     std.debug.print("\n", .{});
 }
 
-pub fn on_debug_hook(cpu: *uxn.Cpu, data: ?*anyopaque) void {
+pub fn onDebugHook(cpu: *uxn.Cpu, data: ?*anyopaque) void {
     const debug_data: ?*const Debug = @alignCast(@ptrCast(data));
 
     std.debug.print("Breakpoint triggered\n", .{});
 
-    const color = opcode_color(uxn.Cpu.Instruction.decode(cpu.mem[cpu.pc]));
+    const color = opcodeColor(uxn.Cpu.Instruction.decode(cpu.mem[cpu.pc]));
 
     var fallback = true;
 
     if (debug_data) |debug| {
-        if (debug.locate_symbol(cpu.pc, false)) |stop_location| {
+        if (debug.locateSymbol(cpu.pc, false)) |stop_location| {
             fallback = false;
             std.debug.print("PC = {x:0>4} ({s}{c}#{x}): \x1b[38;2;{d};{d};{d}m{s}\x1b[0m\n", .{
                 cpu.pc,
@@ -214,12 +214,12 @@ pub fn on_debug_hook(cpu: *uxn.Cpu, data: ?*anyopaque) void {
     std.debug.print("\n", .{});
 
     std.debug.print("Working Stack: \n", .{});
-    dump_stack(&cpu.wst);
+    dumpStack(&cpu.wst);
 
     std.debug.print("\n", .{});
 
     std.debug.print("Return Stack: \n", .{});
-    dump_stack(&cpu.rst);
+    dumpStack(&cpu.rst);
 
     std.debug.print("\n", .{});
 }

@@ -74,7 +74,7 @@ pub const Screen = struct {
 
     pub usingnamespace @import("impl.zig").DeviceMixin(@This());
 
-    fn normalize_region(
+    fn normalizeRegion(
         dev: *@This(),
         region: *Rect,
     ) void {
@@ -92,7 +92,7 @@ pub const Screen = struct {
         region.y1 = @min(dev.height, y1);
     }
 
-    fn update_dirty_region(
+    fn updateDirtyRegion(
         dev: *@This(),
         x0: usize,
         y0: usize,
@@ -124,7 +124,7 @@ pub const Screen = struct {
         _ = x1;
         _ = y1;
 
-        dev.force_redraw();
+        dev.forceRedraw();
     }
 
     pub fn intercept(
@@ -136,26 +136,26 @@ pub const Screen = struct {
         if (kind == .input) {
             switch (port) {
                 ports.width, ports.width + 1 => {
-                    dev.store_port(u16, cpu, ports.width, dev.width);
+                    dev.storePort(u16, cpu, ports.width, dev.width);
                 },
 
                 ports.height, ports.height + 1 => {
-                    dev.store_port(u16, cpu, ports.height, dev.height);
+                    dev.storePort(u16, cpu, ports.height, dev.height);
                 },
 
                 else => {},
             }
         } else {
             switch (port) {
-                ports.width + 1 => dev.width = dev.load_port(u16, cpu, ports.width),
-                ports.height + 1 => dev.height = dev.load_port(u16, cpu, ports.height),
+                ports.width + 1 => dev.width = dev.loadPort(u16, cpu, ports.width),
+                ports.height + 1 => dev.height = dev.loadPort(u16, cpu, ports.height),
 
                 ports.pixel => {
-                    const flags = dev.load_port(PixelFlags, cpu, ports.pixel);
-                    const auto = dev.load_port(AutoFlags, cpu, ports.auto);
+                    const flags = dev.loadPort(PixelFlags, cpu, ports.pixel);
+                    const auto = dev.loadPort(AutoFlags, cpu, ports.auto);
 
-                    var x0 = dev.load_port(u16, cpu, ports.x);
-                    var y0 = dev.load_port(u16, cpu, ports.y);
+                    var x0 = dev.loadPort(u16, cpu, ports.x);
+                    var y0 = dev.loadPort(u16, cpu, ports.y);
 
                     var x1: u16 = undefined;
                     var y1: u16 = undefined;
@@ -169,7 +169,7 @@ pub const Screen = struct {
                         if (x0 > x1) std.mem.swap(u16, &x0, &x1);
                         if (y0 > y1) std.mem.swap(u16, &y0, &y1);
 
-                        dev.fill_region(layer, x0, y0, x1, y1, flags);
+                        dev.fillRegion(layer, x0, y0, x1, y1, flags);
                     } else {
                         x1 = x0 +% 1;
                         y1 = y0 +% 1;
@@ -177,19 +177,19 @@ pub const Screen = struct {
                         if (x0 < dev.width and y0 < dev.height)
                             layer[@as(usize, y0) * dev.width + x0] = flags.color;
 
-                        if (auto.x) dev.store_port(u16, cpu, ports.x, x1);
-                        if (auto.y) dev.store_port(u16, cpu, ports.y, y1);
+                        if (auto.x) dev.storePort(u16, cpu, ports.x, x1);
+                        if (auto.y) dev.storePort(u16, cpu, ports.y, y1);
                     }
 
-                    dev.update_dirty_region(x0, y0, x1, y1);
+                    dev.updateDirtyRegion(x0, y0, x1, y1);
                 },
 
                 ports.sprite => {
-                    const flags = dev.load_port(SpriteFlags, cpu, ports.sprite);
-                    const auto = dev.load_port(AutoFlags, cpu, ports.auto);
+                    const flags = dev.loadPort(SpriteFlags, cpu, ports.sprite);
+                    const auto = dev.loadPort(AutoFlags, cpu, ports.auto);
 
-                    const x = dev.load_port(i16, cpu, ports.x);
-                    const y = dev.load_port(i16, cpu, ports.y);
+                    const x = dev.loadPort(i16, cpu, ports.x);
+                    const y = dev.loadPort(i16, cpu, ports.y);
 
                     const dx: i16 = if (auto.x) 8 else 0;
                     const dy: i16 = if (auto.y) 8 else 0;
@@ -202,13 +202,13 @@ pub const Screen = struct {
 
                     const layer = if (flags.layer == 0x00) dev.background else dev.foreground;
 
-                    var addr = dev.load_port(u16, cpu, ports.addr);
+                    var addr = dev.loadPort(u16, cpu, ports.addr);
 
                     for (0..l) |i| {
                         const ic: i16 = @intCast(i);
 
                         // dy and dx flipped in original implementation
-                        dev.render_sprite(
+                        dev.renderSprite(
                             cpu,
                             layer,
                             flags,
@@ -220,16 +220,16 @@ pub const Screen = struct {
                         addr +%= da;
                     }
 
-                    dev.update_dirty_region(
+                    dev.updateDirtyRegion(
                         @as(u16, @bitCast(x)),
                         @as(u16, @bitCast(y)),
                         @as(u16, @truncate(@as(usize, @bitCast(@as(isize, x) +% (dy * fx * l) +% 8)))),
                         @as(u16, @truncate(@as(usize, @bitCast(@as(isize, y) +% (dx * fy * l) +% 8)))),
                     );
 
-                    if (auto.x) dev.store_port(i16, cpu, ports.x, x +% dx * fx);
-                    if (auto.y) dev.store_port(i16, cpu, ports.y, y +% dy * fy);
-                    if (auto.addr) dev.store_port(u16, cpu, ports.addr, addr);
+                    if (auto.x) dev.storePort(i16, cpu, ports.x, x +% dx * fx);
+                    if (auto.y) dev.storePort(i16, cpu, ports.y, y +% dy * fy);
+                    if (auto.addr) dev.storePort(u16, cpu, ports.addr, addr);
                 },
 
                 else => {
@@ -238,13 +238,13 @@ pub const Screen = struct {
             }
 
             if (port == ports.width + 1 or port == ports.height + 1) {
-                dev.cleanup_graphics();
-                dev.initialize_graphics() catch unreachable;
+                dev.cleanupGraphics();
+                dev.initializeGraphics() catch unreachable;
             }
         }
     }
 
-    fn render_sprite(
+    fn renderSprite(
         dev: *@This(),
         cpu: *Cpu,
         layer: []u2,
@@ -281,7 +281,7 @@ pub const Screen = struct {
         }
     }
 
-    fn fill_region(
+    fn fillRegion(
         dev: *@This(),
         layer: []u2,
         x0: u16,
@@ -301,7 +301,7 @@ pub const Screen = struct {
         }
     }
 
-    pub fn force_redraw(dev: *@This()) void {
+    pub fn forceRedraw(dev: *@This()) void {
         dev.dirty_region = .{
             .x0 = 0,
             .y0 = 0,
@@ -310,7 +310,7 @@ pub const Screen = struct {
         };
     }
 
-    pub fn initialize_graphics(dev: *@This()) !void {
+    pub fn initializeGraphics(dev: *@This()) !void {
         logger.debug("Initialize framebuffers ({}x{})", .{ dev.width, dev.height });
 
         dev.foreground = try dev.alloc.alloc(u2, @as(usize, dev.width) * dev.height);
@@ -322,20 +322,20 @@ pub const Screen = struct {
         @memset(dev.foreground, 0x00);
         @memset(dev.background, 0x00);
 
-        dev.force_redraw();
+        dev.forceRedraw();
     }
 
-    pub fn cleanup_graphics(dev: *@This()) void {
+    pub fn cleanupGraphics(dev: *@This()) void {
         logger.debug("Destroying framebuffers", .{});
 
         dev.alloc.free(dev.foreground);
         dev.alloc.free(dev.background);
     }
 
-    pub fn evaluate_frame(dev: *@This(), cpu: *Cpu) !void {
-        const vector = dev.load_port(u16, cpu, ports.vector);
+    pub fn evaluateFrame(dev: *@This(), cpu: *Cpu) !void {
+        const vector = dev.loadPort(u16, cpu, ports.vector);
 
         if (vector != 0x0000)
-            return cpu.evaluate_vector(vector);
+            return cpu.evaluateVector(vector);
     }
 };

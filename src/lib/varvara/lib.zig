@@ -67,13 +67,13 @@ pub fn VarvaraSystem(comptime StdoutWriter: type, comptime StderrWriter: type) t
                 .datetime_device = .{ .addr = 0xc },
             };
 
-            try sys.screen_device.initialize_graphics();
+            try sys.screen_device.initializeGraphics();
 
             return sys;
         }
 
         pub fn deinit(sys: *@This()) void {
-            sys.screen_device.cleanup_graphics();
+            sys.screen_device.cleanupGraphics();
 
             for (&sys.file_devices) |*f|
                 f.cleanup();
@@ -82,7 +82,7 @@ pub fn VarvaraSystem(comptime StdoutWriter: type, comptime StderrWriter: type) t
                 sys.allocator.free(page_table);
         }
 
-        fn filter_file_access(dev: *file.File, data: ?*anyopaque, path: []const u8, mode: file.File.Mode) bool {
+        fn filterFileAccess(dev: *file.File, data: ?*anyopaque, path: []const u8, mode: file.File.Mode) bool {
             _ = dev;
 
             var buffer_path: [256]u8 = undefined;
@@ -102,15 +102,15 @@ pub fn VarvaraSystem(comptime StdoutWriter: type, comptime StderrWriter: type) t
             }
         }
 
-        pub fn sandbox_files(sys: *@This(), base_dir: fs.Dir) bool {
-            if (!@hasDecl(file.File, "set_access_filter")) {
+        pub fn sandboxFiles(sys: *@This(), base_dir: fs.Dir) bool {
+            if (!@hasDecl(file.File, "setAccessFilter")) {
                 return false;
             }
 
             sys.sandbox_base = base_dir;
 
             for (&sys.file_devices) |*fd| {
-                fd.set_access_filter(sys, filter_file_access);
+                fd.setAccessFilter(sys, filterFileAccess);
             }
 
             return true;
@@ -131,7 +131,7 @@ pub fn VarvaraSystem(comptime StdoutWriter: type, comptime StderrWriter: type) t
                     if (addr & 0xf >= system.ports.red and
                         addr & 0xf < system.ports.debug)
                     {
-                        sys.screen_device.force_redraw();
+                        sys.screen_device.forceRedraw();
                     }
                 },
                 0x1 => try sys.console_device.intercept(cpu, port, kind, sys.stdout, sys.stderr),

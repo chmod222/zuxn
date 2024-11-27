@@ -4,14 +4,14 @@ pub fn Impl(comptime Self: type) type {
     return struct {
         pub const Wrapper = NoopWrapper;
 
-        pub fn open_readable(dev: *Self, path: []const u8) !Wrapper {
+        pub fn openReadable(dev: *Self, path: []const u8) !Wrapper {
             _ = dev;
             _ = path;
 
             return error.NotImplemented;
         }
 
-        pub fn open_writable(dev: *Self, path: []const u8, truncate: bool) !Wrapper {
+        pub fn openWritable(dev: *Self, path: []const u8, truncate: bool) !Wrapper {
             _ = dev;
             _ = path;
             _ = truncate;
@@ -19,7 +19,7 @@ pub fn Impl(comptime Self: type) type {
             return error.NotImplemented;
         }
 
-        pub fn delete_file(dev: *Self, path: []const u8) !void {
+        pub fn deleteFile(dev: *Self, path: []const u8) !void {
             _ = dev;
             _ = path;
 

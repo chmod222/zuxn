@@ -11,14 +11,14 @@ pub const Limits = struct {
     path_length: usize = 256,
 };
 
-fn parse_hex_digit(octet: u8) !u4 {
+fn parseHexDigit(octet: u8) !u4 {
     if (!ascii.isHex(octet) or (!ascii.isDigit(octet) and !ascii.isLower(octet)))
         return error.InvalidHexLiteral;
 
     return @truncate(fmt.charToDigit(octet, 16) catch unreachable);
 }
 
-fn parse_hex_literal(comptime T: type, raw: []const u8, fixed_width: bool) !T {
+fn parseHexLiteral(comptime T: type, raw: []const u8, fixed_width: bool) !T {
     if (fixed_width) {
         const w = if (T == u8) 2 else if (T == u16) 4 else unreachable;
 
@@ -126,7 +126,7 @@ pub fn Scanner(comptime lim: Limits) type {
             return .{};
         }
 
-        fn read_byte(scanner: *@This(), input: anytype) ?u8 {
+        fn readByte(scanner: *@This(), input: anytype) ?u8 {
             const b = input.readByte() catch return null;
 
             if (b == '\n') {
@@ -139,23 +139,23 @@ pub fn Scanner(comptime lim: Limits) type {
             return b;
         }
 
-        fn read_hex_digit(scanner: *@This(), input: anytype) Error!?u4 {
-            return try parse_hex_digit(scanner.read_byte(input) orelse return null);
+        fn readHexDigit(scanner: *@This(), input: anytype) Error!?u4 {
+            return try parseHexDigit(scanner.readByte(input) orelse return null);
         }
 
-        fn read_literal(scanner: *@This(), input: anytype) Error!Literal {
-            const h0n: u8 = try scanner.read_hex_digit(input) orelse return error.PrematureEof;
-            const l0n: u8 = try scanner.read_hex_digit(input) orelse return error.PrematureEof;
+        fn readLiteral(scanner: *@This(), input: anytype) Error!Literal {
+            const h0n: u8 = try scanner.readHexDigit(input) orelse return error.PrematureEof;
+            const l0n: u8 = try scanner.readHexDigit(input) orelse return error.PrematureEof;
 
             // Catch EOF as whitespace so we exit cleanly in case "#xy" is the very last thing in the input
-            const next = scanner.read_byte(input) orelse ' ';
+            const next = scanner.readByte(input) orelse ' ';
 
             const h1n: u8 = if (ascii.isWhitespace(next))
                 return .{ .byte = @as(u8, h0n << 4) | l0n }
             else
-                try parse_hex_digit(next);
+                try parseHexDigit(next);
 
-            const l1n = try scanner.read_hex_digit(input) orelse return error.PrematureEof;
+            const l1n = try scanner.readHexDigit(input) orelse return error.PrematureEof;
 
             return .{
                 .short = @as(u16, h0n) << 12 |
@@ -165,7 +165,7 @@ pub fn Scanner(comptime lim: Limits) type {
             };
         }
 
-        fn read_whitespace_delimited(
+        fn readWhitespaceDelimited(
             scanner: *@This(),
             comptime maxlen: usize,
             input: anytype,
@@ -175,7 +175,7 @@ pub fn Scanner(comptime lim: Limits) type {
             var writer = fbs.writer();
 
             while (true) {
-                const oct = scanner.read_byte(input) orelse ' ';
+                const oct = scanner.readByte(input) orelse ' ';
 
                 if (ascii.isWhitespace(oct))
                     break;
@@ -188,8 +188,8 @@ pub fn Scanner(comptime lim: Limits) type {
             return output;
         }
 
-        fn read_label(scanner: *@This(), input: anytype) Error!Label {
-            const label = try scanner.read_whitespace_delimited(limits.identifier_length, input);
+        fn readLabel(scanner: *@This(), input: anytype) Error!Label {
+            const label = try scanner.readWhitespaceDelimited(limits.identifier_length, input);
 
             for (label) |oct| {
                 if (ascii.isLower(oct) or !ascii.isAlphanumeric(oct))
@@ -199,13 +199,13 @@ pub fn Scanner(comptime lim: Limits) type {
             return label;
         }
 
-        fn read_path(scanner: *@This(), input: anytype) Error![256:0]u8 {
-            return scanner.read_whitespace_delimited(256, input) catch {
+        fn readPath(scanner: *@This(), input: anytype) Error![256:0]u8 {
+            return scanner.readWhitespaceDelimited(256, input) catch {
                 return error.PathTooLong;
             };
         }
 
-        fn to_typed_label(label: Label) TypedLabel {
+        fn toTypedLabel(label: Label) TypedLabel {
             if (label[0] == '&') {
                 var cpy = label;
 
@@ -217,12 +217,12 @@ pub fn Scanner(comptime lim: Limits) type {
             }
         }
 
-        fn register_macro(scanner: *@This(), ident: Label) void {
+        fn registerMacro(scanner: *@This(), ident: Label) void {
             // TODO
             scanner.macro_names.append(ident) catch unreachable;
         }
 
-        fn recall_macro(scanner: *@This(), ident: Label) bool {
+        fn recallMacro(scanner: *@This(), ident: Label) bool {
             for (scanner.macro_names.slice()) |n| {
                 if (mem.eql(u8, &n, &ident))
                     return true;
@@ -231,10 +231,10 @@ pub fn Scanner(comptime lim: Limits) type {
             return false;
         }
 
-        pub fn read_token(scanner: *@This(), input: anytype) Error!?SourceToken {
+        pub fn readToken(scanner: *@This(), input: anytype) Error!?SourceToken {
             var comment_depth: usize = 0;
 
-            while (scanner.read_byte(input)) |b| {
+            while (scanner.readByte(input)) |b| {
                 if (comment_depth > 0 and (b != ')') and (b != '('))
                     continue;
 
@@ -264,7 +264,7 @@ pub fn Scanner(comptime lim: Limits) type {
 
                     '@', '&' => b: {
                         // Labels
-                        const label = try scanner.read_label(input);
+                        const label = try scanner.readLabel(input);
 
                         end = Location{ start[0], start[1] + 1 + mem.sliceTo(&label, 0).len };
 
@@ -276,8 +276,8 @@ pub fn Scanner(comptime lim: Limits) type {
 
                     ',', '.', ';', '_', '-', '=', ':' => b: {
                         // Adressing
-                        const label = try scanner.read_label(input);
-                        const typed = to_typed_label(label);
+                        const label = try scanner.readLabel(input);
+                        const typed = toTypedLabel(label);
 
                         end = Location{ start[0], start[1] + 1 + mem.sliceTo(&label, 0).len };
 
@@ -298,7 +298,7 @@ pub fn Scanner(comptime lim: Limits) type {
                     },
                     '#' => b: {
                         // Literal hex
-                        const literal = try scanner.read_literal(input);
+                        const literal = try scanner.readLiteral(input);
                         const litlen: usize = switch (literal) {
                             .byte => 2,
                             .short => 4,
@@ -311,14 +311,14 @@ pub fn Scanner(comptime lim: Limits) type {
 
                     '|', '$' => b: {
                         // Padding (TODO)
-                        var pad = try scanner.read_whitespace_delimited(limits.identifier_length, input);
+                        var pad = try scanner.readWhitespaceDelimited(limits.identifier_length, input);
 
                         end = Location{ start[0], start[1] + 1 + mem.sliceTo(&pad, 0).len };
 
-                        const offset: Offset = if (parse_hex_literal(u16, mem.sliceTo(&pad, 0), false) catch null) |lit|
+                        const offset: Offset = if (parseHexLiteral(u16, mem.sliceTo(&pad, 0), false) catch null) |lit|
                             .{ .literal = lit }
                         else
-                            .{ .label = to_typed_label(pad) };
+                            .{ .label = toTypedLabel(pad) };
 
                         break :b if (b == '|')
                             .{ .padding = .{ .absolute = offset } }
@@ -327,23 +327,23 @@ pub fn Scanner(comptime lim: Limits) type {
                     },
 
                     '?' => b: {
-                        const label = try scanner.read_label(input);
+                        const label = try scanner.readLabel(input);
 
                         end = Location{ start[0], start[1] + 1 + mem.sliceTo(&label, 0).len };
 
-                        break :b .{ .jci = to_typed_label(label) };
+                        break :b .{ .jci = toTypedLabel(label) };
                     },
 
                     '!' => b: {
-                        const label = try scanner.read_label(input);
+                        const label = try scanner.readLabel(input);
 
                         end = Location{ start[0], start[1] + 1 + mem.sliceTo(&label, 0).len };
 
-                        break :b .{ .jmi = to_typed_label(label) };
+                        break :b .{ .jmi = toTypedLabel(label) };
                     },
 
                     '~' => b: {
-                        const path = try scanner.read_path(input);
+                        const path = try scanner.readPath(input);
 
                         end = Location{ start[0], start[1] + 1 + mem.sliceTo(&path, 0).len };
 
@@ -351,9 +351,9 @@ pub fn Scanner(comptime lim: Limits) type {
                     },
 
                     '%' => b: {
-                        const ident = try scanner.read_whitespace_delimited(limits.identifier_length, input);
+                        const ident = try scanner.readWhitespaceDelimited(limits.identifier_length, input);
 
-                        scanner.register_macro(ident);
+                        scanner.registerMacro(ident);
 
                         end = Location{ start[0], start[1] + 1 + mem.sliceTo(&ident, 0).len };
 
@@ -370,7 +370,7 @@ pub fn Scanner(comptime lim: Limits) type {
                         var word = [1:0]u8{0x00} ** 64;
                         var i: usize = 0;
 
-                        while (scanner.read_byte(input)) |oct| : (i += 1) {
+                        while (scanner.readByte(input)) |oct| : (i += 1) {
                             if (ascii.isWhitespace(oct))
                                 break;
 
@@ -384,7 +384,7 @@ pub fn Scanner(comptime lim: Limits) type {
 
                     else => b: {
                         var needle = [1:0]u8{b} ++ [1:0]u8{0x00} ** (limits.identifier_length - 1);
-                        var remain = try scanner.read_whitespace_delimited(limits.identifier_length, input);
+                        var remain = try scanner.readWhitespaceDelimited(limits.identifier_length, input);
 
                         end = Location{ start[0], start[1] + 1 + mem.sliceTo(&remain, 0).len };
 
@@ -402,14 +402,14 @@ pub fn Scanner(comptime lim: Limits) type {
                         } else {
                             const slice = mem.sliceTo(&needle, 0);
 
-                            break :b if (parse_hex_literal(u8, slice, true) catch null) |byte|
+                            break :b if (parseHexLiteral(u8, slice, true) catch null) |byte|
                                 .{ .raw_literal = .{ .byte = byte } }
-                            else if (parse_hex_literal(u16, slice, true) catch null) |short|
+                            else if (parseHexLiteral(u16, slice, true) catch null) |short|
                                 .{ .raw_literal = .{ .short = short } }
-                            else if (scanner.recall_macro(needle))
+                            else if (scanner.recallMacro(needle))
                                 .{ .macro_expansion = needle }
                             else
-                                .{ .jsi = to_typed_label(needle) };
+                                .{ .jsi = toTypedLabel(needle) };
                         }
                     },
                 };

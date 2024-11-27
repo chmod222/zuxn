@@ -63,15 +63,15 @@ const base_frequencies: [12]f32 = .{
     15.4338531643, // B -1
 };
 
-fn get_frequency(pitch: PitchFlags) f32 {
+fn getFrequency(pitch: PitchFlags) f32 {
     const pitch_exponential: f32 = @floatFromInt(@as(u32, 2) << (pitch.octave() - 1));
 
     return base_frequencies[pitch.note()] * pitch_exponential;
 }
 
-fn get_duration(pitch: PitchFlags, sample: []const u8) f32 {
-    const tone_freq = get_frequency(pitch);
-    const base_freq = get_frequency(@bitCast(@as(u8, 60)));
+fn getDuration(pitch: PitchFlags, sample: []const u8) f32 {
+    const tone_freq = getFrequency(pitch);
+    const base_freq = getFrequency(@bitCast(@as(u8, 60)));
 
     return @as(f32, @floatFromInt(sample.len)) / (tone_freq / base_freq);
 }
@@ -105,32 +105,32 @@ pub const Audio = struct {
 
     pub usingnamespace @import("impl.zig").DeviceMixin(@This());
 
-    pub fn get_output_vu(dev: *@This()) u8 {
+    pub fn getOutputVU(dev: *@This()) u8 {
         return if (dev.active_sample) |sample|
             @as(u8, @intFromFloat(sample.envelope.vol * 255))
         else
             0x00;
     }
 
-    fn start_audio(dev: *@This(), cpu: *Cpu) void {
-        var pitch = dev.load_port(PitchFlags, cpu, ports.pitch);
+    fn startAudio(dev: *@This(), cpu: *Cpu) void {
+        var pitch = dev.loadPort(PitchFlags, cpu, ports.pitch);
 
-        const volume = dev.load_port(VolumeFlags, cpu, ports.volume);
-        const adsr = dev.load_port(AdsrFlags, cpu, ports.adsr);
+        const volume = dev.loadPort(VolumeFlags, cpu, ports.volume);
+        const adsr = dev.loadPort(AdsrFlags, cpu, ports.adsr);
 
-        const duration = dev.load_port(u16, cpu, ports.duration);
-        const addr = dev.load_port(u16, cpu, ports.addr);
-        const len = dev.load_port(u16, cpu, ports.length);
+        const duration = dev.loadPort(u16, cpu, ports.duration);
+        const addr = dev.loadPort(u16, cpu, ports.addr);
+        const len = dev.loadPort(u16, cpu, ports.length);
 
         const sample = cpu.mem[addr..addr +| len];
 
         if (pitch.midi_note == 0) {
-            return dev.stop_note(duration);
+            return dev.stopNote(duration);
         } else if (pitch.midi_note < 20 or len == 0) {
             pitch.midi_note = 20;
         }
 
-        dev.next_sample = dev.start_note(
+        dev.next_sample = dev.startNote(
             pitch,
             duration,
             volume,
@@ -139,7 +139,7 @@ pub const Audio = struct {
         );
     }
 
-    pub fn start_note(
+    pub fn startNote(
         dev: *@This(),
         pitch: PitchFlags,
         duration: u16,
@@ -150,7 +150,7 @@ pub const Audio = struct {
         // Adjust the playback speed based on the sample rate and sample length, calculate
         // our frequency exponential for the octave.
         const rate_adjust: f32 = sample_rate / @as(f32, @floatFromInt(sample.len));
-        const tone_freq = get_frequency(pitch);
+        const tone_freq = getFrequency(pitch);
 
         const sample_data = Sample{
             .data = sample,
@@ -170,7 +170,7 @@ pub const Audio = struct {
 
         dev.pitch = pitch;
         dev.duration = if (duration == 0)
-            get_duration(pitch, sample)
+            getDuration(pitch, sample)
         else
             @floatFromInt(duration);
 
@@ -189,7 +189,7 @@ pub const Audio = struct {
         return sample_data;
     }
 
-    pub fn stop_note(
+    pub fn stopNote(
         dev: *@This(),
         duration: u16,
     ) void {
@@ -200,7 +200,7 @@ pub const Audio = struct {
 
         if (dev.active_sample) |*s| {
             dev.duration = if (duration == 0)
-                get_duration(@bitCast(@as(u8, 20)), s.data)
+                getDuration(@bitCast(@as(u8, 20)), s.data)
             else
                 @floatFromInt(duration);
 
@@ -208,15 +208,15 @@ pub const Audio = struct {
         }
     }
 
-    pub fn update_duration(dev: *@This()) void {
+    pub fn updateDuration(dev: *@This()) void {
         dev.duration -= timer;
     }
 
-    pub fn evaluate_finish_vector(dev: *@This(), cpu: *Cpu) !void {
-        const vector = dev.load_port(u16, cpu, ports.vector);
+    pub fn evaluateFinishVector(dev: *@This(), cpu: *Cpu) !void {
+        const vector = dev.loadPort(u16, cpu, ports.vector);
 
         if (vector != 0x0000) {
-            return cpu.evaluate_vector(vector);
+            return cpu.evaluateVector(vector);
         }
     }
 
@@ -225,7 +225,7 @@ pub const Audio = struct {
     // Divide once at comptime so we only need to multiply below.
     const inv_crossfade: f32 = 1.0 / @as(f32, @floatFromInt(crossfade_samples * 2));
 
-    pub fn render_audio(dev: *@This(), samples: []i16) void {
+    pub fn renderAudio(dev: *@This(), samples: []i16) void {
         var i: usize = 0;
 
         if (dev.next_sample) |*next_sample| {
@@ -235,9 +235,9 @@ pub const Audio = struct {
                 // linearly interpolate between old and new.
                 const f = @as(f32, @floatFromInt(i)) * inv_crossfade;
 
-                const a = next_sample.get_next_sample() orelse 0.0;
+                const a = next_sample.getNextSample() orelse 0.0;
                 const b = if (dev.active_sample) |*as|
-                    as.get_next_sample() orelse 0.0
+                    as.getNextSample() orelse 0.0
                 else
                     0.0;
 
@@ -254,7 +254,7 @@ pub const Audio = struct {
 
         if (dev.active_sample) |*active_sample| {
             while (i < samples.len) : (i += 2) {
-                const sample = active_sample.get_next_sample() orelse {
+                const sample = active_sample.getNextSample() orelse {
                     break;
                 };
 
@@ -273,9 +273,9 @@ pub const Audio = struct {
     ) !void {
         if (kind == .input) {
             if (port == ports.output) {
-                dev.store_port(u8, cpu, ports.output, dev.get_output_vu());
+                dev.storePort(u8, cpu, ports.output, dev.getOutputVU());
             } else if (port == ports.position or port == ports.position + 1) {
-                dev.store_port(
+                dev.storePort(
                     u16,
                     cpu,
                     ports.position,
@@ -286,7 +286,7 @@ pub const Audio = struct {
                 );
             }
         } else if (kind == .output and port == ports.pitch) {
-            dev.start_audio(cpu);
+            dev.startAudio(cpu);
         }
     }
 };

@@ -39,7 +39,7 @@ var STDIN_RECEIVED: u32 = undefined;
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 var audio_id: SDL.SDL_AudioDeviceID = undefined;
 
-fn sdl_panic() noreturn {
+fn sdlPanic() noreturn {
     const str = @as(?[*:0]const u8, SDL.SDL_GetError()) orelse "unknown error";
 
     @panic(std.mem.sliceTo(str, 0));
@@ -65,7 +65,7 @@ fn Callbacks(comptime SystemType: type) type {
             }
         }
 
-        pub fn audio_callback(u: ?*anyopaque, stream: [*c]u8, len: c_int) callconv(.C) void {
+        pub fn audioCallback(u: ?*anyopaque, stream: [*c]u8, len: c_int) callconv(.C) void {
             const cpu, const sys = @as(
                 *struct { *uxn.Cpu, *SystemType },
                 @alignCast(@ptrCast(u)),
@@ -79,11 +79,11 @@ fn Callbacks(comptime SystemType: type) type {
 
             for (&sys.audio_devices) |*poly| {
                 if (poly.duration <= 0) {
-                    poly.evaluate_finish_vector(cpu) catch unreachable;
+                    poly.evaluateFinishVector(cpu) catch unreachable;
                 }
 
-                poly.update_duration();
-                poly.render_audio(samples);
+                poly.updateDuration();
+                poly.renderAudio(samples);
             }
 
             for (0..samples.len) |i| {
@@ -97,7 +97,7 @@ fn Callbacks(comptime SystemType: type) type {
             //}
         }
 
-        pub fn receive_stdin(p: ?*anyopaque) callconv(.C) c_int {
+        pub fn receiveStdin(p: ?*anyopaque) callconv(.C) c_int {
             const sys: *SystemType = @alignCast(@ptrCast(p));
 
             const stdin = std.io.getStdIn().reader();
@@ -123,7 +123,7 @@ const InputType = union(enum) {
     key: u8,
 };
 
-fn determine_input(event: *SDL.SDL_Event) ?InputType {
+fn determineInput(event: *SDL.SDL_Event) ?InputType {
     const mods = SDL.SDL_GetModState();
     const sym = event.key.keysym.sym;
 
@@ -153,7 +153,7 @@ fn determine_input(event: *SDL.SDL_Event) ?InputType {
     return null;
 }
 
-fn init_window(
+fn initWindow(
     window: **SDL.SDL_Window,
     renderer: **SDL.SDL_Renderer,
     texture: **SDL.SDL_Texture,
@@ -195,7 +195,7 @@ fn init_window(
     ) orelse return error.CouldNotCreateTexture;
 }
 
-fn resize_window(
+fn resizeWindow(
     window: *SDL.SDL_Window,
     renderer: *SDL.SDL_Renderer,
     texture: **SDL.SDL_Texture,
@@ -222,7 +222,7 @@ fn resize_window(
     ) orelse return error.CouldNotCreateTexture;
 }
 
-fn draw_screen(
+fn drawScreen(
     screen_device: *varvara.screen.Screen,
     system_device: *const varvara.system.System,
     texture: *SDL.SDL_Texture,
@@ -258,14 +258,14 @@ fn draw_screen(
     SDL.SDL_RenderPresent(renderer);
 }
 
-fn main_graphical(
+fn mainGraphical(
     cpu: *uxn.Cpu,
     system: *VarvaraDefault,
     scale: u8,
     args: [][]const u8,
 ) !u8 {
     if (SDL.SDL_Init(SDL.SDL_INIT_JOYSTICK | SDL.SDL_INIT_VIDEO | SDL.SDL_INIT_EVENTS | SDL.SDL_INIT_AUDIO) < 0)
-        sdl_panic();
+        sdlPanic();
 
     defer SDL.SDL_Quit();
 
@@ -277,7 +277,7 @@ fn main_graphical(
         .freq = varvara.audio.sample_rate,
         .format = SDL.AUDIO_S16SYS,
         .channels = 2,
-        .callback = &Callbacks(VarvaraDefault).audio_callback,
+        .callback = &Callbacks(VarvaraDefault).audioCallback,
         .samples = varvara.audio.sample_count,
         .userdata = &callback_data,
 
@@ -292,7 +292,7 @@ fn main_graphical(
 
     STDIN_RECEIVED = SDL.SDL_RegisterEvents(1);
 
-    const stdin = SDL.SDL_CreateThread(&Callbacks(VarvaraDefault).receive_stdin, "stdin", system);
+    const stdin = SDL.SDL_CreateThread(&Callbacks(VarvaraDefault).receiveStdin, "stdin", system);
 
     SDL.SDL_DetachThread(stdin);
 
@@ -300,16 +300,16 @@ fn main_graphical(
         logger.debug("Couldn't open joystick {}: {s}", .{ 0, SDL.SDL_GetError() });
     };
 
-    system.console_device.set_argc(cpu, args);
+    system.console_device.setArgc(cpu, args);
 
     var window_width = system.screen_device.width;
     var window_height = system.screen_device.height;
 
-    cpu.evaluate_vector(0x0100) catch |fault|
-        try system.system_device.handle_fault(cpu, fault);
+    cpu.evaluateVector(0x0100) catch |fault|
+        try system.system_device.handleFault(cpu, fault);
 
-    system.console_device.push_arguments(cpu, args) catch |fault|
-        try system.system_device.handle_fault(cpu, fault);
+    system.console_device.pushArguments(cpu, args) catch |fault|
+        try system.system_device.handleFault(cpu, fault);
 
     if (system.system_device.exit_code) |c|
         return c;
@@ -320,7 +320,7 @@ fn main_graphical(
 
     // Reset vector is done, all arguments are handled and VM did not exit,
     // so we know what our window size should be.
-    try init_window(
+    try initWindow(
         &window,
         &renderer,
         &texture,
@@ -341,59 +341,59 @@ fn main_graphical(
                 },
 
                 SDL.SDL_MOUSEMOTION => {
-                    system.mouse_device.update_position(
+                    system.mouse_device.updatePosition(
                         cpu,
                         @truncate(@as(c_uint, @bitCast(ev.motion.x))),
                         @truncate(@as(c_uint, @bitCast(ev.motion.y))),
                     ) catch |fault|
-                        try system.system_device.handle_fault(cpu, fault);
+                        try system.system_device.handleFault(cpu, fault);
                 },
 
                 SDL.SDL_MOUSEBUTTONDOWN => {
-                    system.mouse_device.press_buttons(
+                    system.mouse_device.pressButtons(
                         cpu,
                         @bitCast(@as(u8, 1) << @as(u3, @truncate(ev.button.button - 1))),
                     ) catch |fault|
-                        try system.system_device.handle_fault(cpu, fault);
+                        try system.system_device.handleFault(cpu, fault);
                 },
 
                 SDL.SDL_MOUSEBUTTONUP => {
-                    system.mouse_device.release_buttons(
+                    system.mouse_device.releaseButtons(
                         cpu,
                         @bitCast(@as(u8, 1) << @as(u3, @truncate(ev.button.button - 1))),
                     ) catch |fault|
-                        try system.system_device.handle_fault(cpu, fault);
+                        try system.system_device.handleFault(cpu, fault);
                 },
 
                 SDL.SDL_MOUSEWHEEL => {
-                    system.mouse_device.update_scroll(cpu, ev.wheel.x, ev.wheel.y) catch |fault|
-                        try system.system_device.handle_fault(cpu, fault);
+                    system.mouse_device.updateScroll(cpu, ev.wheel.x, ev.wheel.y) catch |fault|
+                        try system.system_device.handleFault(cpu, fault);
                 },
 
                 SDL.SDL_TEXTINPUT => {
-                    system.controller_device.press_key(cpu, ev.text.text[0]) catch |fault|
-                        try system.system_device.handle_fault(cpu, fault);
+                    system.controller_device.pressKey(cpu, ev.text.text[0]) catch |fault|
+                        try system.system_device.handleFault(cpu, fault);
                 },
 
                 SDL.SDL_KEYDOWN => {
-                    if (determine_input(&ev)) |input| switch (input) {
+                    if (determineInput(&ev)) |input| switch (input) {
                         .buttons => |b| {
-                            system.controller_device.press_buttons(cpu, b, 0) catch |fault|
-                                try system.system_device.handle_fault(cpu, fault);
+                            system.controller_device.pressButtons(cpu, b, 0) catch |fault|
+                                try system.system_device.handleFault(cpu, fault);
                         },
 
                         .key => |k| {
-                            system.controller_device.press_key(cpu, k) catch |fault|
-                                try system.system_device.handle_fault(cpu, fault);
+                            system.controller_device.pressKey(cpu, k) catch |fault|
+                                try system.system_device.handleFault(cpu, fault);
                         },
                     };
                 },
 
                 SDL.SDL_KEYUP => {
-                    if (determine_input(&ev)) |input| switch (input) {
+                    if (determineInput(&ev)) |input| switch (input) {
                         .buttons => |b| {
-                            system.controller_device.release_buttons(cpu, b, 0) catch |fault|
-                                try system.system_device.handle_fault(cpu, fault);
+                            system.controller_device.releaseButtons(cpu, b, 0) catch |fault|
+                                try system.system_device.handleFault(cpu, fault);
                         },
 
                         else => {},
@@ -419,11 +419,11 @@ fn main_graphical(
                     };
 
                     if (ev.type == SDL.SDL_JOYBUTTONUP)
-                        system.controller_device.release_buttons(cpu, btn, player) catch |fault|
-                            try system.system_device.handle_fault(cpu, fault)
+                        system.controller_device.releaseButtons(cpu, btn, player) catch |fault|
+                            try system.system_device.handleFault(cpu, fault)
                     else
-                        system.controller_device.press_buttons(cpu, btn, player) catch |fault|
-                            try system.system_device.handle_fault(cpu, fault);
+                        system.controller_device.pressButtons(cpu, btn, player) catch |fault|
+                            try system.system_device.handleFault(cpu, fault);
                 },
 
                 SDL.SDL_JOYHATMOTION => {
@@ -448,19 +448,19 @@ fn main_graphical(
                         .right = !btn.right,
                     };
 
-                    system.controller_device.release_buttons(cpu, inverse, player) catch |fault|
-                        try system.system_device.handle_fault(cpu, fault);
+                    system.controller_device.releaseButtons(cpu, inverse, player) catch |fault|
+                        try system.system_device.handleFault(cpu, fault);
 
                     if (@as(u8, @bitCast(btn)) != 0) {
-                        system.controller_device.press_buttons(cpu, btn, player) catch |fault|
-                            try system.system_device.handle_fault(cpu, fault);
+                        system.controller_device.pressButtons(cpu, btn, player) catch |fault|
+                            try system.system_device.handleFault(cpu, fault);
                     }
                 },
 
                 else => {
                     if (ev.type == STDIN_RECEIVED) {
-                        system.console_device.push_stdin_byte(cpu, ev.cbutton.button) catch |fault|
-                            try system.system_device.handle_fault(cpu, fault);
+                        system.console_device.pushStdinByte(cpu, ev.cbutton.button) catch |fault|
+                            try system.system_device.handleFault(cpu, fault);
                     }
                 },
             }
@@ -471,14 +471,14 @@ fn main_graphical(
 
         _ = frametime;
 
-        system.screen_device.evaluate_frame(cpu) catch |fault|
-            try system.system_device.handle_fault(cpu, fault);
+        system.screen_device.evaluateFrame(cpu) catch |fault|
+            try system.system_device.handleFault(cpu, fault);
 
         if (system.screen_device.width != window_width or system.screen_device.height != window_height) {
             window_height = system.screen_device.height;
             window_width = system.screen_device.width;
 
-            try resize_window(
+            try resizeWindow(
                 window,
                 renderer,
                 &texture,
@@ -488,7 +488,7 @@ fn main_graphical(
             );
         }
 
-        draw_screen(&system.screen_device, &system.system_device, texture, renderer);
+        drawScreen(&system.screen_device, &system.system_device, texture, renderer);
     }
 
     if (system.system_device.exit_code == null) {
@@ -526,11 +526,11 @@ pub fn main() !u8 {
 
     defer res.deinit();
 
-    if (shared.handle_common_args(res, params)) |exit| {
+    if (shared.handleCommonArgs(res, params)) |exit| {
         return exit;
     }
 
-    var env = try shared.load_or_assemble_rom(
+    var env = try shared.loadOrAssembleRom(
         alloc,
         res.positionals[0],
         res.args.symbols,
@@ -542,13 +542,13 @@ pub fn main() !u8 {
     var system = try VarvaraDefault.init(gpa.allocator(), stdout, stderr);
     defer system.deinit();
 
-    if (!system.sandbox_files(fs.cwd())) {
+    if (!system.sandboxFiles(fs.cwd())) {
         logger.debug("File implementation does not suport sandboxing", .{});
     }
 
     // Setup the breakpoint hook if requested
     if (env.debug_symbols) |*d| {
-        system.system_device.debug_callback = &Debug.on_debug_hook;
+        system.system_device.debug_callback = &Debug.onDebugHook;
         system.system_device.callback_data = d;
     }
 
@@ -562,5 +562,5 @@ pub fn main() !u8 {
     cpu.input_intercepts = varvara.full_intercepts.input;
 
     // Run main
-    return main_graphical(&cpu, &system, res.args.scale orelse 1, @constCast(res.positionals[1..]));
+    return mainGraphical(&cpu, &system, res.args.scale orelse 1, @constCast(res.positionals[1..]));
 }

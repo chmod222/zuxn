@@ -10,7 +10,7 @@ loop_len: f32,
 
 envelope: Envelope,
 
-pub fn get_next_sample(sample: *@This()) ?f32 {
+pub fn getNextSample(sample: *@This()) ?f32 {
     if (sample.position >= @as(f32, @floatFromInt(sample.data.len))) {
         if (sample.loop_len == 0) {
             return null;

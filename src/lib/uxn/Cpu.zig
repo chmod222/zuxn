@@ -20,7 +20,7 @@ pub const SystemFault = error{
     BadExpansion,
 };
 
-pub fn is_catchable(f: SystemFault) bool {
+pub fn isCatchable(f: SystemFault) bool {
     return f != error.BadExpansion;
 }
 
@@ -68,7 +68,7 @@ pub fn init(memory: *[page_size]u8) Cpu {
     return cpu;
 }
 
-pub fn evaluate_vector(cpu: *Cpu, vector: u16) SystemFault!void {
+pub fn evaluateVector(cpu: *Cpu, vector: u16) SystemFault!void {
     cpu.pc = vector;
 
     logger.debug("Vector {x:0>4}: Start evaluation", .{vector});
@@ -148,27 +148,27 @@ inline fn store(
     }
 }
 
-pub fn load_zero(cpu: *const Cpu, comptime T: type, addr: u8) T {
+pub fn loadZero(cpu: *const Cpu, comptime T: type, addr: u8) T {
     return cpu.load(T, "mem", addr, 0x100);
 }
 
-pub fn load_mem(cpu: *const Cpu, comptime T: type, addr: u16) T {
+pub fn loadMem(cpu: *const Cpu, comptime T: type, addr: u16) T {
     return cpu.load(T, "mem", addr, 0x10000);
 }
 
-pub fn load_device_mem(cpu: *const Cpu, comptime T: type, addr: u8) T {
+pub fn loadDeviceMem(cpu: *const Cpu, comptime T: type, addr: u8) T {
     return cpu.load(T, "device_mem", addr, 0x100);
 }
 
-pub fn store_zero(cpu: *Cpu, comptime T: type, addr: u8, v: T) void {
+pub fn storeZero(cpu: *Cpu, comptime T: type, addr: u8, v: T) void {
     cpu.store(T, "mem", addr, v, 0x100);
 }
 
-pub fn store_mem(cpu: *Cpu, comptime T: type, addr: u16, v: T) void {
+pub fn storeMem(cpu: *Cpu, comptime T: type, addr: u16, v: T) void {
     cpu.store(T, "mem", addr, v, 0x10000);
 }
 
-pub fn store_device_mem(cpu: *Cpu, comptime T: type, addr: u8, v: T) void {
+pub fn storeDeviceMem(cpu: *Cpu, comptime T: type, addr: u8, v: T) void {
     cpu.store(T, "device_mem", addr, v, 0x100);
 }
 
@@ -191,7 +191,7 @@ fn popper(comptime T: type) PopFunc {
     }.pop;
 }
 
-fn add_relative(addr: u16, offset: u8) u16 {
+fn addRelative(addr: u16, offset: u8) u16 {
     return @bitCast(@as(i16, @bitCast(addr)) +% @as(i8, @bitCast(offset)));
 }
 
@@ -219,28 +219,28 @@ pub fn step(cpu: *Cpu) SystemFault!?u16 {
         } else if (instruction.keep_mode) {
             // LIT{2,}{r,}
             if (instruction.short_mode) {
-                try wst.push(u16, cpu.load_mem(u16, next_pc));
+                try wst.push(u16, cpu.loadMem(u16, next_pc));
 
                 return next_pc +% 2;
             } else {
-                try wst.push(u8, cpu.load_mem(u8, next_pc));
+                try wst.push(u8, cpu.loadMem(u8, next_pc));
 
                 return next_pc +% 1;
             }
         } else if (instruction.short_mode and !instruction.return_mode) {
             // JCI
             return if (try wst.pop(u8) > 0x00)
-                next_pc +% cpu.load_mem(u16, next_pc) + 2
+                next_pc +% cpu.loadMem(u16, next_pc) + 2
             else
                 next_pc + 2;
         } else if (instruction.return_mode and !instruction.short_mode) {
             // JMI
-            return next_pc +% cpu.load_mem(u16, next_pc) + 2;
+            return next_pc +% cpu.loadMem(u16, next_pc) + 2;
         } else {
             // JSI
             try cpu.rst.push(u16, next_pc + 2);
 
-            return next_pc +% cpu.load_mem(u16, next_pc) + 2;
+            return next_pc +% cpu.loadMem(u16, next_pc) + 2;
         }
     }
 
@@ -256,13 +256,13 @@ pub fn step(cpu: *Cpu) SystemFault!?u16 {
     }
 
     if (instruction.keep_mode) {
-        wst.freeze_read();
-        rst.freeze_read();
+        wst.freezeRead();
+        rst.freezeRead();
     }
 
     defer if (instruction.keep_mode) {
-        wst.thaw_read();
-        rst.thaw_read();
+        wst.thawRead();
+        rst.thawRead();
     };
 
     switch (instruction.opcode) {
@@ -273,7 +273,7 @@ pub fn step(cpu: *Cpu) SystemFault!?u16 {
         .JMP => if (instruction.short_mode) {
             next_pc = try wst.pop(u16);
         } else {
-            next_pc = add_relative(next_pc, try wst.pop(u8));
+            next_pc = addRelative(next_pc, try wst.pop(u8));
         },
 
         .JCN => {
@@ -284,7 +284,7 @@ pub fn step(cpu: *Cpu) SystemFault!?u16 {
                 next_pc = if (instruction.short_mode)
                     addr
                 else
-                    add_relative(next_pc, @truncate(addr));
+                    addRelative(next_pc, @truncate(addr));
             }
         },
 
@@ -296,7 +296,7 @@ pub fn step(cpu: *Cpu) SystemFault!?u16 {
             next_pc = if (instruction.short_mode)
                 addr
             else
-                add_relative(next_pc, @truncate(addr));
+                addRelative(next_pc, @truncate(addr));
         },
 
         // Stack management
@@ -406,15 +406,15 @@ pub fn step(cpu: *Cpu) SystemFault!?u16 {
                 .LDA, .STA => try wst.pop(u16),
                 .DEI, .DEO, .LDZ, .STZ => try wst.pop(u8),
 
-                else => add_relative(next_pc, try wst.pop(u8)),
+                else => addRelative(next_pc, try wst.pop(u8)),
             };
 
             switch (o) {
                 inline .DEI, .LDZ, .LDR, .LDA => |op| {
                     const load_fn = switch (op) {
-                        .DEI => Cpu.load_device_mem,
-                        .LDZ => Cpu.load_zero,
-                        .LDR, .LDA => Cpu.load_mem,
+                        .DEI => Cpu.loadDeviceMem,
+                        .LDZ => Cpu.loadZero,
+                        .LDR, .LDA => Cpu.loadMem,
 
                         else => unreachable,
                     };
@@ -442,9 +442,9 @@ pub fn step(cpu: *Cpu) SystemFault!?u16 {
 
                 inline .DEO, .STZ, .STR, .STA => |op| {
                     const store_fn = switch (op) {
-                        .DEO => Cpu.store_device_mem,
-                        .STZ => Cpu.store_zero,
-                        .STR, .STA => Cpu.store_mem,
+                        .DEO => Cpu.storeDeviceMem,
+                        .STZ => Cpu.storeZero,
+                        .STR, .STA => Cpu.storeMem,
 
                         else => unreachable,
                     };

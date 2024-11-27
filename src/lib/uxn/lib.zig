@@ -7,7 +7,7 @@ const std = @import("std");
 
 const Allocator = std.mem.Allocator;
 
-pub fn load_rom(alloc: Allocator, reader: anytype) !*[Cpu.page_size]u8 {
+pub fn loadRom(alloc: Allocator, reader: anytype) !*[Cpu.page_size]u8 {
     var ram_pos: u16 = 0x0100;
     var ram = try alloc.alloc(u8, Cpu.page_size);
 

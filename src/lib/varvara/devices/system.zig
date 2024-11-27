@@ -39,7 +39,7 @@ pub const System = struct {
 
     pub usingnamespace @import("impl.zig").DeviceMixin(@This());
 
-    fn split_rgb(r: u16, g: u16, b: u16, c: u2) Color {
+    fn splitRgb(r: u16, g: u16, b: u16, c: u2) Color {
         const sw = @as(u4, 3 - c) * 4;
 
         return Color{
@@ -57,21 +57,21 @@ pub const System = struct {
     ) !void {
         if (kind == .input) {
             switch (port) {
-                ports.wsp => dev.store_port(u8, cpu, ports.wsp, cpu.wst.sp),
-                ports.rsp => dev.store_port(u8, cpu, ports.rsp, cpu.rst.sp),
+                ports.wsp => dev.storePort(u8, cpu, ports.wsp, cpu.wst.sp),
+                ports.rsp => dev.storePort(u8, cpu, ports.rsp, cpu.rst.sp),
 
                 else => {},
             }
         } else {
             switch (port) {
                 ports.state => {
-                    dev.exit_code = dev.load_port(u8, cpu, ports.state) & 0x7f;
+                    dev.exit_code = dev.loadPort(u8, cpu, ports.state) & 0x7f;
 
                     logger.debug("System exit requested (code = {?})", .{dev.exit_code});
                 },
 
-                ports.wsp => cpu.wst.sp = dev.load_port(u8, cpu, ports.wsp),
-                ports.rsp => cpu.rst.sp = dev.load_port(u8, cpu, ports.rsp),
+                ports.wsp => cpu.wst.sp = dev.loadPort(u8, cpu, ports.wsp),
+                ports.rsp => cpu.rst.sp = dev.loadPort(u8, cpu, ports.rsp),
 
                 ports.debug => {
                     if (dev.debug_callback) |cb|
@@ -81,7 +81,7 @@ pub const System = struct {
                 },
 
                 ports.expansion + 1 => {
-                    try dev.handle_expansion(cpu, dev.load_port(u16, cpu, ports.expansion));
+                    try dev.handleExpansion(cpu, dev.loadPort(u16, cpu, ports.expansion));
                 },
 
                 ports.red + 1, ports.green + 1, ports.blue + 1 => {
@@ -89,12 +89,12 @@ pub const System = struct {
                     //   R 0xABCD
                     //   G 0xEFGH
                     //   B 0xIJKL => 0xAEI 0xBFJ 0xCGK 0xDHL
-                    const r = dev.load_port(u16, cpu, ports.red);
-                    const g = dev.load_port(u16, cpu, ports.green);
-                    const b = dev.load_port(u16, cpu, ports.blue);
+                    const r = dev.loadPort(u16, cpu, ports.red);
+                    const g = dev.loadPort(u16, cpu, ports.green);
+                    const b = dev.loadPort(u16, cpu, ports.blue);
 
                     for (0..4) |i|
-                        dev.colors[i] = split_rgb(r, g, b, @truncate(i));
+                        dev.colors[i] = splitRgb(r, g, b, @truncate(i));
                 },
 
                 else => {},
@@ -102,10 +102,10 @@ pub const System = struct {
         }
     }
 
-    pub fn handle_fault(dev: *@This(), cpu: *Cpu, fault: Cpu.SystemFault) !void {
-        const catch_vector = dev.load_port(u16, cpu, ports.catch_vector);
+    pub fn handleFault(dev: *@This(), cpu: *Cpu, fault: Cpu.SystemFault) !void {
+        const catch_vector = dev.loadPort(u16, cpu, ports.catch_vector);
 
-        if (catch_vector > 0x0000 and Cpu.is_catchable(fault)) {
+        if (catch_vector > 0x0000 and Cpu.isCatchable(fault)) {
             // Clear stacks, push fault information
             cpu.wst.sp = 0;
             cpu.rst.sp = 0;
@@ -123,14 +123,14 @@ pub const System = struct {
             // Due to some weird effects of "usingnamespace" above, handle_fault() no longer feels
             // like resolving itself in a recursive call, so we make a little indirection via
             // @call() to help the resolver.
-            cpu.evaluate_vector(catch_vector) catch |new_fault|
-                try @call(.auto, handle_fault, .{ dev, cpu, new_fault });
+            cpu.evaluateVector(catch_vector) catch |new_fault|
+                try @call(.auto, handleFault, .{ dev, cpu, new_fault });
         } else {
             return fault;
         }
     }
 
-    fn select_memory_page(dev: *@This(), cpu: *Cpu, page: u16) ?*[Cpu.page_size]u8 {
+    fn selectMemoryPage(dev: *@This(), cpu: *Cpu, page: u16) ?*[Cpu.page_size]u8 {
         if (page == 0x0000) {
             return cpu.mem;
         } else if (dev.additional_pages) |page_table| {
@@ -142,19 +142,19 @@ pub const System = struct {
         return null;
     }
 
-    pub fn handle_expansion(dev: *@This(), cpu: *Cpu, operation: u16) !void {
+    pub fn handleExpansion(dev: *@This(), cpu: *Cpu, operation: u16) !void {
         switch (cpu.mem[operation]) {
             0x01 => {
                 // copy
 
                 // [ operation:u8 | len:u16 | srcpg:u16 | src:u16 | dstpg:u16 | dst:u16]
-                const dat_len = cpu.load_mem(u16, operation + 1);
+                const dat_len = cpu.loadMem(u16, operation + 1);
 
-                const src_pge = cpu.load_mem(u16, operation + 3);
-                const src_ptr = cpu.load_mem(u16, operation + 5);
+                const src_pge = cpu.loadMem(u16, operation + 3);
+                const src_ptr = cpu.loadMem(u16, operation + 5);
 
-                const dst_pge = cpu.load_mem(u16, operation + 7);
-                const dst_ptr = cpu.load_mem(u16, operation + 9);
+                const dst_pge = cpu.loadMem(u16, operation + 7);
+                const dst_ptr = cpu.loadMem(u16, operation + 9);
 
                 logger.debug("Expansion: Request move of #{x} bytes from {x:0>4}:{x:0>4} to {x:0>4}:{x:0>4}", .{
                     dat_len,
@@ -164,13 +164,13 @@ pub const System = struct {
                     dst_ptr,
                 });
 
-                const src = dev.select_memory_page(cpu, src_pge) orelse {
+                const src = dev.selectMemoryPage(cpu, src_pge) orelse {
                     logger.warn("Expansion: Invalid source page {x:0>4}:{x:0>4}", .{ src_pge, src_ptr });
 
                     return error.BadExpansion;
                 };
 
-                const dst = dev.select_memory_page(cpu, dst_pge) orelse {
+                const dst = dev.selectMemoryPage(cpu, dst_pge) orelse {
                     logger.warn("Expansion: Invalid destination page {x:0>4}:{x:0>4}", .{ dst_pge, dst_ptr });
 
                     return error.BadExpansion;
@@ -200,10 +200,10 @@ pub const System = struct {
                 // [ operation:u8 | name:u16 | dest:u16 | len:u16]
                 // Retrieve the environment variable with the 0-terminated name referenced by "name" and store
                 // its value (if any) into the memory pointed to by "dest" (of max. length "len")
-                const name_ptr = cpu.load_mem(u16, operation + 1);
+                const name_ptr = cpu.loadMem(u16, operation + 1);
 
-                const dest_ptr = cpu.load_mem(u16, operation + 3);
-                const dest_len = cpu.load_mem(u16, operation + 5);
+                const dest_ptr = cpu.loadMem(u16, operation + 3);
+                const dest_len = cpu.loadMem(u16, operation + 5);
 
                 const env_name = std.mem.sliceTo(cpu.mem[name_ptr..], 0);
                 var dest = cpu.mem[dest_ptr .. dest_ptr + dest_len];

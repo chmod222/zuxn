@@ -30,7 +30,7 @@ pub const LoadResult = struct {
     }
 };
 
-pub fn handle_common_args(
+pub fn handleCommonArgs(
     clap_res: anytype,
     params: anytype,
 ) ?u8 {
@@ -53,7 +53,7 @@ pub fn handle_common_args(
     return null;
 }
 
-pub fn load_or_assemble_rom(
+pub fn loadOrAssembleRom(
     alloc: std.mem.Allocator,
     input_source: []const u8,
     debug_source: ?[]const u8,
@@ -82,7 +82,7 @@ pub fn load_or_assemble_rom(
             rom_writer.writer(),
             rom_writer.seekableStream(),
         ) catch |err| {
-            assembler.issue_diagnostic(err, std.io.getStdErr().writer()) catch {};
+            assembler.issueDiagnostic(err, std.io.getStdErr().writer()) catch {};
 
             alloc.free(rom_data);
 
@@ -98,22 +98,22 @@ pub fn load_or_assemble_rom(
                 var fifo = std.fifo.LinearFifo(u8, .Dynamic).init(alloc);
                 defer fifo.deinit();
 
-                try assembler.generate_symbols(fifo.writer());
+                try assembler.generateSymbols(fifo.writer());
 
-                break :r try Debug.load_symbols(alloc, fifo.reader());
+                break :r try Debug.loadSymbols(alloc, fifo.reader());
             } else null,
         };
     } else {
         return .{
             .alloc = alloc,
 
-            .rom = try uxn.load_rom(alloc, input_file),
+            .rom = try uxn.loadRom(alloc, input_file),
 
             .debug_symbols = if (debug_source) |debug_symbols| r: {
                 const symbols_file = try cwd.openFile(debug_symbols, .{});
                 defer symbols_file.close();
 
-                break :r try Debug.load_symbols(alloc, symbols_file.reader());
+                break :r try Debug.loadSymbols(alloc, symbols_file.reader());
             } else null,
         };
     }

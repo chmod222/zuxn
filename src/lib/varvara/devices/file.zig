@@ -41,13 +41,13 @@ pub const File = struct {
         dev.active_file = null;
     }
 
-    fn get_port_slice(dev: *@This(), cpu: *Cpu, comptime port: comptime_int) []u8 {
-        const ptr: usize = dev.load_port(u16, cpu, port);
+    fn getPortSlice(dev: *@This(), cpu: *Cpu, comptime port: comptime_int) []u8 {
+        const ptr: usize = dev.loadPort(u16, cpu, port);
 
         return if (port == ports.name)
             std.mem.sliceTo(cpu.mem[ptr..], 0x00)
         else
-            return cpu.mem[ptr..ptr +| dev.load_port(u16, cpu, ports.length)];
+            return cpu.mem[ptr..ptr +| dev.loadPort(u16, cpu, ports.length)];
     }
 
     pub fn intercept(
@@ -63,16 +63,16 @@ pub const File = struct {
             ports.name + 1 => {
                 // Close a previously opened file
                 dev.cleanup();
-                dev.store_port(u16, cpu, ports.success, 0x0001);
+                dev.storePort(u16, cpu, ports.success, 0x0001);
             },
 
             ports.write + 1 => {
-                const truncate = dev.load_port(u8, cpu, ports.append) == 0x00;
+                const truncate = dev.loadPort(u8, cpu, ports.append) == 0x00;
 
-                const name_slice = dev.get_port_slice(cpu, ports.name);
-                const data_slice = dev.get_port_slice(cpu, ports.write);
+                const name_slice = dev.getPortSlice(cpu, ports.name);
+                const data_slice = dev.getPortSlice(cpu, ports.write);
 
-                var t = dev.active_file orelse dev.open_writable(name_slice, truncate) catch |err| {
+                var t = dev.active_file orelse dev.openWritable(name_slice, truncate) catch |err| {
                     logger.debug("[File@{x}] Failed opening \"{s}\" for {s} access: {}", .{
                         dev.addr,
                         name_slice,
@@ -80,7 +80,7 @@ pub const File = struct {
                         err,
                     });
 
-                    return dev.store_port(u16, cpu, ports.success, 0x0000);
+                    return dev.storePort(u16, cpu, ports.success, 0x0000);
                 };
 
                 if (dev.active_file == null) {
@@ -101,18 +101,18 @@ pub const File = struct {
                     break :r 0x0000;
                 };
 
-                dev.store_port(u16, cpu, ports.success, res);
+                dev.storePort(u16, cpu, ports.success, res);
                 dev.active_file = t;
             },
 
             ports.read + 1 => {
-                const name_slice = dev.get_port_slice(cpu, ports.name);
-                const data_slice = dev.get_port_slice(cpu, ports.read);
+                const name_slice = dev.getPortSlice(cpu, ports.name);
+                const data_slice = dev.getPortSlice(cpu, ports.read);
 
-                var t = dev.active_file orelse dev.open_readable(name_slice) catch |err| {
+                var t = dev.active_file orelse dev.openReadable(name_slice) catch |err| {
                     logger.debug("[File@{x}] Failed opening \"{s}\" for read access: {}", .{ dev.addr, name_slice, err });
 
-                    return dev.store_port(u16, cpu, ports.success, 0x0000);
+                    return dev.storePort(u16, cpu, ports.success, 0x0000);
                 };
 
                 if (dev.active_file == null) {
@@ -129,14 +129,14 @@ pub const File = struct {
                     break :r 0x0000;
                 };
 
-                dev.store_port(u16, cpu, ports.success, res);
+                dev.storePort(u16, cpu, ports.success, res);
                 dev.active_file = t;
             },
 
             ports.delete => {
-                const name_slice = dev.get_port_slice(cpu, ports.name);
+                const name_slice = dev.getPortSlice(cpu, ports.name);
 
-                const res: u16 = if (dev.delete_file(name_slice)) r: {
+                const res: u16 = if (dev.deleteFile(name_slice)) r: {
                     logger.debug("[File@{x}] Deleted \"{s}\"", .{ dev.addr, name_slice });
 
                     break :r 0x0000;
@@ -146,15 +146,15 @@ pub const File = struct {
                     break :r 0x0000;
                 };
 
-                dev.store_port(u16, cpu, ports.success, res);
+                dev.storePort(u16, cpu, ports.success, res);
             },
 
             ports.stat + 1 => {
-                const name_slice = dev.get_port_slice(cpu, ports.name);
+                const name_slice = dev.getPortSlice(cpu, ports.name);
 
                 logger.warn("[File@{x}] Called stat on \"{s}\"; not implemented", .{ dev.addr, name_slice });
 
-                dev.store_port(u16, cpu, ports.success, 0x0000);
+                dev.storePort(u16, cpu, ports.success, 0x0000);
             },
 
             else => {},

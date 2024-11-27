@@ -9,7 +9,7 @@ const Directory = struct {
 
     cached_entry: ?fs.Dir.Entry = null,
 
-    fn render_dir_entry(
+    fn renderDirEntry(
         dir: *Directory,
         entry: fs.Dir.Entry,
         slice: []u8,
@@ -65,7 +65,7 @@ pub fn Impl(comptime Self: type) type {
 
         pub const Wrapper = ImplWrapper;
 
-        pub fn open_readable(dev: *Self, path: []const u8) !Wrapper {
+        pub fn openReadable(dev: *Self, path: []const u8) !Wrapper {
             if (dev.impl.access_filter) |filter| {
                 if (!filter(dev, dev.impl.access_filter_arg, path, .read))
                     return error.Sandboxed;
@@ -89,7 +89,7 @@ pub fn Impl(comptime Self: type) type {
             return error.CannotOpen;
         }
 
-        pub fn set_access_filter(
+        pub fn setAccessFilter(
             dev: *Self,
             context: anytype,
             filter_fun: *const fn (
@@ -103,7 +103,7 @@ pub fn Impl(comptime Self: type) type {
             dev.impl.access_filter_arg = context;
         }
 
-        pub fn open_writable(dev: *Self, path: []const u8, truncate: bool) !Wrapper {
+        pub fn openWritable(dev: *Self, path: []const u8, truncate: bool) !Wrapper {
             if (dev.impl.access_filter) |filter| {
                 if (!filter(dev, dev.impl.access_filter_arg, path, if (truncate) .write else .append))
                     return error.Sandboxed;
@@ -114,7 +114,7 @@ pub fn Impl(comptime Self: type) type {
             };
         }
 
-        pub fn delete_file(dev: *Self, path: []const u8) !void {
+        pub fn deleteFile(dev: *Self, path: []const u8) !void {
             if (dev.impl.access_filter) |filter| {
                 if (!filter(dev, dev.impl.access_filter_arg, path, .delete))
                     return error.Sandboxed;
@@ -135,13 +135,13 @@ pub const ImplWrapper = union(enum) {
                 var offset: usize = 0;
 
                 if (dir.cached_entry) |entry| {
-                    offset += dir.render_dir_entry(entry, buf[offset..]) catch 0;
+                    offset += dir.renderDirEntry(entry, buf[offset..]) catch 0;
 
                     dir.cached_entry = null;
                 }
 
                 while (dir.iter.next() catch null) |entry| {
-                    if (dir.render_dir_entry(entry, buf[offset..])) |written| {
+                    if (dir.renderDirEntry(entry, buf[offset..])) |written| {
                         offset += written;
                     } else |err| {
                         if (err == error.NoSpaceLeft) {

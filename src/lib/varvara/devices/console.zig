@@ -30,7 +30,7 @@ pub const Console = struct {
         if (port != ports.write and port != ports.err)
             return;
 
-        const octet = dev.load_port(u8, cpu, port);
+        const octet = dev.loadPort(u8, cpu, port);
 
         if (port == ports.write) {
             _ = stdout_writer.write(&[_]u8{octet}) catch return;
@@ -39,45 +39,45 @@ pub const Console = struct {
         }
     }
 
-    pub fn push_arguments(
+    pub fn pushArguments(
         dev: @This(),
         cpu: *Cpu,
         args: [][]const u8,
     ) !void {
         for (0.., args) |i, arg| {
             for (arg) |oct| {
-                dev.store_port(u8, cpu, ports.typ, 0x2);
-                dev.store_port(u8, cpu, ports.read, oct);
+                dev.storePort(u8, cpu, ports.typ, 0x2);
+                dev.storePort(u8, cpu, ports.read, oct);
 
-                try cpu.evaluate_vector(dev.load_port(u16, cpu, ports.vector));
+                try cpu.evaluateVector(dev.loadPort(u16, cpu, ports.vector));
             }
 
-            dev.store_port(u8, cpu, ports.typ, if (i == args.len - 1) 0x4 else 0x3);
-            dev.store_port(u8, cpu, ports.read, 0x10);
+            dev.storePort(u8, cpu, ports.typ, if (i == args.len - 1) 0x4 else 0x3);
+            dev.storePort(u8, cpu, ports.read, 0x10);
 
-            try cpu.evaluate_vector(dev.load_port(u16, cpu, ports.vector));
+            try cpu.evaluateVector(dev.loadPort(u16, cpu, ports.vector));
         }
     }
 
-    pub fn set_argc(
+    pub fn setArgc(
         dev: @This(),
         cpu: *Cpu,
         args: [][]const u8,
     ) void {
-        dev.store_port(u8, cpu, ports.typ, @intFromBool(args.len > 0));
+        dev.storePort(u8, cpu, ports.typ, @intFromBool(args.len > 0));
     }
 
-    pub fn push_stdin_byte(
+    pub fn pushStdinByte(
         dev: @This(),
         cpu: *Cpu,
         byte: u8,
     ) !void {
-        const vector = dev.load_port(u16, cpu, ports.vector);
+        const vector = dev.loadPort(u16, cpu, ports.vector);
 
-        dev.store_port(u8, cpu, ports.typ, 0x1);
-        dev.store_port(u8, cpu, ports.read, byte);
+        dev.storePort(u8, cpu, ports.typ, 0x1);
+        dev.storePort(u8, cpu, ports.read, byte);
 
         if (vector > 0x0000)
-            try cpu.evaluate_vector(vector);
+            try cpu.evaluateVector(vector);
     }
 };

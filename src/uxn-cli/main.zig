@@ -86,11 +86,11 @@ pub fn main() !u8 {
 
     defer res.deinit();
 
-    if (shared.handle_common_args(res, params)) |exit| {
+    if (shared.handleCommonArgs(res, params)) |exit| {
         return exit;
     }
 
-    var env = try shared.load_or_assemble_rom(
+    var env = try shared.loadOrAssembleRom(
         alloc,
         res.positionals[0],
         res.args.symbols,
@@ -101,12 +101,12 @@ pub fn main() !u8 {
     var system = try VarvaraDefault.init(gpa.allocator(), stdout, stderr);
     defer system.deinit();
 
-    if (!system.sandbox_files(fs.cwd())) {
-        logger.debug("File implementation does not suport sandboxing", .{});
+    if (!system.sandboxFiles(fs.cwd())) {
+        logger.debug("File implementation does not support sandboxing", .{});
     }
 
     if (env.debug_symbols) |*d| {
-        system.system_device.debug_callback = &Debug.on_debug_hook;
+        system.system_device.debug_callback = &Debug.onDebugHook;
         system.system_device.callback_data = d;
     }
 
@@ -122,21 +122,21 @@ pub fn main() !u8 {
     // Run initialization vector and push arguments
     const args: [][]const u8 = @constCast(res.positionals[1..]);
 
-    system.console_device.set_argc(&cpu, args);
+    system.console_device.setArgc(&cpu, args);
 
-    cpu.evaluate_vector(0x0100) catch |fault|
-        try system.system_device.handle_fault(&cpu, fault);
+    cpu.evaluateVector(0x0100) catch |fault|
+        try system.system_device.handleFault(&cpu, fault);
 
-    system.console_device.push_arguments(&cpu, args) catch |fault|
-        try system.system_device.handle_fault(&cpu, fault);
+    system.console_device.pushArguments(&cpu, args) catch |fault|
+        try system.system_device.handleFault(&cpu, fault);
 
     if (system.system_device.exit_code) |c|
         return c;
 
     // Loop until either exit is requested or EOF reached
     while (stdin.readByte() catch null) |b| {
-        system.console_device.push_stdin_byte(&cpu, b) catch |fault|
-            try system.system_device.handle_fault(&cpu, fault);
+        system.console_device.pushStdinByte(&cpu, b) catch |fault|
+            try system.system_device.handleFault(&cpu, fault);
 
         if (system.system_device.exit_code) |c|
             return c;

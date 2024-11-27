@@ -28,7 +28,7 @@ pub const Operand = struct {
         };
     }
 
-    fn replace_auto(operand: Operand, size: StackSize) Operand {
+    fn replaceAuto(operand: Operand, size: StackSize) Operand {
         return Operand{
             .name = operand.name,
             .size = if (operand.size == .auto) size else operand.size,
@@ -136,7 +136,7 @@ pub const Opcode = enum(u5) {
     SFT,
 };
 
-fn read_stack_operands(comptime notation: []const u8) []const Operand {
+fn readStackOperands(comptime notation: []const u8) []const Operand {
     var tokenizer = std.mem.tokenizeScalar(
         u8,
         notation,
@@ -160,7 +160,7 @@ fn read_stack_operands(comptime notation: []const u8) []const Operand {
     return result;
 }
 
-fn read_effect_notation_side(
+fn readEffectNotationSide(
     comptime notation: []const u8,
 ) struct { []const Operand, []const Operand } {
     var stacks_iter = std.mem.splitScalar(
@@ -173,11 +173,11 @@ fn read_effect_notation_side(
 
     if (stacks_iter.next()) |rst_notation| {
         return .{
-            read_stack_operands(wst_notation),
-            read_stack_operands(rst_notation),
+            readStackOperands(wst_notation),
+            readStackOperands(rst_notation),
         };
     } else {
-        return .{ read_stack_operands(wst_notation), &.{} };
+        return .{ readStackOperands(wst_notation), &.{} };
     }
 }
 
@@ -192,16 +192,16 @@ pub const StackEffect = struct {
     /// will remain on the stack.
     after: []const Operand = &.{},
 
-    fn replace_auto(comptime eff: StackEffect, size: Operand.StackSize) StackEffect {
+    fn replaceAuto(comptime eff: StackEffect, size: Operand.StackSize) StackEffect {
         var new_before: []const Operand = &.{};
         var new_after: []const Operand = &.{};
 
         for (eff.before) |old_before| {
-            new_before = new_before ++ [1]Operand{old_before.replace_auto(size)};
+            new_before = new_before ++ [1]Operand{old_before.replaceAuto(size)};
         }
 
         for (eff.after) |old_after| {
-            new_after = new_after ++ [1]Operand{old_after.replace_auto(size)};
+            new_after = new_after ++ [1]Operand{old_after.replaceAuto(size)};
         }
 
         return StackEffect{
@@ -224,7 +224,7 @@ pub const StackEffects = struct {
 
     /// Parse the "standard" stack effect notation (e.g. `"a b | ra rb -- b | rb"`)
     /// into a structure of operands that can be visualized in a debugger.
-    fn from_effect_notation(comptime notation: []const u8) StackEffects {
+    fn fromEffectNotation(comptime notation: []const u8) StackEffects {
         var iter = std.mem.splitSequence(
             u8,
             notation,
@@ -234,8 +234,8 @@ pub const StackEffects = struct {
         const before = iter.next() orelse unreachable;
         const after = iter.next() orelse unreachable;
 
-        const wst_in, const rst_in = read_effect_notation_side(before);
-        const wst_out, const rst_out = read_effect_notation_side(after);
+        const wst_in, const rst_in = readEffectNotationSide(before);
+        const wst_out, const rst_out = readEffectNotationSide(after);
 
         return StackEffects{
             .working_stack = StackEffect{
@@ -251,7 +251,7 @@ pub const StackEffects = struct {
 
     /// Returns a new structure where the input effects are prepended to the
     /// output effects, mirroring what the keep-mode does for instructions.
-    fn keep_inputs(eff: StackEffects) StackEffects {
+    fn keepInputs(eff: StackEffects) StackEffects {
         return StackEffects{
             .working_stack = StackEffect{
                 .before = eff.working_stack.before,
@@ -266,10 +266,10 @@ pub const StackEffects = struct {
     }
 
     /// Returns a new structure where the auto size operands are fixed size.
-    fn replace_auto(eff: StackEffects, size: Operand.StackSize) StackEffects {
+    fn replaceAuto(eff: StackEffects, size: Operand.StackSize) StackEffects {
         return StackEffects{
-            .working_stack = eff.working_stack.replace_auto(size),
-            .return_stack = eff.return_stack.replace_auto(size),
+            .working_stack = eff.working_stack.replaceAuto(size),
+            .return_stack = eff.return_stack.replaceAuto(size),
         };
     }
 };
@@ -293,12 +293,12 @@ pub const Instruction = packed struct(u8) {
         return mnemonics[i.encode()];
     }
 
-    pub fn stack_effects(i: Instruction) StackEffects {
+    pub fn stackEffects(i: Instruction) StackEffects {
         return effects[i.encode()];
     }
 };
 
-fn mnemonic_suffix(i: Instruction) []const u8 {
+fn mnemonicSuffix(i: Instruction) []const u8 {
     return switch (i.encode() & 0b11100000) {
         0x20 => "2",
         0x40 => "r",
@@ -311,7 +311,7 @@ fn mnemonic_suffix(i: Instruction) []const u8 {
     };
 }
 
-fn generate_mnemonics() [0x100][]const u8 {
+fn generateMnemonics() [0x100][]const u8 {
     var mnemonics_r = [1][]const u8{""} ** 0x100;
     var raw_instruction: u8 = 0x00;
 
@@ -321,7 +321,7 @@ fn generate_mnemonics() [0x100][]const u8 {
         mnemonics_r[raw_instruction] = if (instruction.opcode != .BRK)
             std.fmt.comptimePrint("{s}{s}", .{
                 @tagName(instruction.opcode),
-                mnemonic_suffix(instruction),
+                mnemonicSuffix(instruction),
             })
         else switch (raw_instruction) {
             0x00 => "BRK",
@@ -342,7 +342,7 @@ fn generate_mnemonics() [0x100][]const u8 {
     return mnemonics_r;
 }
 
-fn generate_effects() [0x100]StackEffects {
+fn generateEffects() [0x100]StackEffects {
     // This is comparatively expensive, but only run during compilation of course.
     @setEvalBranchQuota(8192);
 
@@ -360,17 +360,17 @@ fn generate_effects() [0x100]StackEffects {
             // it gets specialized here.
 
             // BRK
-            effects_r[0x00] = StackEffects.from_effect_notation("--");
+            effects_r[0x00] = StackEffects.fromEffectNotation("--");
 
             // JCI, JMI, JSI
-            const jxi_eff = StackEffects.from_effect_notation("addr8 --");
+            const jxi_eff = StackEffects.fromEffectNotation("addr8 --");
 
             effects_r[0x20] = jxi_eff;
             effects_r[0x40] = jxi_eff;
             effects_r[0x60] = jxi_eff;
 
             // LIT, LIT2, LITr, LIT2r
-            const lit_eff = StackEffects.from_effect_notation("-- a");
+            const lit_eff = StackEffects.fromEffectNotation("-- a");
 
             effects_r[0x80] = lit_eff;
             effects_r[0xa0] = lit_eff;
@@ -382,40 +382,40 @@ fn generate_effects() [0x100]StackEffects {
             const default = switch (instruction.opcode) {
                 .BRK => unreachable,
 
-                .ADD => StackEffects.from_effect_notation("a b -- a+b"),
-                .SUB => StackEffects.from_effect_notation("a b -- a-b"),
-                .MUL => StackEffects.from_effect_notation("a b -- a*b"),
-                .DIV => StackEffects.from_effect_notation("a b -- a/b"),
-                .AND => StackEffects.from_effect_notation("a b -- a&b"),
-                .ORA => StackEffects.from_effect_notation("a b -- a|b"),
-                .EOR => StackEffects.from_effect_notation("a b -- a^b"),
-                .SFT => StackEffects.from_effect_notation("a shift8 -- c"),
+                .ADD => StackEffects.fromEffectNotation("a b -- a+b"),
+                .SUB => StackEffects.fromEffectNotation("a b -- a-b"),
+                .MUL => StackEffects.fromEffectNotation("a b -- a*b"),
+                .DIV => StackEffects.fromEffectNotation("a b -- a/b"),
+                .AND => StackEffects.fromEffectNotation("a b -- a&b"),
+                .ORA => StackEffects.fromEffectNotation("a b -- a|b"),
+                .EOR => StackEffects.fromEffectNotation("a b -- a^b"),
+                .SFT => StackEffects.fromEffectNotation("a shift8 -- c"),
 
-                .EQU, .NEQ, .LTH, .GTH => StackEffects.from_effect_notation("a b -- bool8"),
+                .EQU, .NEQ, .LTH, .GTH => StackEffects.fromEffectNotation("a b -- bool8"),
 
-                .DEO => StackEffects.from_effect_notation("v device8 --"),
-                .DEI => StackEffects.from_effect_notation("device8 -- v"),
+                .DEO => StackEffects.fromEffectNotation("v device8 --"),
+                .DEI => StackEffects.fromEffectNotation("device8 -- v"),
 
-                .INC => StackEffects.from_effect_notation("a -- a+1"),
-                .SWP => StackEffects.from_effect_notation("a b -- b a"),
-                .ROT => StackEffects.from_effect_notation("a b c -- b c a"),
+                .INC => StackEffects.fromEffectNotation("a -- a+1"),
+                .SWP => StackEffects.fromEffectNotation("a b -- b a"),
+                .ROT => StackEffects.fromEffectNotation("a b c -- b c a"),
 
-                .STH => StackEffects.from_effect_notation("a -- | a"),
+                .STH => StackEffects.fromEffectNotation("a -- | a"),
 
-                .LDZ, .LDR => StackEffects.from_effect_notation("addr8 -- v"),
-                .STZ, .STR => StackEffects.from_effect_notation("v addr8 --"),
+                .LDZ, .LDR => StackEffects.fromEffectNotation("addr8 -- v"),
+                .STZ, .STR => StackEffects.fromEffectNotation("v addr8 --"),
 
-                .LDA => StackEffects.from_effect_notation("addr16 -- v"),
-                .STA => StackEffects.from_effect_notation("v addr16 --"),
+                .LDA => StackEffects.fromEffectNotation("addr16 -- v"),
+                .STA => StackEffects.fromEffectNotation("v addr16 --"),
 
-                .DUP => StackEffects.from_effect_notation("a -- a a"),
-                .OVR => StackEffects.from_effect_notation("a b -- a b a"),
-                .POP => StackEffects.from_effect_notation("a --"),
-                .NIP => StackEffects.from_effect_notation("a b -- b"),
+                .DUP => StackEffects.fromEffectNotation("a -- a a"),
+                .OVR => StackEffects.fromEffectNotation("a b -- a b a"),
+                .POP => StackEffects.fromEffectNotation("a --"),
+                .NIP => StackEffects.fromEffectNotation("a b -- b"),
 
-                .JMP => StackEffects.from_effect_notation("addr -- "),
-                .JCN => StackEffects.from_effect_notation("cond8 addr -- "),
-                .JSR => StackEffects.from_effect_notation("addr -- | ret16"),
+                .JMP => StackEffects.fromEffectNotation("addr -- "),
+                .JCN => StackEffects.fromEffectNotation("cond8 addr -- "),
+                .JSR => StackEffects.fromEffectNotation("addr -- | ret16"),
             };
 
             for (.{ 0x00, 0x20, 0x40, 0x60, 0x80, 0xa0, 0xc0, 0xe0 }) |flags|
@@ -427,9 +427,9 @@ fn generate_effects() [0x100]StackEffects {
         const instruction: Instruction = .decode(@truncate(instr));
 
         if (instruction.short_mode) {
-            eff.* = eff.replace_auto(.short);
+            eff.* = eff.replacAuto(.short);
         } else {
-            eff.* = eff.replace_auto(.byte);
+            eff.* = eff.replaceAuto(.byte);
         }
 
         if (instruction.return_mode) {
@@ -441,12 +441,12 @@ fn generate_effects() [0x100]StackEffects {
         }
 
         if (instruction.keep_mode) {
-            eff.* = eff.keep_inputs();
+            eff.* = eff.keepInputs();
         }
     }
 
     return effects_r;
 }
 
-pub const mnemonics = generate_mnemonics();
-pub const effects = generate_effects();
+pub const mnemonics = generateMnemonics();
+pub const effects = generateEffects();

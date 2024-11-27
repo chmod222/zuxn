@@ -8,7 +8,7 @@ const clap = @import("clap");
 
 const Assembler = uxn_asm.Assembler(.{});
 
-fn change_extension(file: []const u8, ext: []const u8) [256:0]u8 {
+fn changeExtension(file: []const u8, ext: []const u8) [256:0]u8 {
     var out: [256:0]u8 = [1:0]u8{0x00} ** 256;
 
     const len = std.mem.lastIndexOfScalar(u8, file, '.') orelse file.len;
@@ -73,13 +73,13 @@ pub fn main() !void {
         output.writer(),
         output.seekableStream(),
     ) catch |err| {
-        assembler.issue_diagnostic(err, io.getStdErr().writer()) catch {};
+        assembler.issueDiagnostic(err, io.getStdErr().writer()) catch {};
 
         return;
     };
 
     const outfile_name = res.args.output orelse
-        std.mem.sliceTo(&change_extension(input_file_name, ".rom"), 0);
+        std.mem.sliceTo(&changeExtension(input_file_name, ".rom"), 0);
 
     const outfile = try std.fs.cwd().createFile(outfile_name, .{});
     defer outfile.close();
@@ -90,6 +90,6 @@ pub fn main() !void {
         const symfile = try std.fs.cwd().createFile(symbol_file, .{});
         defer symfile.close();
 
-        try assembler.generate_symbols(symfile.writer());
+        try assembler.generateSymbols(symfile.writer());
     }
 }

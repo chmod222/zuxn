@@ -21,7 +21,7 @@ pub fn init() Stack {
     };
 }
 
-inline fn push_byte(s: *Stack, byte: u8) !void {
+inline fn pushByte(s: *Stack, byte: u8) !void {
     if (s.xflow_behaviour == .fault and s.sp > 0xfe) {
         return error.StackOverflow;
     }
@@ -30,7 +30,7 @@ inline fn push_byte(s: *Stack, byte: u8) !void {
     s.sp +%= 1;
 }
 
-inline fn pop_byte(s: *Stack) !u8 {
+inline fn popByte(s: *Stack) !u8 {
     const sp = s.spr orelse &s.sp;
 
     if (s.xflow_behaviour == .fault and sp.* == 0) {
@@ -46,7 +46,7 @@ inline fn pop_byte(s: *Stack) !u8 {
 
 pub fn push(s: *Stack, comptime T: type, v: T) !void {
     for (0..@sizeOf(T)) |i| {
-        try s.push_byte(@truncate(v >> @truncate((@sizeOf(T) - 1 - i) * 8)));
+        try s.pushByte(@truncate(v >> @truncate((@sizeOf(T) - 1 - i) * 8)));
     }
 }
 
@@ -54,17 +54,17 @@ pub fn pop(s: *Stack, comptime T: type) !T {
     var res: T = 0;
 
     for (0..@sizeOf(T)) |i| {
-        res |= @as(T, try s.pop_byte()) << @truncate(i * 8);
+        res |= @as(T, try s.popByte()) << @truncate(i * 8);
     }
 
     return res;
 }
 
-pub fn freeze_read(s: *Stack) void {
+pub fn freezeRead(s: *Stack) void {
     s.spt = s.sp;
     s.spr = &s.spt;
 }
 
-pub fn thaw_read(s: *Stack) void {
+pub fn thawRead(s: *Stack) void {
     s.spr = null;
 }
