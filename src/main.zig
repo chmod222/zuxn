@@ -5,6 +5,4 @@ const varvara = @import("uxn-varvara");
 
 const Cpu = uxn.Cpu;
 
-pub fn main() void {
-    dump_opcodes();
-}
+pub fn main() void {}
