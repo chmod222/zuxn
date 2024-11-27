@@ -153,11 +153,12 @@ fn dumpStack(stack: *const uxn.Cpu.Stack) void {
 
     var i: u8 = stack.sp -% offset;
 
+    // Print index row
     while (i != stack.sp +% offset + 1) : (i +%= 1) {
         if (i == stack.sp) {
-            std.debug.print("\x1b[1;31m[{x:0>2}]\x1b[0m ", .{i});
+            std.debug.print("\x1b[1;30m[{x:0>2}]\x1b[0m ", .{i});
         } else {
-            std.debug.print("{x:0>2} ", .{i});
+            std.debug.print("\x1b[1;30m{x:0>2}\x1b[0m ", .{i});
         }
     }
 
@@ -165,6 +166,7 @@ fn dumpStack(stack: *const uxn.Cpu.Stack) void {
 
     i = stack.sp -% offset;
 
+    // Print value row
     while (i != stack.sp +% offset + 1) : (i +%= 1) {
         if (i == stack.sp) {
             std.debug.print("\x1b[1;31m[{x:0>2}]\x1b[0m ", .{stack.data[i]});
