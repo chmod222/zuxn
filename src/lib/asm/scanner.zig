@@ -206,7 +206,7 @@ pub fn Scanner(comptime lim: Limits) type {
         }
 
         fn toTypedLabel(label: Label) TypedLabel {
-            if (label[0] == '&') {
+            if (label[0] == '&' or label[0] == '/') {
                 var cpy = label;
 
                 mem.copyForwards(u8, &cpy, cpy[1..]);
