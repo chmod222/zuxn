@@ -592,11 +592,21 @@ pub fn Assembler(comptime lim: scan.Limits) type {
             }
         }
 
+        fn sortLabel(_: void, a: DefinedLabel, b: DefinedLabel) bool {
+            return a.addr.? < b.addr.?;
+        }
+
         pub fn generateSymbols(
             assembler: *@This(),
             output: anytype,
         ) @TypeOf(output).Error!void {
-            // TODO: sort these
+            // Sort the symbols before writing them so that inside the .sym file,
+            // they are sorted from lowest to highest address. Reference assembler
+            // gets away without sorting because label definitions and references
+            // are kept in two separate lists, but since reference lookups also end
+            // up in .labels here, with a null address, the list can be out of order.
+            std.mem.sort(DefinedLabel, assembler.labels.items, {}, sortLabel);
+
             for (assembler.labels.items) |label| {
                 if (label.addr) |addr| {
                     try output.writeInt(u16, addr, .big);
