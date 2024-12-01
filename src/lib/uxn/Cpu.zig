@@ -332,28 +332,24 @@ pub fn run(cpu: *Cpu, step_limit: ?usize) SystemFault!?u16 {
             step += 1;
         }
 
-        const fetched = cpu.fetchNext();
-
         logger.debug("PC {x:0>4}: Start execute {s}", .{
             cpu.pc,
-            @tagName(fetched),
+            @tagName(@as(Opcode, @enumFromInt(cpu.mem[cpu.pc]))),
         });
 
         errdefer |err| {
             logger.debug("PC {x:0>4}: {s}: Faulting with {}", .{
                 cpu.pc,
-                @tagName(fetched),
+                @tagName(@as(Opcode, @enumFromInt(cpu.mem[cpu.pc]))),
                 err,
             });
         }
 
-        switch (fetched) {
-            .BRK => unreachable,
-
-            inline .LIT, .LITr, .LIT2, .LIT2r => |opcode| {
-                try cpu.executeLiteralPush(
-                    opcode.nativeOperandType(),
-                );
+        switch (cpu.fetchNext()) {
+            // Special case literals and immediates since they overload the BRK
+            // base opcode.
+            inline .LIT, .LIT2, .LITr, .LIT2r => |opcode| {
+                try cpu.executeLiteralPush(opcode.nativeOperandType());
             },
 
             inline .JCI, .JMI, .JSI => |opcode| {
@@ -363,224 +359,207 @@ pub fn run(cpu: *Cpu, step_limit: ?usize) SystemFault!?u16 {
                 );
             },
 
-            // Stack Control Flow
-            // zig fmt: off
-            inline .JMP, .JMP2, .JMPr, .JMP2r, .JMPk, .JMP2k, .JMPkr, .JMP2kr,
-                   .JCN, .JCN2, .JCNr, .JCN2r, .JCNk, .JCN2k, .JCNkr, .JCN2kr,
-                   .JSR, .JSR2, .JSRr, .JSR2r, .JSRk, .JSR2k, .JSRkr, .JSR2kr => |opcode| {
-                // zig fmt: on
-                try cpu.executeStackJump(
-                    opcode.nativeOperandType(),
-                    opcode.baseOpcode() == .JSR,
-                    opcode.baseOpcode() == .JCN,
-                );
-            },
-
-            // zig fmt: off
-            inline .POP, .POP2, .POPr, .POP2r, .POPk, .POP2k, .POPkr, .POP2kr,
-                   .NIP, .NIP2, .NIPr, .NIP2r, .NIPk, .NIP2k, .NIPkr, .NIP2kr,
-                   .SWP, .SWP2, .SWPr, .SWP2r, .SWPk, .SWP2k, .SWPkr, .SWP2kr,
-                   .ROT, .ROT2, .ROTr, .ROT2r, .ROTk, .ROT2k, .ROTkr, .ROT2kr,
-                   .DUP, .DUP2, .DUPr, .DUP2r, .DUPk, .DUP2k, .DUPkr, .DUP2kr,
-                   .OVR, .OVR2, .OVRr, .OVR2r, .OVRk, .OVR2k, .OVRkr, .OVR2kr => |opcode| {
-                // zig fmt: on
-                const n = switch (opcode.baseOpcode()) {
-                    .POP, .DUP => 1,
-                    .NIP, .SWP, .OVR => 2,
-                    .ROT => 3,
-                    else => unreachable,
-                };
-
-                const order = switch (opcode.baseOpcode()) {
-                    .POP => .{},
-                    .NIP => .{0},
-                    .SWP => .{ 0, 1 },
-                    .ROT => .{ 1, 0, 2 },
-                    .DUP => .{ 0, 0 },
-                    .OVR => .{ 1, 0, 1 },
-                    else => unreachable,
-                };
-
-                try cpu.executeStackShuffle(opcode.nativeOperandType(), n, order);
-            },
-
-            inline .STH, .STH2, .STHr, .STH2r, .STHk, .STH2k, .STHkr, .STH2kr => |opcode| {
-                const val = try cpu.primary_stack.pop(opcode.nativeOperandType());
-
-                cpu.finishPreExecute();
-
-                try cpu.secondary_stack.push(opcode.nativeOperandType(), val);
-            },
-
-            // Comparisons
-            // zig fmt: off
-            inline .EQU, .EQU2, .EQUr, .EQU2r, .EQUk, .EQU2k, .EQUkr, .EQU2kr,
-                   .NEQ, .NEQ2, .NEQr, .NEQ2r, .NEQk, .NEQ2k, .NEQkr, .NEQ2kr,
-                   .GTH, .GTH2, .GTHr, .GTH2r, .GTHk, .GTH2k, .GTHkr, .GTH2kr,
-                   .LTH, .LTH2, .LTHr, .LTH2r, .LTHk, .LTH2k, .LTHkr, .LTH2kr => |opcode| {
-                // zig fmt: on
+            // For everything else, piggyback off the base opcode.
+            inline else => |opcode| {
                 const T = opcode.nativeOperandType();
-
-                const b = try cpu.primary_stack.pop(T);
-                const a = try cpu.primary_stack.pop(T);
-
-                cpu.finishPreExecute();
-
-                try cpu.primary_stack.push(u8, @intFromBool(switch (opcode.baseOpcode()) {
-                    .EQU => a == b,
-                    .NEQ => a != b,
-                    .GTH => a > b,
-                    .LTH => a < b,
-
-                    else => unreachable,
-                }));
-            },
-
-            // Bitwise and Numeric Arithmetic
-            // zig fmt: off
-            inline .ADD, .ADD2, .ADDr, .ADD2r, .ADDk, .ADD2k, .ADDkr, .ADD2kr,
-                   .SUB, .SUB2, .SUBr, .SUB2r, .SUBk, .SUB2k, .SUBkr, .SUB2kr,
-                   .MUL, .MUL2, .MULr, .MUL2r, .MULk, .MUL2k, .MULkr, .MUL2kr,
-                   .DIV, .DIV2, .DIVr, .DIV2r, .DIVk, .DIV2k, .DIVkr, .DIV2kr,
-                   .AND, .AND2, .ANDr, .AND2r, .ANDk, .AND2k, .ANDkr, .AND2kr,
-                   .ORA, .ORA2, .ORAr, .ORA2r, .ORAk, .ORA2k, .ORAkr, .ORA2kr,
-                   .EOR, .EOR2, .EORr, .EOR2r, .EORk, .EOR2k, .EORkr, .EOR2kr => |opcode| {
-                // zig fmt: on
-                const T = opcode.nativeOperandType();
-
-                const b = try cpu.primary_stack.pop(T);
-                const a = try cpu.primary_stack.pop(T);
-
-                cpu.finishPreExecute();
-
-                try cpu.primary_stack.push(T, switch (opcode.baseOpcode()) {
-                    .ADD => a +% b,
-                    .SUB => a -% b,
-                    .MUL => a *% b,
-                    .DIV => if (b != 0)
-                        a / b
-                    else if (!faults_enabled)
-                        0
-                    else
-                        return error.DivisionByZero,
-
-                    .AND => a & b,
-                    .ORA => a | b,
-                    .EOR => a ^ b,
-
-                    else => unreachable,
-                });
-            },
-
-            inline .INC, .INC2, .INCr, .INC2r, .INCk, .INC2k, .INCkr, .INC2kr => |opcode| {
-                const T = opcode.nativeOperandType();
-
-                const val = try cpu.primary_stack.pop(T);
-
-                cpu.finishPreExecute();
-
-                try cpu.primary_stack.push(T, val +% 1);
-            },
-
-            inline .SFT, .SFT2, .SFTr, .SFT2r, .SFTk, .SFT2k, .SFTkr, .SFT2kr => |opcode| {
-                const T = opcode.nativeOperandType();
-
-                const shift = try cpu.primary_stack.pop(u8);
-                const operand = try cpu.primary_stack.pop(T);
-
-                cpu.finishPreExecute();
-
-                const rshift: u4 = @truncate(shift & 0xf);
-                const lshift: u4 = @truncate(shift >> 4);
-
-                // If the operand would be shifted beyond its bit size, break :r 0
-                try cpu.primary_stack.push(
-                    T,
-                    if (rshift < @bitSizeOf(T) and lshift < @bitSizeOf(T))
-                        operand >> @truncate(rshift) << @truncate(lshift)
-                    else
-                        0,
-                );
-            },
-
-            // Device and Memory Access
-            // zig fmt: off
-        inline .DEI, .DEI2, .DEIr, .DEI2r, .DEIk, .DEI2k, .DEIkr, .DEI2kr,
-               .LDZ, .LDZ2, .LDZr, .LDZ2r, .LDZk, .LDZ2k, .LDZkr, .LDZ2kr,
-               .LDR, .LDR2, .LDRr, .LDR2r, .LDRk, .LDR2k, .LDRkr, .LDR2kr,
-               .LDA, .LDA2, .LDAr, .LDA2r, .LDAk, .LDA2k, .LDAkr, .LDA2kr,
-               .DEO, .DEO2, .DEOr, .DEO2r, .DEOk, .DEO2k, .DEOkr, .DEO2kr,
-               .STZ, .STZ2, .STZr, .STZ2r, .STZk, .STZ2k, .STZkr, .STZ2kr,
-               .STR, .STR2, .STRr, .STR2r, .STRk, .STR2k, .STRkr, .STR2kr,
-               .STA, .STA2, .STAr, .STA2r, .STAk, .STA2k, .STAkr, .STA2kr => |opcode| {
-                // zig fmt: on
-                const st = cpu.primary_stack;
-                const T = opcode.nativeOperandType();
-
-                const addr = switch (opcode.baseOpcode()) {
-                    inline .LDA, .STA => try st.pop(u16),
-                    inline .DEI, .DEO, .LDZ, .STZ => try st.pop(u8),
-                    else => addRelative(cpu.pc, try st.pop(u8)),
-                };
 
                 switch (opcode.baseOpcode()) {
-                    inline .DEI, .LDZ, .LDR, .LDA => |op| {
+                    .BRK => unreachable,
+
+                    .JMP, .JSR, .JCN => {
+                        try cpu.executeStackJump(
+                            T,
+                            opcode.baseOpcode() == .JSR,
+                            opcode.baseOpcode() == .JCN,
+                        );
+                    },
+
+                    .POP, .NIP, .SWP, .ROT, .DUP, .OVR => {
+                        const n = switch (opcode.baseOpcode()) {
+                            .POP, .DUP => 1,
+                            .NIP, .SWP, .OVR => 2,
+                            .ROT => 3,
+                            else => unreachable,
+                        };
+
+                        const order = switch (opcode.baseOpcode()) {
+                            .POP => .{},
+                            .NIP => .{0},
+                            .SWP => .{ 0, 1 },
+                            .ROT => .{ 1, 0, 2 },
+                            .DUP => .{ 0, 0 },
+                            .OVR => .{ 1, 0, 1 },
+                            else => unreachable,
+                        };
+
+                        try cpu.executeStackShuffle(T, n, order);
+                    },
+
+                    .STH => {
+                        const val = try cpu.primary_stack.pop(T);
+
                         cpu.finishPreExecute();
 
-                        if (op == .DEI) {
-                            const dev: u8 = @truncate(addr);
+                        try cpu.secondary_stack.push(T, val);
+                    },
 
-                            const intercept_mask = cpu.input_intercepts[dev >> 4];
-                            const intercept_port = intercept_mask >> @truncate(dev & 0xf);
+                    .EQU, .NEQ, .GTH, .LTH => {
+                        const b = try cpu.primary_stack.pop(T);
+                        const a = try cpu.primary_stack.pop(T);
 
-                            if (intercept_port & 0x1 > 0)
-                                if (cpu.device_intercept) |ifn|
-                                    try ifn(cpu, dev, .input, cpu.callback_data);
+                        cpu.finishPreExecute();
 
-                            if (opcode.shortMode() and (intercept_port >> 1) & 0x1 > 0)
-                                if (cpu.device_intercept) |ifn|
-                                    try ifn(cpu, dev + 1, .input, cpu.callback_data);
-                        }
+                        try cpu.primary_stack.push(u8, @intFromBool(switch (opcode.baseOpcode()) {
+                            .EQU => a == b,
+                            .NEQ => a != b,
+                            .GTH => a > b,
+                            .LTH => a < b,
 
-                        try st.push(T, switch (op) {
-                            inline .DEI => cpu.loadDeviceMem(T, @truncate(addr)),
-                            inline .LDZ => cpu.loadZero(T, @truncate(addr)),
-                            inline .LDR, .LDA => cpu.loadMem(T, @truncate(addr)),
+                            else => unreachable,
+                        }));
+                    },
+
+                    .ADD, .SUB, .MUL, .DIV, .AND, .ORA, .EOR => {
+                        const b = try cpu.primary_stack.pop(T);
+                        const a = try cpu.primary_stack.pop(T);
+
+                        cpu.finishPreExecute();
+
+                        try cpu.primary_stack.push(T, switch (opcode.baseOpcode()) {
+                            .ADD => a +% b,
+                            .SUB => a -% b,
+                            .MUL => a *% b,
+                            .DIV => if (b != 0)
+                                a / b
+                            else if (!faults_enabled)
+                                0
+                            else
+                                return error.DivisionByZero,
+
+                            .AND => a & b,
+                            .ORA => a | b,
+                            .EOR => a ^ b,
 
                             else => unreachable,
                         });
                     },
 
-                    inline .DEO, .STZ, .STR, .STA => |op| {
-                        const value = try st.pop(T);
+                    .INC => {
+                        const val = try cpu.primary_stack.pop(T);
 
                         cpu.finishPreExecute();
 
+                        try cpu.primary_stack.push(T, val +% 1);
+                    },
+
+                    .SFT => {
+                        const shift = try cpu.primary_stack.pop(u8);
+                        const operand = try cpu.primary_stack.pop(T);
+
+                        cpu.finishPreExecute();
+
+                        const rshift: u4 = @truncate(shift & 0xf);
+                        const lshift: u4 = @truncate(shift >> 4);
+
+                        // If the operand would be shifted beyond its bit size, break :r 0
+                        try cpu.primary_stack.push(
+                            T,
+                            if (rshift < @bitSizeOf(T) and lshift < @bitSizeOf(T))
+                                operand >> @truncate(rshift) << @truncate(lshift)
+                            else
+                                0,
+                        );
+                    },
+
+                    .DEI, .LDZ, .LDR, .LDA, .DEO, .STZ, .STR, .STA => |op| {
+                        const st = cpu.primary_stack;
+
+                        const addr = switch (op) {
+                            inline .LDA, .STA => try st.pop(u16),
+                            inline .DEI, .DEO, .LDZ, .STZ => try st.pop(u8),
+                            else => addRelative(cpu.pc, try st.pop(u8)),
+                        };
+
                         switch (op) {
-                            inline .DEO => cpu.storeDeviceMem(T, addr, value),
-                            inline .STZ => cpu.storeZero(T, addr, value),
-                            inline .STR, .STA => cpu.storeMem(T, addr, value),
+                            inline .DEI, .LDZ, .LDR, .LDA => {
+                                cpu.finishPreExecute();
+
+                                if (op == .DEI) {
+                                    const dev: u8 = @truncate(addr);
+
+                                    const intercept_mask = cpu.input_intercepts[dev >> 4];
+                                    const intercept_port = intercept_mask >> @truncate(dev & 0xf);
+
+                                    if (intercept_port & 0x1 > 0)
+                                        if (cpu.device_intercept) |ifn|
+                                            try ifn(
+                                                cpu,
+                                                dev,
+                                                .input,
+                                                cpu.callback_data,
+                                            );
+
+                                    if (opcode.shortMode() and (intercept_port >> 1) & 0x1 > 0)
+                                        if (cpu.device_intercept) |ifn|
+                                            try ifn(
+                                                cpu,
+                                                dev + 1,
+                                                .input,
+                                                cpu.callback_data,
+                                            );
+                                }
+
+                                try st.push(T, switch (op) {
+                                    inline .DEI => cpu.loadDeviceMem(T, @truncate(addr)),
+                                    inline .LDZ => cpu.loadZero(T, @truncate(addr)),
+                                    inline .LDR, .LDA => cpu.loadMem(T, @truncate(addr)),
+
+                                    else => unreachable,
+                                });
+                            },
+
+                            inline .DEO, .STZ, .STR, .STA => {
+                                const value = try st.pop(T);
+
+                                cpu.finishPreExecute();
+
+                                switch (op) {
+                                    inline .DEO => cpu.storeDeviceMem(T, addr, value),
+                                    inline .STZ => cpu.storeZero(T, addr, value),
+                                    inline .STR, .STA => cpu.storeMem(T, addr, value),
+
+                                    else => unreachable,
+                                }
+
+                                if (op == .DEO) {
+                                    const dev: u8 = @truncate(addr);
+
+                                    const intercept_mask = cpu.output_intercepts[dev >> 4];
+                                    const intercept_port = intercept_mask >> @truncate(dev & 0xf);
+
+                                    if (intercept_port & 0x1 > 0)
+                                        if (cpu.device_intercept) |ifn|
+                                            try ifn(
+                                                cpu,
+                                                dev,
+                                                .output,
+                                                cpu.callback_data,
+                                            );
+
+                                    if (opcode.shortMode() and (intercept_port >> 1) & 0x1 > 0)
+                                        if (cpu.device_intercept) |ifn|
+                                            try ifn(
+                                                cpu,
+                                                dev + 1,
+                                                .output,
+                                                cpu.callback_data,
+                                            );
+                                }
+                            },
 
                             else => unreachable,
                         }
-
-                        if (op == .DEO) {
-                            const dev: u8 = @truncate(addr);
-
-                            const intercept_mask = cpu.output_intercepts[dev >> 4];
-                            const intercept_port = intercept_mask >> @truncate(dev & 0xf);
-
-                            if (intercept_port & 0x1 > 0)
-                                if (cpu.device_intercept) |ifn|
-                                    try ifn(cpu, dev, .output, cpu.callback_data);
-
-                            if (opcode.shortMode() and (intercept_port >> 1) & 0x1 > 0)
-                                if (cpu.device_intercept) |ifn|
-                                    try ifn(cpu, dev + 1, .output, cpu.callback_data);
-                        }
                     },
-
-                    else => unreachable,
                 }
             },
         }
