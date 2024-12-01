@@ -310,7 +310,7 @@ pub fn Scanner(comptime lim: Limits) type {
                     },
 
                     '|', '$' => b: {
-                        // Padding (TODO)
+                        // Padding
                         var pad = try scanner.readWhitespaceDelimited(limits.identifier_length, input);
 
                         end = Location{ start[0], start[1] + 1 + mem.sliceTo(&pad, 0).len };
