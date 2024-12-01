@@ -104,40 +104,14 @@ pub fn locateSymbol(debug: *const Debug, addr: u16, allow_negative: bool) ?Locat
     }
 }
 
-fn dumpOpcodes() void {
-    var ins: u8 = 0x00;
-
-    while (true) : (ins += 1) {
-        const i = uxn.Cpu.Instruction.decode(ins);
-
-        if (ins != 0 and ins & 0xf == 0)
-            std.debug.print("\n", .{});
-
-        const color = opcodeColor(i);
-
-        std.debug.print("{x:0>2}: \x1b[38;2;{d};{d};{d}m{s: <8}\x1b[0m", .{
-            ins,
-            color[0],
-            color[1],
-            color[2],
-            i.mnemonic(),
-        });
-
-        if (ins == 0xff)
-            break;
-    }
-
-    std.debug.print("\n", .{});
-}
-
-fn opcodeColor(i: uxn.Cpu.Instruction) struct { u8, u8, u8 } {
-    return switch (i.opcode) {
-        .BRK => if (i.keep_mode)
-            .{ 66, 135, 245 }
-        else if (i.short_mode or i.return_mode)
-            .{ 105, 66, 245 }
-        else
-            .{ 0xff, 0x00, 0x00 },
+fn opcodeColor(i: uxn.Cpu.Opcode) struct { u8, u8, u8 } {
+    return switch (i.baseOpcode()) {
+        .BRK => switch (i) {
+            .BRK => .{ 0xff, 0x00, 0x00 },
+            .LIT, .LIT2, .LITr, .LIT2r => .{ 66, 135, 245 },
+            .JCI, .JMI, .JSI => .{ 105, 66, 245 },
+            else => unreachable,
+        },
         .JMP, .JCN, .JSR => .{ 66, 245, 170 },
         .POP, .NIP, .SWP, .ROT, .DUP, .OVR, .STH => .{ 245, 111, 66 },
         .DEI, .DEO => .{ 245, 209, 66 },
@@ -183,33 +157,38 @@ pub fn onDebugHook(cpu: *uxn.Cpu, data: ?*anyopaque) void {
 
     std.debug.print("Breakpoint triggered\n", .{});
 
-    const color = opcodeColor(uxn.Cpu.Instruction.decode(cpu.mem[cpu.pc]));
-
     var fallback = true;
 
+    // Point at PC+1 because PC will always be the DEO and the next instruction
+    // is more interesting.
+    const pc = cpu.pc + 1;
+
+    const color = opcodeColor(.fromByte(cpu.mem[pc]));
+    const instr: uxn.Cpu.Opcode = .fromByte(cpu.mem[pc]);
+
     if (debug_data) |debug| {
-        if (debug.locateSymbol(cpu.pc, false)) |stop_location| {
+        if (debug.locateSymbol(pc, false)) |stop_location| {
             fallback = false;
-            std.debug.print("PC = {x:0>4} ({s}{c}#{x}): \x1b[38;2;{d};{d};{d}m{s}\x1b[0m\n", .{
-                cpu.pc,
+            std.debug.print("Next PC = {x:0>4} ({s}{c}#{x}): \x1b[38;2;{d};{d};{d}m{s}\x1b[0m\n", .{
+                pc,
                 stop_location.closest.symbol,
-                @as(u8, if (stop_location.closest.addr > cpu.pc) '-' else '+'),
+                @as(u8, if (stop_location.closest.addr > pc) '-' else '+'),
                 stop_location.offset,
                 color[0],
                 color[1],
                 color[2],
-                uxn.Cpu.mnemonics[cpu.mem[cpu.pc]],
+                instr.mnemonic(),
             });
         }
     }
 
     if (fallback) {
         std.debug.print("PC = {x:0>4}: \x1b[38;2;{d};{d};{d}m{s}\x1b[0m\n", .{
-            cpu.pc,
+            pc,
             color[0],
             color[1],
             color[2],
-            uxn.Cpu.mnemonics[cpu.mem[cpu.pc]],
+            instr.mnemonic(),
         });
     }
 
@@ -224,4 +203,72 @@ pub fn onDebugHook(cpu: *uxn.Cpu, data: ?*anyopaque) void {
     dumpStack(&cpu.rst);
 
     std.debug.print("\n", .{});
+
+    // How many locations should be displayed in one line
+    const w: usize = 16;
+
+    // Which "line" in a hexdump of the memory this PC is on
+    const memory_line = pc / w;
+
+    // How many lines of context should be displayed above and below
+    const context = 4;
+
+    // Print column offset header
+    std.debug.print("         ", .{});
+
+    for (0..w) |coff| {
+        if (pc % w == coff) {
+            std.debug.print("{x:<2} v    ", .{coff});
+        } else {
+            std.debug.print("{x:<8}", .{coff});
+        }
+    }
+
+    std.debug.print("\n", .{});
+
+    var print_lits: usize = 0;
+
+    // Print memory dump
+    for (memory_line -| context..memory_line +| context) |page| {
+        if (page == memory_line)
+            std.debug.print("> ", .{})
+        else
+            std.debug.print("  ", .{});
+
+        std.debug.print("{x:0>4} | ", .{page * w});
+
+        for (page * w..page * w + w) |addr| {
+            if (print_lits > 0) {
+                std.debug.print("{x:0>2}      ", .{
+                    cpu.mem[addr],
+                });
+
+                print_lits -= 1;
+            } else {
+                const opcode = uxn.Cpu.Opcode.fromByte(cpu.mem[addr]);
+                const r, const g, const b = opcodeColor(opcode);
+
+                std.debug.print("\x1b[38;2;{d};{d};{d}m{s:<8}\x1b[0m", .{
+                    r,
+                    g,
+                    b,
+                    opcode.mnemonic(),
+                });
+
+                switch (opcode) {
+                    .LIT, .LITr => {
+                        print_lits = 1;
+                    },
+
+                    .LIT2, .LIT2r, .JCI, .JMI, .JSI => {
+                        print_lits = 2;
+                    },
+
+                    else => {},
+                }
+            }
+        }
+
+        std.debug.print("\n", .{});
+    }
 }

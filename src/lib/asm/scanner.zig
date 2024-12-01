@@ -391,14 +391,13 @@ pub fn Scanner(comptime lim: Limits) type {
                         for (1.., mem.sliceTo(&remain, 0)) |j, oct|
                             needle[j] = oct;
 
-                        for (0.., uxn.Cpu.mnemonics) |instr, m| {
-                            if (mem.eql(u8, mem.sliceTo(m, 0), mem.sliceTo(&needle, 0)))
-                                break :b .{
-                                    .instruction = .{
-                                        .mnemonic = m,
-                                        .encoded = @as(u8, @truncate(instr)),
-                                    },
-                                };
+                        if (std.meta.stringToEnum(uxn.Cpu.Opcode, std.mem.sliceTo(&needle, 0))) |opcode| {
+                            break :b .{
+                                .instruction = .{
+                                    .mnemonic = @tagName(opcode),
+                                    .encoded = @intFromEnum(opcode),
+                                },
+                            };
                         } else {
                             const slice = mem.sliceTo(&needle, 0);
 
