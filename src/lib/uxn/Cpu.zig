@@ -119,7 +119,7 @@ inline fn load(
         else r: {
             var b: T = undefined;
 
-            for (0..@sizeOf(T)) |i| {
+            inline for (0..@sizeOf(T)) |i| {
                 b <<= 8;
                 b |= cpu.load(u8, field, (addr +% i) % boundary, boundary);
             }
@@ -155,7 +155,7 @@ inline fn store(
                 .big,
             );
         } else {
-            for (0.., std.mem.asBytes(&std.mem.nativeToBig(T, val))) |i, oct| {
+            inline for (0.., std.mem.asBytes(&std.mem.nativeToBig(T, val))) |i, oct| {
                 cpu.store(u8, field, (addr + i) % boundary, oct, boundary);
             }
         },
