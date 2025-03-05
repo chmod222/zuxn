@@ -58,7 +58,7 @@ pub fn main() !void {
     var output_rom: [0x10000]u8 = [1]u8{0x00} ** 0x10000;
     var output = std.io.fixedBufferStream(&output_rom);
 
-    const input_file_name = res.positionals[0];
+    const input_file_name = res.positionals[0].?;
     const input_file = try std.fs.cwd().openFile(input_file_name, .{});
     defer input_file.close();
 

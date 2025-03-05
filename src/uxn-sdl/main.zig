@@ -532,7 +532,7 @@ pub fn main() !u8 {
 
     var env = try shared.loadOrAssembleRom(
         alloc,
-        res.positionals[0],
+        res.positionals[0].?,
         res.args.symbols,
     );
 
@@ -562,5 +562,5 @@ pub fn main() !u8 {
     cpu.input_intercepts = varvara.full_intercepts.input;
 
     // Run main
-    return mainGraphical(&cpu, &system, res.args.scale orelse 1, @constCast(res.positionals[1..]));
+    return mainGraphical(&cpu, &system, res.args.scale orelse 1, @constCast(res.positionals[1]));
 }

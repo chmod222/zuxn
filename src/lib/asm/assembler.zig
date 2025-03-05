@@ -435,7 +435,7 @@ pub fn Assembler(comptime lim: scan.Limits) type {
                 },
 
                 .curly_close => {
-                    const lambda = assembler.lambdas.popOrNull() orelse return error.UnbalancedLambda;
+                    const lambda = assembler.lambdas.pop() orelse return error.UnbalancedLambda;
                     const label = generateLambdaLabel(lambda);
 
                     var label_def = try assembler.defineLabel(label, @truncate(try seekable.getPos()));
@@ -537,7 +537,7 @@ pub fn Assembler(comptime lim: scan.Limits) type {
 
             // We don't defer this so our include stack remains valid and pointed
             // at the failing file if the loop fails
-            assembler.allocator.free(assembler.include_stack.pop());
+            assembler.allocator.free(assembler.include_stack.pop().?);
         }
 
         fn resolveReferences(

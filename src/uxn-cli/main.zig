@@ -92,7 +92,7 @@ pub fn main() !u8 {
 
     var env = try shared.loadOrAssembleRom(
         alloc,
-        res.positionals[0],
+        res.positionals[0].?,
         res.args.symbols,
     );
 
@@ -120,7 +120,7 @@ pub fn main() !u8 {
     cpu.input_intercepts = varvara.headless_intercepts.input;
 
     // Run initialization vector and push arguments
-    const args: [][]const u8 = @constCast(res.positionals[1..]);
+    const args: [][]const u8 = @constCast(res.positionals[1]);
 
     system.console_device.setArgc(&cpu, args);
 
