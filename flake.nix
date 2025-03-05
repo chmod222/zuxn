@@ -2,21 +2,19 @@
   inputs = {
     flake-utils.url = "github:numtide/flake-utils/v1.0.0";
 
-    zig = {
-      url = "path:deps/zig";
+    zig-overlay.url = "github:mitchellh/zig-overlay";
+    zig-overlay.inputs.nixpkgs.follows = "nixpkgs";
 
-      inputs = {
-        nixpkgs.follows = "nixpkgs";
-        flake-utils.follows = "flake-utils";
-      };
-    };
+    zls.url = "github:zigtools/zls";
+    zls.inputs.nixpkgs.follows = "nixpkgs";
+    zls.inputs.zig-overlay.follows = "zig-overlay";
 
     # build.zig.zon
     clap.url = "https://github.com/Hejsil/zig-clap/archive/2d9db156ae928860a9acf2f1260750d3b44a4c98.tar.gz";
     clap.flake = false;
   };
 
-  outputs = { self, zig, clap, flake-utils, nixpkgs, ... }:
+  outputs = { self, zig-overlay, zls, clap, flake-utils, nixpkgs, ... }:
     flake-utils.lib.eachSystem ["x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin"] (system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
@@ -50,9 +48,8 @@
           name = "zuxn-dev";
 
           buildInputs = [
-            zig.packages.${system}.precompiled
-
-            pkgs.zls
+            zig-overlay.packages.${system}.master
+            zls.packages.${system}.default
 
             pkgs.SDL2.dev
             pkgs.SDL2_image
