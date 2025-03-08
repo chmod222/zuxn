@@ -258,17 +258,13 @@ pub const Screen = struct {
         var y: u16 = 0;
 
         while (y < 8) : (y += 1) {
-            var c: u16 = cpu.mem[addr +% y] | if (flags.two_bpp)
-                @as(u16, cpu.mem[addr +% (y + 8)]) << 8
-            else
-                0;
+            const c1 = cpu.mem[addr +% y];
+            const c2 = if (flags.two_bpp) cpu.mem[addr +% (y +% 8)] else 0;
 
             var x: u16 = 0;
 
             while (x < 8) : (x += 1) {
-                defer c >>= 1;
-
-                const ch = (c & 1) | ((c >> 7) & 2);
+                const ch = ((c1 >> @truncate(x)) & 1) | (((c2 >> @truncate(x)) << 1) & 2);
 
                 const yr = y0 +% (if (flags.flip_y) 7 - y else y);
                 const xr = x0 +% (if (flags.flip_x) x else 7 - x);
