@@ -54,7 +54,7 @@ pub fn Assembler(comptime lim: scan.Limits) type {
 
             label: Scanner.Label,
             addr: ?u16,
-            references: std.ArrayList(Reference),
+            references: std.ArrayListUnmanaged(Reference),
         };
 
         pub const ReferenceType = union(enum) {
@@ -73,7 +73,7 @@ pub fn Assembler(comptime lim: scan.Limits) type {
 
         pub const Macro = struct {
             name: Scanner.Label,
-            body: std.ArrayList(Scanner.SourceToken),
+            body: std.ArrayListUnmanaged(Scanner.SourceToken),
         };
 
         allocator: mem.Allocator,
@@ -83,34 +83,29 @@ pub fn Assembler(comptime lim: scan.Limits) type {
         default_input_filename: ?[]const u8 = null,
         include_base: ?fs.Dir,
         include_follow: bool = true,
-        include_stack: std.ArrayList([]const u8),
+        include_stack: std.ArrayListUnmanaged([]const u8) = .empty,
 
         last_root_label: ?Scanner.Label = null,
 
         err_input_pos: ?LexicalInformation = null,
         err_token: ?Scanner.SourceToken = null,
 
-        labels: std.ArrayList(DefinedLabel),
-        macros: std.ArrayList(Macro),
-        lambdas: std.ArrayList(usize),
+        labels: std.ArrayListUnmanaged(DefinedLabel) = .empty,
+        macros: std.ArrayListUnmanaged(Macro) = .empty,
+        lambdas: std.ArrayListUnmanaged(usize) = .empty,
         lambda_counter: usize = 0,
 
         pub fn init(alloc: mem.Allocator, include_base: ?fs.Dir) @This() {
             return .{
                 .allocator = alloc,
                 .include_base = include_base,
-
-                .labels = std.ArrayList(DefinedLabel).init(alloc),
-                .macros = std.ArrayList(Macro).init(alloc),
-                .lambdas = std.ArrayList(usize).init(alloc),
-                .include_stack = std.ArrayList([]const u8).init(alloc),
             };
         }
 
         pub fn deinit(assembler: *@This()) void {
             for (assembler.include_stack.items) |inc| assembler.allocator.free(inc);
-            for (assembler.macros.items) |macro| macro.body.deinit();
-            for (assembler.labels.items) |label| {
+            for (assembler.macros.items) |*macro| macro.body.deinit(assembler.allocator);
+            for (assembler.labels.items) |*label| {
                 if (label.definition) |def|
                     if (def.file) |f|
                         assembler.allocator.free(f);
@@ -120,13 +115,13 @@ pub fn Assembler(comptime lim: scan.Limits) type {
                         if (def.file) |f|
                             assembler.allocator.free(f);
 
-                label.references.deinit();
+                label.references.deinit(assembler.allocator);
             }
 
-            assembler.include_stack.deinit();
-            assembler.lambdas.deinit();
-            assembler.macros.deinit();
-            assembler.labels.deinit();
+            assembler.include_stack.deinit(assembler.allocator);
+            assembler.lambdas.deinit(assembler.allocator);
+            assembler.macros.deinit(assembler.allocator);
+            assembler.labels.deinit(assembler.allocator);
 
             if (assembler.err_input_pos) |err|
                 if (err.file) |f|
@@ -192,13 +187,13 @@ pub fn Assembler(comptime lim: scan.Limits) type {
                 return def;
             }
 
-            const definition = assembler.labels.addOne() catch return error.TooManyLabels;
+            const definition = assembler.labels.addOne(assembler.allocator) catch return error.TooManyLabels;
 
             definition.* = .{
                 .definition = null,
                 .label = full,
                 .addr = null,
-                .references = std.ArrayList(Reference).init(assembler.allocator),
+                .references = .empty,
             };
 
             return definition;
@@ -231,7 +226,7 @@ pub fn Assembler(comptime lim: scan.Limits) type {
                     if (std.mem.eql(u8, "{", mem.sliceTo(&l, 0))) {
                         const ll = generateLambdaLabel(assembler.lambda_counter).root;
 
-                        assembler.lambdas.append(assembler.lambda_counter) catch
+                        assembler.lambdas.append(assembler.allocator, assembler.lambda_counter) catch
                             return error.TooManyNestedLambas;
 
                         assembler.lambda_counter += 1;
@@ -274,7 +269,7 @@ pub fn Assembler(comptime lim: scan.Limits) type {
         ) !*Reference {
             var definition = try assembler.retrieveLabel(reference.label);
 
-            const ref = definition.references.addOne() catch
+            const ref = definition.references.addOne(assembler.allocator) catch
                 return error.TooManyReferences;
 
             ref.* = .{
@@ -408,18 +403,18 @@ pub fn Assembler(comptime lim: scan.Limits) type {
                     else
                         return error.InvalidMacroDefinition;
 
-                    var body = std.ArrayList(Scanner.SourceToken).init(assembler.allocator);
+                    var body = std.ArrayListUnmanaged(Scanner.SourceToken).empty;
 
                     if (!empty_body) {
                         while (try scanner.readToken(input)) |tok| {
                             if (tok.token == .curly_close)
                                 break;
 
-                            body.append(tok) catch return error.MacroBodyTooLong;
+                            body.append(assembler.allocator, tok) catch return error.MacroBodyTooLong;
                         }
                     }
 
-                    assembler.macros.append(.{
+                    assembler.macros.append(assembler.allocator, .{
                         .name = name,
                         .body = body,
                     }) catch return error.TooManyMacros;
@@ -512,7 +507,7 @@ pub fn Assembler(comptime lim: scan.Limits) type {
                 assembler.include_base = dir;
             };
 
-            try assembler.include_stack.ensureUnusedCapacity(1);
+            try assembler.include_stack.ensureUnusedCapacity(assembler.allocator, 1);
 
             const included_path = try assembler.allocator.dupe(u8, full_path);
 

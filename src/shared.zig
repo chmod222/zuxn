@@ -25,7 +25,7 @@ pub const LoadResult = struct {
     pub fn deinit(res: *LoadResult) void {
         res.alloc.free(res.rom);
 
-        if (res.debug_symbols) |debug|
+        if (res.debug_symbols) |*debug|
             debug.unload();
     }
 };

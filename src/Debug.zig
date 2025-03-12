@@ -17,7 +17,8 @@ const Location = struct {
     offset: u16,
 };
 
-symbols: std.ArrayList(Symbol),
+allocator: Allocator,
+symbols: std.ArrayListUnmanaged(Symbol),
 
 fn cmpAddr(ctx: void, a: Symbol, b: Symbol) bool {
     _ = ctx;
@@ -26,9 +27,9 @@ fn cmpAddr(ctx: void, a: Symbol, b: Symbol) bool {
 }
 
 pub fn loadSymbols(alloc: Allocator, reader: anytype) !Debug {
-    var symbol_list = std.ArrayList(Symbol).init(alloc);
+    var symbol_list = std.ArrayListUnmanaged(Symbol).empty;
 
-    errdefer symbol_list.deinit();
+    errdefer symbol_list.deinit(alloc);
 
     return while (true) {
         var temp: Symbol = undefined;
@@ -41,6 +42,7 @@ pub fn loadSymbols(alloc: Allocator, reader: anytype) !Debug {
             std.mem.sort(Symbol, symbol_list.items, {}, cmpAddr);
 
             return .{
+                .allocator = alloc,
                 .symbols = symbol_list,
             };
         };
@@ -49,12 +51,12 @@ pub fn loadSymbols(alloc: Allocator, reader: anytype) !Debug {
 
         @memset(temp.symbol[@truncate(fbs.getPos() catch unreachable)..], 0x00);
 
-        try symbol_list.append(temp);
+        try symbol_list.append(alloc, temp);
     } else unreachable;
 }
 
-pub fn unload(debug: Debug) void {
-    debug.symbols.deinit();
+pub fn unload(debug: *Debug) void {
+    debug.symbols.deinit(debug.allocator);
 }
 
 pub fn locateSymbol(debug: *const Debug, addr: u16, allow_negative: bool) ?Location {
