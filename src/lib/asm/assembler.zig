@@ -244,14 +244,15 @@ pub fn Assembler(comptime lim: scan.Limits) type {
 
                 .scoped => |s| {
                     const parent = mem.sliceTo(&(assembler.last_root_label orelse return error.MissingScopeLabel), 0);
+                    const parent_local = mem.sliceTo(parent, '/');
                     const child = mem.sliceTo(&s, 0);
 
                     var full: Scanner.Label = [1:0]u8{0x00} ** Scanner.limits.identifier_length;
 
-                    @memcpy(full[0..parent.len], parent);
-                    @memcpy(full[parent.len + 1 .. parent.len + 1 + child.len], child);
+                    @memcpy(full[0..parent_local.len], parent_local);
+                    @memcpy(full[parent_local.len + 1 .. parent_local.len + 1 + child.len], child);
 
-                    full[parent.len] = '/';
+                    full[parent_local.len] = '/';
 
                     return full;
                 },
