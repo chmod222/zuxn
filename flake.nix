@@ -5,9 +5,8 @@
     zig-overlay.url = "github:mitchellh/zig-overlay";
     zig-overlay.inputs.nixpkgs.follows = "nixpkgs";
 
-    zls.url = "github:zigtools/zls";
+    zls.url = "github:zigtools/zls/0.14.0";
     zls.inputs.nixpkgs.follows = "nixpkgs";
-    zls.inputs.zig-overlay.follows = "zig-overlay";
 
     # build.zig.zon
     clap.url = "https://github.com/Hejsil/zig-clap/archive/2d9db156ae928860a9acf2f1260750d3b44a4c98.tar.gz";
@@ -18,6 +17,7 @@
     flake-utils.lib.eachSystem ["x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin"] (system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
+        zig-ver = "0.14.0";
       in {
         packages.default = pkgs.stdenv.mkDerivation {
           name = "zuxn";
@@ -26,7 +26,7 @@
           src = ./.;
 
           nativeBuildInputs = with pkgs; [
-            zig.packages.${system}.precompiled
+            zig-overlay.packages.${system}.${zig-ver}
           ];
 
           buildInputs = with pkgs; [
@@ -48,7 +48,7 @@
           name = "zuxn-dev";
 
           buildInputs = [
-            zig-overlay.packages.${system}.master
+            zig-overlay.packages.${system}.${zig-ver}
             zls.packages.${system}.default
 
             pkgs.SDL2.dev
