@@ -9,7 +9,7 @@
     zls.inputs.nixpkgs.follows = "nixpkgs";
 
     # build.zig.zon
-    clap.url = "https://github.com/Hejsil/zig-clap/archive/2d9db156ae928860a9acf2f1260750d3b44a4c98.tar.gz";
+    clap.url = "https://github.com/Hejsil/zig-clap/archive/refs/tags/0.10.0.tar.gz";
     clap.flake = false;
   };
 
@@ -31,16 +31,15 @@
 
           buildInputs = with pkgs; [
             SDL2.dev
-            SDL2_image
           ];
 
           buildPhase = ''
             mkdir -p $out
-            mkdir -p .cache/{p,z,tmp}
+            mkdir -p .cache/p
 
-            cp -r ${clap} .cache/p/122005e589ab3b6bff8e589b45f5b12cd27ce79f266bdac17e9f33ebfe2fbaff7fe3
+            cp -r ${clap} .cache/p/clap-0.10.0-oBajB434AQBDh-Ei3YtoKIRxZacVPF1iSwp3IX_ZB8f0
 
-            zig build --cache-dir $(pwd)/zig-cache --global-cache-dir $(pwd)/.cache -p $out
+            zig build --global-cache-dir $(pwd)/.cache -p $out
           '';
         };
 
@@ -52,7 +51,6 @@
             zls.packages.${system}.default
 
             pkgs.SDL2.dev
-            pkgs.SDL2_image
           ];
         };
     });

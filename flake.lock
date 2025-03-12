@@ -3,14 +3,14 @@
     "clap": {
       "flake": false,
       "locked": {
-        "lastModified": 1725029165,
-        "narHash": "sha256-Ose210VQZgGUGjFMG4w+0R9g72zkPVDujp0KMKQ6pn8=",
+        "lastModified": 1741191590,
+        "narHash": "sha256-leXnA97ITdvmBhD2YESLBZAKjBg+G4R/+PPPRslz/ec=",
         "type": "tarball",
-        "url": "https://github.com/Hejsil/zig-clap/archive/2d9db156ae928860a9acf2f1260750d3b44a4c98.tar.gz"
+        "url": "https://github.com/Hejsil/zig-clap/archive/refs/tags/0.10.0.tar.gz"
       },
       "original": {
         "type": "tarball",
-        "url": "https://github.com/Hejsil/zig-clap/archive/2d9db156ae928860a9acf2f1260750d3b44a4c98.tar.gz"
+        "url": "https://github.com/Hejsil/zig-clap/archive/refs/tags/0.10.0.tar.gz"
       }
     },
     "flake-compat": {

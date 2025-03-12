@@ -118,7 +118,6 @@ pub fn build(b: *std.Build) void {
         uxn_sdl.root_module.addImport("clap", dep_clap.module("clap"));
         uxn_sdl.root_module.addImport("build_options", build_options_mod);
         uxn_sdl.linkLibC();
-        uxn_sdl.linkSystemLibrary("SDL2_image");
         uxn_sdl.linkSystemLibrary("SDL2");
 
         if (enable_jit_assembly)
