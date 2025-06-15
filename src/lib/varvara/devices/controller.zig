@@ -62,6 +62,8 @@ pub const Controller = struct {
         dev.storePort(u8, cpu, ports.key, key);
 
         try dev.invokeVector(cpu);
+
+        dev.storePort(u8, cpu, ports.key, 0);
     }
 
     pub fn pressButtons(dev: *@This(), cpu: *Cpu, buttons: ButtonFlags, player: u2) !void {
