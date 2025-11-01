@@ -1,6 +1,7 @@
 const Cpu = @import("uxn-core").Cpu;
 
 const std = @import("std");
+const impl = @import("impl.zig");
 const logger = std.log.scoped(.uxn_varvara_controller);
 
 pub const ButtonFlags = packed struct(u8) {
@@ -24,24 +25,22 @@ pub const ports = struct {
 };
 
 pub const Controller = struct {
-    addr: u4,
-
-    pub usingnamespace @import("impl.zig").DeviceMixin(@This());
+    device: impl.DeviceMixin,
 
     pub fn intercept(
-        dev: *@This(),
+        ctrl: *@This(),
         cpu: *Cpu,
         port: u4,
         kind: Cpu.InterceptKind,
     ) !void {
-        _ = dev;
+        _ = ctrl;
         _ = cpu;
         _ = port;
         _ = kind;
     }
 
-    fn invokeVector(dev: *@This(), cpu: *Cpu) !void {
-        const vector = dev.loadPort(u16, cpu, ports.vector);
+    fn invokeVector(ctrl: *@This(), cpu: *Cpu) !void {
+        const vector = ctrl.device.loadPort(u16, cpu, ports.vector);
 
         if (vector > 0)
             try cpu.evaluateVector(vector);
@@ -56,37 +55,37 @@ pub const Controller = struct {
         };
     }
 
-    pub fn pressKey(dev: *@This(), cpu: *Cpu, key: u8) !void {
+    pub fn pressKey(ctrl: *@This(), cpu: *Cpu, key: u8) !void {
         logger.debug("Sending key press: {x:0>2}", .{key});
 
-        dev.storePort(u8, cpu, ports.key, key);
+        ctrl.device.storePort(u8, cpu, ports.key, key);
 
-        try dev.invokeVector(cpu);
+        try ctrl.invokeVector(cpu);
     }
 
-    pub fn pressButtons(dev: *@This(), cpu: *Cpu, buttons: ButtonFlags, player: u2) !void {
+    pub fn pressButtons(ctrl: *@This(), cpu: *Cpu, buttons: ButtonFlags, player: u2) !void {
         const playerPort = getPlayerPort(player);
 
-        const old_state = dev.loadPort(u8, cpu, playerPort);
+        const old_state = ctrl.device.loadPort(u8, cpu, playerPort);
         const new_state = old_state | @as(u8, @bitCast(buttons));
 
         logger.debug("Button State: {} (Player: {})", .{ @as(ButtonFlags, @bitCast(new_state)), player });
 
-        dev.storePort(u8, cpu, playerPort, new_state);
+        ctrl.device.storePort(u8, cpu, playerPort, new_state);
 
-        try dev.invokeVector(cpu);
+        try ctrl.invokeVector(cpu);
     }
 
-    pub fn releaseButtons(dev: *@This(), cpu: *Cpu, buttons: ButtonFlags, player: u2) !void {
+    pub fn releaseButtons(ctrl: *@This(), cpu: *Cpu, buttons: ButtonFlags, player: u2) !void {
         const playerPort = getPlayerPort(player);
 
-        const old_state = dev.loadPort(u8, cpu, playerPort);
+        const old_state = ctrl.device.loadPort(u8, cpu, playerPort);
         const new_state = old_state & ~@as(u8, @bitCast(buttons));
 
         logger.debug("Button State: {} (Player: {})", .{ @as(ButtonFlags, @bitCast(new_state)), player });
 
-        dev.storePort(u8, cpu, playerPort, new_state);
+        ctrl.device.storePort(u8, cpu, playerPort, new_state);
 
-        try dev.invokeVector(cpu);
+        try ctrl.invokeVector(cpu);
     }
 };

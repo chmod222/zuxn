@@ -31,8 +31,6 @@ pub const std_options = std.Options{
     },
 };
 
-const VarvaraDefault = varvara.VarvaraSystem(std.fs.File.Writer, std.fs.File.Writer);
-
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 
 fn intercept(
@@ -41,7 +39,7 @@ fn intercept(
     kind: uxn.Cpu.InterceptKind,
     data: ?*anyopaque,
 ) !void {
-    const varvara_sys: ?*VarvaraDefault = @alignCast(@ptrCast(data));
+    const varvara_sys: ?*varvara.VarvaraDefault = @ptrCast(@alignCast(data));
 
     if (varvara_sys) |sys|
         try sys.intercept(cpu, addr, kind);
@@ -50,9 +48,12 @@ fn intercept(
 pub fn main() !u8 {
     const alloc = gpa.allocator();
 
-    const stdin = std.io.getStdIn().reader();
-    const stdout = std.io.getStdOut().writer();
-    const stderr = std.io.getStdErr().writer();
+    var stdin_buffer: [1024]u8 = undefined;
+    var stdin = std.fs.File.stdin().reader(&stdin_buffer);
+
+    // Explicitely unbuffered
+    var stdout = std.fs.File.stdout().writer(&.{});
+    var stderr = std.fs.File.stderr().writer(&.{});
 
     const params = comptime clap.parseParamsComptime(
         \\-h, --help                 Display this help and exit.
@@ -79,7 +80,7 @@ pub fn main() !u8 {
 
     const res = clap.parse(clap.Help, &params, shared.parsers, clap_args) catch |err| {
         // Report useful error and exit
-        diag.report(stderr, err) catch {};
+        diag.report(&stderr.interface, err) catch {};
 
         return err;
     };
@@ -98,7 +99,11 @@ pub fn main() !u8 {
 
     defer env.deinit();
 
-    var system = try VarvaraDefault.init(gpa.allocator(), stdout, stderr);
+    var system = try varvara.VarvaraDefault.init(
+        gpa.allocator(),
+        &stdout.interface,
+        &stderr.interface,
+    );
     defer system.deinit();
 
     if (!system.sandboxFiles(fs.cwd())) {
@@ -134,7 +139,7 @@ pub fn main() !u8 {
         return c;
 
     // Loop until either exit is requested or EOF reached
-    while (stdin.readByte() catch null) |b| {
+    while (stdin.interface.takeByte() catch null) |b| {
         system.console_device.pushStdinByte(&cpu, b) catch |fault|
             try system.system_device.handleFault(&cpu, fault);
 

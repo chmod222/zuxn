@@ -1,6 +1,7 @@
 const Cpu = @import("uxn-core").Cpu;
 
 const builtin = @import("builtin");
+const impl = @import("impl.zig");
 const std = @import("std");
 const logger = std.log.scoped(.uxn_varvara_file);
 
@@ -16,42 +17,57 @@ pub const ports = struct {
     pub const write = 0xe;
 };
 
+pub const Mode = enum {
+    read,
+    write,
+    append,
+    delete,
+};
+
+pub const AccessFilterFn = fn (*File, ?*anyopaque, []const u8, Mode) bool;
+
 pub const File = struct {
-    const Impl = if (builtin.target.os.tag != .freestanding)
-        @import("fs/default.zig").Impl(@This())
+    device: impl.DeviceMixin,
+    backend: if (builtin.target.os.tag != .freestanding)
+        @import("fs/NativeBackend.zig")
     else
-        @import("fs/noop.zig").Impl(@This());
+        @import("fs/NoopBackend.zig") = .{},
 
-    addr: u4,
-    active_file: ?Impl.Wrapper = null,
-    impl: Impl = .{},
+    access_filter: *const AccessFilterFn = &File.permitAllFilter,
+    access_filter_arg: ?*anyopaque = null,
 
-    pub usingnamespace @import("impl.zig").DeviceMixin(@This());
-    pub usingnamespace Impl;
+    pub fn cleanup(file: *File) void {
+        file.backend.deinit();
 
-    pub fn cleanup(dev: *@This()) void {
-        if (dev.active_file) |*f| {
-            f.close();
-
-            logger.debug("[File@{x}] Closed previousely open target", .{
-                dev.addr,
-            });
-        }
-
-        dev.active_file = null;
+        logger.debug("[File@{x}] Cleaning up", .{
+            file.device.addr,
+        });
     }
 
-    fn getPortSlice(dev: *@This(), cpu: *Cpu, comptime port: comptime_int) []u8 {
-        const ptr: usize = dev.loadPort(u16, cpu, port);
+    fn permitAllFilter(_: *File, _: ?*anyopaque, _: []const u8, _: Mode) bool {
+        return true;
+    }
+
+    pub fn setAccessFilter(
+        file: *File,
+        context: *anyopaque,
+        filter_fun: *const AccessFilterFn,
+    ) void {
+        file.access_filter = filter_fun;
+        file.access_filter_arg = context;
+    }
+
+    fn getPortSlice(file: *@This(), cpu: *Cpu, comptime port: comptime_int) []u8 {
+        const ptr: usize = file.device.loadPort(u16, cpu, port);
 
         return if (port == ports.name)
             std.mem.sliceTo(cpu.mem[ptr..], 0x00)
         else
-            return cpu.mem[ptr..ptr +| dev.loadPort(u16, cpu, ports.length)];
+            return cpu.mem[ptr..ptr +| file.device.loadPort(u16, cpu, ports.length)];
     }
 
     pub fn intercept(
-        dev: *@This(),
+        file: *File,
         cpu: *Cpu,
         port: u4,
         kind: Cpu.InterceptKind,
@@ -62,99 +78,80 @@ pub const File = struct {
         switch (port) {
             ports.name + 1 => {
                 // Close a previously opened file
-                dev.cleanup();
-                dev.storePort(u16, cpu, ports.success, 0x0001);
+                file.backend.deinit();
+                file.device.storePort(u16, cpu, ports.success, 0x0001);
             },
 
             ports.write + 1 => {
-                const truncate = dev.loadPort(u8, cpu, ports.append) == 0x00;
+                const truncate = file.device.loadPort(u8, cpu, ports.append) == 0x00;
 
-                const name_slice = dev.getPortSlice(cpu, ports.name);
-                const data_slice = dev.getPortSlice(cpu, ports.write);
+                const name_slice = file.getPortSlice(cpu, ports.name);
+                const data_slice = file.getPortSlice(cpu, ports.write);
 
-                var t = dev.active_file orelse dev.openWritable(name_slice, truncate) catch |err| {
-                    logger.debug("[File@{x}] Failed opening \"{s}\" for {s} access: {}", .{
-                        dev.addr,
-                        name_slice,
-                        if (truncate) "write" else "append",
-                        err,
-                    });
+                const res: u16 = if (!file.access_filter(file, file.access_filter_arg, name_slice, .write)) r: {
+                    logger.debug("[File@{x}] Denying sandboxed write to {s}", .{ file.device.addr, name_slice });
 
-                    return dev.storePort(u16, cpu, ports.success, 0x0000);
-                };
-
-                if (dev.active_file == null) {
-                    logger.debug("[File@{x}] Opened \"{s}\" for {s} access", .{
-                        dev.addr,
-                        name_slice,
-                        if (truncate) "write" else "append",
-                    });
-                }
-
-                const res: u16 = if (t.write(data_slice)) |n| r: {
-                    logger.debug("[File@{x}] Wrote {} bytes", .{ dev.addr, n });
+                    break :r 0x0000;
+                } else if (file.backend.writeFile(name_slice, data_slice, truncate)) |n| r: {
+                    logger.debug("[File@{x}] Wrote {} bytes", .{ file.device.addr, n });
 
                     break :r n;
                 } else |err| r: {
-                    logger.debug("[File@{x}] Failed to write data: {}", .{ dev.addr, err });
+                    logger.debug("[File@{x}] Failed to write data: {}", .{ file.device.addr, err });
 
                     break :r 0x0000;
                 };
 
-                dev.storePort(u16, cpu, ports.success, res);
-                dev.active_file = t;
+                file.device.storePort(u16, cpu, ports.success, res);
             },
 
             ports.read + 1 => {
-                const name_slice = dev.getPortSlice(cpu, ports.name);
-                const data_slice = dev.getPortSlice(cpu, ports.read);
+                const name_slice = file.getPortSlice(cpu, ports.name);
+                const data_slice = file.getPortSlice(cpu, ports.read);
 
-                var t = dev.active_file orelse dev.openReadable(name_slice) catch |err| {
-                    logger.debug("[File@{x}] Failed opening \"{s}\" for read access: {}", .{ dev.addr, name_slice, err });
+                const res: u16 = if (!file.access_filter(file, file.access_filter_arg, name_slice, .read)) r: {
+                    logger.debug("[File@{x}] Denying sandboxed read to {s}", .{ file.device.addr, name_slice });
 
-                    return dev.storePort(u16, cpu, ports.success, 0x0000);
-                };
-
-                if (dev.active_file == null) {
-                    logger.debug("[File@{x}] Opened \"{s}\" for read access", .{ dev.addr, name_slice });
-                }
-
-                const res: u16 = if (t.read(data_slice)) |n| r: {
-                    logger.debug("[File@{x}] Read {} bytes", .{ dev.addr, n });
+                    break :r 0x0000;
+                } else if (file.backend.readFile(name_slice, data_slice)) |n| r: {
+                    logger.debug("[File@{x}] Read {} bytes", .{ file.device.addr, n });
 
                     break :r n;
                 } else |err| r: {
-                    logger.debug("[File@{x}] Failed to read data: {}", .{ dev.addr, err });
+                    logger.debug("[File@{x}] Failed to read data: {}", .{ file.device.addr, err });
 
                     break :r 0x0000;
                 };
 
-                dev.storePort(u16, cpu, ports.success, res);
-                dev.active_file = t;
+                file.device.storePort(u16, cpu, ports.success, res);
             },
 
             ports.delete => {
-                const name_slice = dev.getPortSlice(cpu, ports.name);
+                const name_slice = file.getPortSlice(cpu, ports.name);
 
-                const res: u16 = if (dev.deleteFile(name_slice)) r: {
-                    logger.debug("[File@{x}] Deleted \"{s}\"", .{ dev.addr, name_slice });
+                const res: u16 = if (!file.access_filter(file, file.access_filter_arg, name_slice, .delete)) r: {
+                    logger.debug("[File@{x}] Denying sandboxed delete of {s}", .{ file.device.addr, name_slice });
+
+                    break :r 0x0000;
+                } else if (file.backend.deleteFile(name_slice)) |_| r: {
+                    logger.debug("[File@{x}] Deleted \"{s}\"", .{ file.device.addr, name_slice });
 
                     break :r 0x0000;
                 } else |err| r: {
-                    logger.debug("[File@{x}] Failed deleting \"{s}\": {}", .{ dev.addr, name_slice, err });
+                    logger.debug("[File@{x}] Failed deleting \"{s}\": {}", .{ file.device.addr, name_slice, err });
 
                     break :r 0x0000;
                 };
 
-                dev.storePort(u16, cpu, ports.success, res);
+                file.device.storePort(u16, cpu, ports.success, res);
             },
 
             ports.stat + 1 => {
-                const name_slice = dev.getPortSlice(cpu, ports.name);
+                const name_slice = file.getPortSlice(cpu, ports.name);
 
-                logger.warn("[File@{x}] Called stat on \"{s}\"; not implemented", .{ dev.addr, name_slice });
+                logger.warn("[File@{x}] Called stat on \"{s}\"; not implemented", .{ file.device.addr, name_slice });
 
-                dev.storePort(u16, cpu, ports.success, 0x0000);
+                file.device.storePort(u16, cpu, ports.success, 0x0000);
             },
 
             else => {},

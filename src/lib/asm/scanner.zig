@@ -1,6 +1,7 @@
 const uxn = @import("uxn-core");
 
 const std = @import("std");
+const io = std.io;
 const mem = std.mem;
 const fmt = std.fmt;
 const ascii = std.ascii;
@@ -32,6 +33,15 @@ fn parseHexLiteral(comptime T: type, raw: []const u8, fixed_width: bool) !T {
 
     return fmt.parseInt(T, raw, 16) catch unreachable;
 }
+
+pub const Error = error{
+    PrematureEof,
+    InvalidToken,
+    InvalidHexLiteral,
+    TokenTooLong,
+    PathTooLong,
+    UppercaseLabelForbidden,
+};
 
 pub fn Scanner(comptime lim: Limits) type {
     return struct {
@@ -84,9 +94,8 @@ pub fn Scanner(comptime lim: Limits) type {
         pub const Label = [limits.identifier_length:0]u8;
 
         location: Location = .{ 1, 1 },
-
-        macro_names: std.BoundedArray(Label, 0x100) =
-            std.BoundedArray(Label, 0x100).init(0) catch unreachable,
+        macro_names: [0x100]Label = undefined,
+        macro_count: usize = 0,
 
         pub const Token = union(enum) {
             macro_definition: Label,
@@ -113,21 +122,12 @@ pub fn Scanner(comptime lim: Limits) type {
             token: Token,
         };
 
-        pub const Error = error{
-            PrematureEof,
-            InvalidToken,
-            InvalidHexLiteral,
-            TokenTooLong,
-            PathTooLong,
-            UppercaseLabelForbidden,
-        };
-
         pub fn init() @This() {
             return .{};
         }
 
-        fn readByte(scanner: *@This(), input: anytype) ?u8 {
-            const b = input.readByte() catch return null;
+        fn readByte(scanner: *@This(), input: *io.Reader) ?u8 {
+            const b = input.takeByte() catch return null;
 
             if (b == '\n') {
                 scanner.location[0] += 1;
@@ -139,11 +139,11 @@ pub fn Scanner(comptime lim: Limits) type {
             return b;
         }
 
-        fn readHexDigit(scanner: *@This(), input: anytype) Error!?u4 {
+        fn readHexDigit(scanner: *@This(), input: *io.Reader) Error!?u4 {
             return try parseHexDigit(scanner.readByte(input) orelse return null);
         }
 
-        fn readLiteral(scanner: *@This(), input: anytype) Error!Literal {
+        fn readLiteral(scanner: *@This(), input: *io.Reader) Error!Literal {
             const h0n: u8 = try scanner.readHexDigit(input) orelse return error.PrematureEof;
             const l0n: u8 = try scanner.readHexDigit(input) orelse return error.PrematureEof;
 
@@ -168,7 +168,7 @@ pub fn Scanner(comptime lim: Limits) type {
         fn readWhitespaceDelimited(
             scanner: *@This(),
             comptime maxlen: usize,
-            input: anytype,
+            input: *io.Reader,
         ) Error![maxlen:0]u8 {
             var output = [1:0]u8{0x00} ** maxlen;
             var fbs = std.io.fixedBufferStream(&output);
@@ -188,7 +188,7 @@ pub fn Scanner(comptime lim: Limits) type {
             return output;
         }
 
-        fn readLabel(scanner: *@This(), input: anytype) Error!Label {
+        fn readLabel(scanner: *@This(), input: *io.Reader) Error!Label {
             const label = try scanner.readWhitespaceDelimited(limits.identifier_length, input);
 
             for (label) |oct| {
@@ -199,7 +199,7 @@ pub fn Scanner(comptime lim: Limits) type {
             return label;
         }
 
-        fn readPath(scanner: *@This(), input: anytype) Error![256:0]u8 {
+        fn readPath(scanner: *@This(), input: *io.Reader) Error![256:0]u8 {
             return scanner.readWhitespaceDelimited(256, input) catch {
                 return error.PathTooLong;
             };
@@ -219,11 +219,12 @@ pub fn Scanner(comptime lim: Limits) type {
 
         fn registerMacro(scanner: *@This(), ident: Label) void {
             // TODO
-            scanner.macro_names.append(ident) catch unreachable;
+            scanner.macro_names[scanner.macro_count] = ident;
+            scanner.macro_count += 1;
         }
 
         fn recallMacro(scanner: *@This(), ident: Label) bool {
-            for (scanner.macro_names.slice()) |n| {
+            for (scanner.macro_names) |n| {
                 if (mem.eql(u8, &n, &ident))
                     return true;
             }
@@ -231,7 +232,7 @@ pub fn Scanner(comptime lim: Limits) type {
             return false;
         }
 
-        pub fn readToken(scanner: *@This(), input: anytype) Error!?SourceToken {
+        pub fn readToken(scanner: *@This(), input: *io.Reader) Error!?SourceToken {
             var comment_depth: usize = 0;
 
             while (scanner.readByte(input)) |b| {

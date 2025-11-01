@@ -1,6 +1,7 @@
 const Cpu = @import("uxn-core").Cpu;
 
 const std = @import("std");
+const impl = @import("impl.zig");
 const logger = std.log.scoped(.uxn_varvara_system);
 
 pub const Color = struct {
@@ -23,7 +24,7 @@ pub const ports = struct {
 };
 
 pub const System = struct {
-    addr: u4,
+    device: impl.DeviceMixin,
 
     debug_callback: ?*const fn (cpu: *Cpu, data: ?*anyopaque) void = null,
     callback_data: ?*anyopaque = null,
@@ -37,8 +38,6 @@ pub const System = struct {
         .{ .r = 0, .g = 0, .b = 0 },
     },
 
-    pub usingnamespace @import("impl.zig").DeviceMixin(@This());
-
     fn splitRgb(r: u16, g: u16, b: u16, c: u2) Color {
         const sw = @as(u4, 3 - c) * 4;
 
@@ -50,38 +49,38 @@ pub const System = struct {
     }
 
     pub fn intercept(
-        dev: *@This(),
+        sys: *@This(),
         cpu: *Cpu,
         port: u4,
         kind: Cpu.InterceptKind,
     ) !void {
         if (kind == .input) {
             switch (port) {
-                ports.wsp => dev.storePort(u8, cpu, ports.wsp, cpu.wst.sp),
-                ports.rsp => dev.storePort(u8, cpu, ports.rsp, cpu.rst.sp),
+                ports.wsp => sys.device.storePort(u8, cpu, ports.wsp, cpu.wst.sp),
+                ports.rsp => sys.device.storePort(u8, cpu, ports.rsp, cpu.rst.sp),
 
                 else => {},
             }
         } else {
             switch (port) {
                 ports.state => {
-                    dev.exit_code = dev.loadPort(u8, cpu, ports.state) & 0x7f;
+                    sys.exit_code = sys.device.loadPort(u8, cpu, ports.state) & 0x7f;
 
-                    logger.debug("System exit requested (code = {?})", .{dev.exit_code});
+                    logger.debug("System exit requested (code = {?})", .{sys.exit_code});
                 },
 
-                ports.wsp => cpu.wst.sp = dev.loadPort(u8, cpu, ports.wsp),
-                ports.rsp => cpu.rst.sp = dev.loadPort(u8, cpu, ports.rsp),
+                ports.wsp => cpu.wst.sp = sys.device.loadPort(u8, cpu, ports.wsp),
+                ports.rsp => cpu.rst.sp = sys.device.loadPort(u8, cpu, ports.rsp),
 
                 ports.debug => {
-                    if (dev.debug_callback) |cb|
-                        cb(cpu, dev.callback_data)
+                    if (sys.debug_callback) |cb|
+                        cb(cpu, sys.callback_data)
                     else
                         logger.debug("Debug port triggered, but no callback is available", .{});
                 },
 
                 ports.expansion + 1 => {
-                    try dev.handleExpansion(cpu, dev.loadPort(u16, cpu, ports.expansion));
+                    try sys.handleExpansion(cpu, sys.device.loadPort(u16, cpu, ports.expansion));
                 },
 
                 ports.red + 1, ports.green + 1, ports.blue + 1 => {
@@ -89,12 +88,12 @@ pub const System = struct {
                     //   R 0xABCD
                     //   G 0xEFGH
                     //   B 0xIJKL => 0xAEI 0xBFJ 0xCGK 0xDHL
-                    const r = dev.loadPort(u16, cpu, ports.red);
-                    const g = dev.loadPort(u16, cpu, ports.green);
-                    const b = dev.loadPort(u16, cpu, ports.blue);
+                    const r = sys.device.loadPort(u16, cpu, ports.red);
+                    const g = sys.device.loadPort(u16, cpu, ports.green);
+                    const b = sys.device.loadPort(u16, cpu, ports.blue);
 
                     for (0..4) |i|
-                        dev.colors[i] = splitRgb(r, g, b, @truncate(i));
+                        sys.colors[i] = splitRgb(r, g, b, @truncate(i));
                 },
 
                 else => {},
@@ -102,8 +101,8 @@ pub const System = struct {
         }
     }
 
-    pub fn handleFault(dev: *@This(), cpu: *Cpu, fault: Cpu.SystemFault) !void {
-        const catch_vector = dev.loadPort(u16, cpu, ports.catch_vector);
+    pub fn handleFault(sys: *@This(), cpu: *Cpu, fault: Cpu.SystemFault) !void {
+        const catch_vector = sys.device.loadPort(u16, cpu, ports.catch_vector);
 
         if (catch_vector > 0x0000 and Cpu.isCatchable(fault)) {
             // Clear stacks, push fault information
@@ -124,16 +123,16 @@ pub const System = struct {
             // like resolving itself in a recursive call, so we make a little indirection via
             // @call() to help the resolver.
             cpu.evaluateVector(catch_vector) catch |new_fault|
-                try @call(.auto, handleFault, .{ dev, cpu, new_fault });
+                try @call(.auto, handleFault, .{ sys, cpu, new_fault });
         } else {
             return fault;
         }
     }
 
-    fn selectMemoryPage(dev: *@This(), cpu: *Cpu, page: u16) ?*[Cpu.page_size]u8 {
+    fn selectMemoryPage(sys: *@This(), cpu: *Cpu, page: u16) ?*[Cpu.page_size]u8 {
         if (page == 0x0000) {
             return cpu.mem;
-        } else if (dev.additional_pages) |page_table| {
+        } else if (sys.additional_pages) |page_table| {
             if (page_table.len < page) {
                 return &page_table[page];
             }
@@ -142,15 +141,15 @@ pub const System = struct {
         return null;
     }
 
-    fn getPagedSlice(dev: *@This(), cpu: *Cpu, page: u16, offset: u16, len: u16) ?[]u8 {
-        const src = dev.selectMemoryPage(cpu, page) orelse {
+    fn getPagedSlice(sys: *@This(), cpu: *Cpu, page: u16, offset: u16, len: u16) ?[]u8 {
+        const src = sys.selectMemoryPage(cpu, page) orelse {
             return null;
         };
 
         return src[offset..offset +| len];
     }
 
-    pub fn handleExpansion(dev: *@This(), cpu: *Cpu, operation: u16) !void {
+    pub fn handleExpansion(sys: *@This(), cpu: *Cpu, operation: u16) !void {
         switch (cpu.mem[operation]) {
             0x00 => {
                 // fill [ operation:u8 | len:u16 | srcpg:u16 | src:u16 | value ]
@@ -168,7 +167,7 @@ pub const System = struct {
                     offset + len,
                 });
 
-                const dst = dev.getPagedSlice(cpu, page, offset, len) orelse {
+                const dst = sys.getPagedSlice(cpu, page, offset, len) orelse {
                     logger.warn("Expansion: Invalid source page {x:0>4}:{x:0>4}", .{ page, offset });
 
                     return error.BadExpansion;
@@ -196,13 +195,13 @@ pub const System = struct {
                     dst_offset,
                 });
 
-                const src = dev.getPagedSlice(cpu, src_page, src_offset, len) orelse {
+                const src = sys.getPagedSlice(cpu, src_page, src_offset, len) orelse {
                     logger.warn("Expansion: Invalid source page {x:0>4}:{x:0>4}", .{ src_page, src_offset });
 
                     return error.BadExpansion;
                 };
 
-                const dst = dev.getPagedSlice(cpu, dst_page, dst_offset, len) orelse {
+                const dst = sys.getPagedSlice(cpu, dst_page, dst_offset, len) orelse {
                     logger.warn("Expansion: Invalid destination page {x:0>4}:{x:0>4}", .{ dst_page, dst_offset });
 
                     return error.BadExpansion;

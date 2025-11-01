@@ -1,6 +1,7 @@
 const Debug = @This();
 
 const std = @import("std");
+const io = std.io;
 
 const uxn = @import("uxn-core");
 
@@ -26,19 +27,16 @@ fn cmpAddr(ctx: void, a: Symbol, b: Symbol) bool {
     return a.addr < b.addr;
 }
 
-pub fn loadSymbols(alloc: Allocator, reader: anytype) !Debug {
+pub fn loadSymbols(alloc: Allocator, reader: *io.Reader) !Debug {
     var symbol_list = std.ArrayListUnmanaged(Symbol).empty;
 
     errdefer symbol_list.deinit(alloc);
 
     return while (true) {
         var temp: Symbol = undefined;
-        var fbs = std.io.FixedBufferStream([]u8){
-            .buffer = &temp.symbol,
-            .pos = 0,
-        };
+        var symbol_writer = std.io.Writer.fixed(&temp.symbol);
 
-        temp.addr = reader.readInt(u16, .big) catch {
+        temp.addr = reader.takeInt(u16, .big) catch {
             std.mem.sort(Symbol, symbol_list.items, {}, cmpAddr);
 
             return .{
@@ -47,9 +45,10 @@ pub fn loadSymbols(alloc: Allocator, reader: anytype) !Debug {
             };
         };
 
-        try reader.streamUntilDelimiter(fbs.writer(), 0x00, null);
+        const n = try reader.streamDelimiter(&symbol_writer, 0x00);
+        reader.toss(1);
 
-        @memset(temp.symbol[@truncate(fbs.getPos() catch unreachable)..], 0x00);
+        @memset(temp.symbol[n..], 0x00);
 
         try symbol_list.append(alloc, temp);
     } else unreachable;
@@ -155,7 +154,7 @@ fn dumpStack(stack: *const uxn.Cpu.Stack) void {
 }
 
 pub fn onDebugHook(cpu: *uxn.Cpu, data: ?*anyopaque) void {
-    const debug_data: ?*const Debug = @alignCast(@ptrCast(data));
+    const debug_data: ?*const Debug = @ptrCast(@alignCast(data));
 
     std.debug.print("Breakpoint triggered\n", .{});
 

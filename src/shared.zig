@@ -34,10 +34,12 @@ pub fn handleCommonArgs(
     clap_res: anytype,
     params: anytype,
 ) ?u8 {
-    const stderr = std.io.getStdErr().writer();
+    var stderr_buffer: [1024]u8 = undefined;
+    var stderr = std.fs.File.stderr().writer(&stderr_buffer);
+    defer stderr.interface.flush() catch unreachable;
 
     if (clap_res.args.help != 0) {
-        clap.help(stderr, clap.Help, &params, .{}) catch {};
+        clap.help(&stderr.interface, clap.Help, &params, .{}) catch {};
 
         return 0;
     }
@@ -61,6 +63,10 @@ pub fn loadOrAssembleRom(
     const cwd = std.fs.cwd();
     const input_file = try cwd.openFile(input_source, .{});
 
+    var stderr_buffer: [1024]u8 = undefined;
+    var stderr = std.fs.File.stderr().writer(&stderr_buffer);
+    defer stderr.interface.flush() catch {};
+
     defer input_file.close();
 
     if (build_options.enable_jit_assembly and
@@ -70,7 +76,8 @@ pub fn loadOrAssembleRom(
         defer assembler.deinit();
 
         var rom_data = try alloc.create([uxn.Cpu.page_size]u8);
-        var rom_writer = std.io.fixedBufferStream(rom_data);
+        var buffer: [1024]u8 = undefined;
+        var file_reader = input_file.reader(&buffer);
 
         @memset(rom_data[0..], 0x00);
 
@@ -78,11 +85,10 @@ pub fn loadOrAssembleRom(
         assembler.default_input_filename = input_source;
 
         assembler.assemble(
-            input_file.reader(),
-            rom_writer.writer(),
-            rom_writer.seekableStream(),
+            &file_reader.interface,
+            rom_data,
         ) catch |err| {
-            assembler.issueDiagnostic(err, std.io.getStdErr().writer()) catch {};
+            assembler.issueDiagnostic(err, &stderr.interface) catch {};
 
             alloc.free(rom_data);
 
@@ -95,12 +101,17 @@ pub fn loadOrAssembleRom(
             .rom = rom_data,
 
             .debug_symbols = if (debug_source) |_| r: {
-                var fifo = std.fifo.LinearFifo(u8, .Dynamic).init(alloc);
-                defer fifo.deinit();
+                var symbol_writer = std.io.Writer.Allocating.init(alloc);
+                defer symbol_writer.deinit();
 
-                try assembler.generateSymbols(fifo.writer());
+                try assembler.generateSymbols(&symbol_writer.writer);
 
-                break :r try Debug.loadSymbols(alloc, fifo.reader());
+                var symbol_data = symbol_writer.toArrayList();
+                defer symbol_data.deinit(alloc);
+
+                var symbol_reader = std.io.Reader.fixed(symbol_data.items);
+
+                break :r try Debug.loadSymbols(alloc, &symbol_reader);
             } else null,
         };
     } else {
@@ -113,7 +124,10 @@ pub fn loadOrAssembleRom(
                 const symbols_file = try cwd.openFile(debug_symbols, .{});
                 defer symbols_file.close();
 
-                break :r try Debug.loadSymbols(alloc, symbols_file.reader());
+                var read_buffer: [1024]u8 = undefined;
+                var reader = symbols_file.reader(&read_buffer);
+
+                break :r try Debug.loadSymbols(alloc, &reader.interface);
             } else null,
         };
     }

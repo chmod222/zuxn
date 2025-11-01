@@ -31,8 +31,6 @@ pub const std_options = std.Options{
     },
 };
 
-const VarvaraDefault = varvara.VarvaraSystem(std.fs.File.Writer, std.fs.File.Writer);
-
 var AUDIO_FINISHED: u32 = undefined;
 var STDIN_RECEIVED: u32 = undefined;
 
@@ -53,7 +51,7 @@ fn Callbacks(comptime SystemType: type) type {
             kind: uxn.Cpu.InterceptKind,
             data: ?*anyopaque,
         ) !void {
-            const varvara_sys: ?*SystemType = @alignCast(@ptrCast(data));
+            const varvara_sys: ?*SystemType = @ptrCast(@alignCast(data));
 
             if (varvara_sys) |sys| {
                 const lock_audio = kind == .output and addr >= 0x30 and addr < 0x70;
@@ -65,13 +63,13 @@ fn Callbacks(comptime SystemType: type) type {
             }
         }
 
-        pub fn audioCallback(u: ?*anyopaque, stream: [*c]u8, len: c_int) callconv(.C) void {
+        pub fn audioCallback(u: ?*anyopaque, stream: [*c]u8, len: c_int) callconv(.c) void {
             const cpu, const sys = @as(
                 *struct { *uxn.Cpu, *SystemType },
-                @alignCast(@ptrCast(u)),
+                @ptrCast(@alignCast(u)),
             ).*;
 
-            var samples_ptr = @as([*c]i16, @alignCast(@ptrCast(stream)));
+            var samples_ptr = @as([*c]i16, @ptrCast(@alignCast(stream)));
             var samples = samples_ptr[0 .. @as(usize, @intCast(len)) / 2];
 
             // TODO: 0x00 should ideally be SDL_AudioSpec.silence here
@@ -97,15 +95,15 @@ fn Callbacks(comptime SystemType: type) type {
             //}
         }
 
-        pub fn receiveStdin(p: ?*anyopaque) callconv(.C) c_int {
-            const sys: *SystemType = @alignCast(@ptrCast(p));
+        pub fn receiveStdin(p: ?*anyopaque) callconv(.c) c_int {
+            const sys: *SystemType = @ptrCast(@alignCast(p));
 
-            const stdin = std.io.getStdIn().reader();
-
+            var stdin_buffer: [1024]u8 = undefined;
+            var stdin = std.fs.File.stdin().reader(&stdin_buffer);
             var event: SDL.SDL_Event = .{ .type = STDIN_RECEIVED };
 
             while (sys.system_device.exit_code == null) {
-                const b = stdin.readByte() catch
+                const b = stdin.interface.takeByte() catch
                     break;
 
                 event.cbutton.button = b;
@@ -260,7 +258,7 @@ fn drawScreen(
 
 fn mainGraphical(
     cpu: *uxn.Cpu,
-    system: *VarvaraDefault,
+    system: *varvara.VarvaraDefault,
     scale: u8,
     args: [][]const u8,
 ) !u8 {
@@ -277,7 +275,7 @@ fn mainGraphical(
         .freq = varvara.audio.sample_rate,
         .format = SDL.AUDIO_S16SYS,
         .channels = 2,
-        .callback = &Callbacks(VarvaraDefault).audioCallback,
+        .callback = &Callbacks(varvara.VarvaraDefault).audioCallback,
         .samples = varvara.audio.sample_count,
         .userdata = &callback_data,
 
@@ -292,7 +290,7 @@ fn mainGraphical(
 
     STDIN_RECEIVED = SDL.SDL_RegisterEvents(1);
 
-    const stdin = SDL.SDL_CreateThread(&Callbacks(VarvaraDefault).receiveStdin, "stdin", system);
+    const stdin = SDL.SDL_CreateThread(&Callbacks(varvara.VarvaraDefault).receiveStdin, "stdin", system);
 
     SDL.SDL_DetachThread(stdin);
 
@@ -511,15 +509,15 @@ pub fn main() !u8 {
 
     var diag = clap.Diagnostic{};
 
-    const stdout = std.io.getStdOut().writer();
-    const stderr = std.io.getStdErr().writer();
+    var stdout = std.fs.File.stdout().writer(&.{});
+    var stderr = std.fs.File.stderr().writer(&.{});
 
     var res = clap.parse(clap.Help, &params, shared.parsers, .{
         .diagnostic = &diag,
         .allocator = alloc,
     }) catch |err| {
         // Report useful error and exit
-        diag.report(stderr, err) catch {};
+        diag.report(&stderr.interface, err) catch {};
 
         return err;
     };
@@ -539,7 +537,11 @@ pub fn main() !u8 {
     defer env.deinit();
 
     // Initialize system devices
-    var system = try VarvaraDefault.init(gpa.allocator(), stdout, stderr);
+    var system = try varvara.VarvaraDefault.init(
+        gpa.allocator(),
+        &stdout.interface,
+        &stderr.interface,
+    );
     defer system.deinit();
 
     if (!system.sandboxFiles(fs.cwd())) {
@@ -555,7 +557,7 @@ pub fn main() !u8 {
     // Setup CPU and intercepts
     var cpu = uxn.Cpu.init(env.rom);
 
-    cpu.device_intercept = &Callbacks(VarvaraDefault).intercept;
+    cpu.device_intercept = &Callbacks(varvara.VarvaraDefault).intercept;
     cpu.callback_data = &system;
 
     cpu.output_intercepts = varvara.full_intercepts.output;

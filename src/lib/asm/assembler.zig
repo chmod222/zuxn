@@ -6,6 +6,7 @@ const scan = @import("scanner.zig");
 const can_include = true;
 
 const fs = std.fs;
+const io = std.io;
 const os = std.os;
 
 pub const AssemblerError = error{
@@ -32,6 +33,42 @@ pub const AssemblerError = error{
     IncludeNotFound,
     NotAllowed,
     CannotOpenFile,
+} || scan.Error || io.Writer.Error;
+
+pub const OutputWriter = struct {
+    inner: union(enum) {
+        file: fs.File.Writer,
+        fixed_buffer: io.Writer,
+    },
+    writer: io.Writer,
+
+    pub fn initFile(fs_writer: *fs.Writer) @This() {
+        return .{
+            .inner = .{
+                .file = fs_writer,
+            },
+            .writer = .{
+                .vtable = .{
+                    .drain = OutputWriter.drainFile,
+                },
+                .buffer = &[0]u8{},
+            },
+        };
+    }
+
+    pub fn initFixedBuffer(slice: []u8) @This() {
+        return .{
+            .inner = .{
+                .fixed_buffer = .fixed(slice),
+            },
+            .writer = .{
+                .vtable = .{
+                    .drain = OutputWriter.drainFixed,
+                },
+                .buffer = &[0]u8{},
+            },
+        };
+    }
 };
 
 pub fn Assembler(comptime lim: scan.Limits) type {
@@ -254,10 +291,10 @@ pub fn Assembler(comptime lim: scan.Limits) type {
             }
         }
 
-        fn lookupOffset(assembler: *@This(), offset: Scanner.Offset) !?u16 {
+        fn lookupOffset(assembler: *@This(), offset: Scanner.Offset) !u16 {
             return switch (offset) {
                 .literal => |lit| lit,
-                .label => |lbl| if (assembler.lookupLabel(try assembler.fullLabel(lbl))) |l| l.addr else null,
+                .label => |lbl| if (assembler.lookupLabel(try assembler.fullLabel(lbl))) |l| l.addr orelse error.UndefinedLabel else error.UndefinedLabel,
             };
         }
 
@@ -281,28 +318,13 @@ pub fn Assembler(comptime lim: scan.Limits) type {
             return ref;
         }
 
-        fn AssembleError(
-            comptime Reader: type,
-            comptime Writer: type,
-            comptime Seeker: type,
-        ) type {
-            return AssemblerError ||
-                Reader.Error ||
-                fs.File.Reader.Error ||
-                Writer.Error ||
-                Seeker.GetSeekPosError ||
-                Seeker.SeekError ||
-                Scanner.Error;
-        }
-
         fn processToken(
             assembler: *@This(),
             scanner: *Scanner,
             token: Scanner.SourceToken,
-            input: anytype,
-            output: anytype,
-            seekable: anytype,
-        ) AssembleError(@TypeOf(input), @TypeOf(output), @TypeOf(seekable))!void {
+            input: *io.Reader,
+            output: *io.Writer,
+        ) AssemblerError!void {
             assembler.err_token = null;
 
             errdefer {
@@ -326,7 +348,7 @@ pub fn Assembler(comptime lim: scan.Limits) type {
                 },
 
                 .label => |l| {
-                    var label_def = try assembler.defineLabel(l, @truncate(try seekable.getPos()));
+                    var label_def = try assembler.defineLabel(l, @truncate(output.end));
 
                     label_def.definition = assembler.lexicalInformationFromToken(token);
 
@@ -335,7 +357,7 @@ pub fn Assembler(comptime lim: scan.Limits) type {
                     }
                 },
                 .address => |addr| {
-                    var ref = try assembler.rememberLocation(addr, @truncate(try seekable.getPos()), 0);
+                    var ref = try assembler.rememberLocation(addr, @truncate(output.end), 0);
 
                     ref.definition = assembler.lexicalInformationFromToken(token);
 
@@ -348,14 +370,13 @@ pub fn Assembler(comptime lim: scan.Limits) type {
                         .absolute_raw => output.writeInt(u16, 0xaaaa, .big),
                     };
                 },
-                .padding => |pad| try switch (pad) {
-                    .absolute => |offset| seekable.seekTo(try assembler.lookupOffset(offset) orelse return error.UndefinedLabel),
-                    .relative => |offset| seekable.seekBy(try assembler.lookupOffset(offset) orelse return error.UndefinedLabel),
+                .padding => |pad| switch (pad) {
+                    .absolute => |offset| output.end = try assembler.lookupOffset(offset),
+                    .relative => |offset| output.end += try assembler.lookupOffset(offset),
                 },
                 .include => |path| if (can_include) {
                     try assembler.includeFile(
                         output,
-                        seekable,
                         mem.sliceTo(&path, 0),
                     );
                 } else {
@@ -365,7 +386,7 @@ pub fn Assembler(comptime lim: scan.Limits) type {
                     try output.writeByte(op.encoded);
                 },
                 .jci, .jmi, .jsi => |label| {
-                    const pos = try seekable.getPos();
+                    const pos = output.end;
                     const reference = Scanner.Address{
                         .type = .absolute,
                         .label = label,
@@ -427,14 +448,14 @@ pub fn Assembler(comptime lim: scan.Limits) type {
 
                     // XXX: A macro can include itself and murder our stack. Introduce a max evaluation depth.
                     for (macro.body.items) |macro_token|
-                        try assembler.processToken(scanner, macro_token, input, output, seekable);
+                        try assembler.processToken(scanner, macro_token, input, output);
                 },
 
                 .curly_close => {
                     const lambda = assembler.lambdas.pop() orelse return error.UnbalancedLambda;
                     const label = generateLambdaLabel(lambda);
 
-                    var label_def = try assembler.defineLabel(label, @truncate(try seekable.getPos()));
+                    var label_def = try assembler.defineLabel(label, @truncate(output.end));
 
                     label_def.definition = assembler.lexicalInformationFromToken(token);
                 },
@@ -443,33 +464,38 @@ pub fn Assembler(comptime lim: scan.Limits) type {
 
         pub fn assemble(
             assembler: *@This(),
-            input: anytype,
-            output: anytype,
-            seekable: anytype,
-        ) AssembleError(@TypeOf(input), @TypeOf(output), @TypeOf(seekable))!void {
+            input: *std.Io.Reader,
+            output: []u8,
+        ) AssemblerError!void {
             var scanner = Scanner.init();
 
             errdefer {
                 assembler.err_input_pos = assembler.lexicalInformationFromScanner(&scanner);
             }
 
+            var writer: std.Io.Writer = .fixed(output);
+
             while (try scanner.readToken(input)) |token| {
-                try assembler.processToken(&scanner, token, input, output, seekable);
+                try assembler.processToken(
+                    &scanner,
+                    token,
+                    input,
+                    &writer,
+                );
             }
 
             // N.B. the reference assembler only tracks writes for the rom length,
             //      while this one includes pads. A pad without writes at the end
             //      of the source will include 0x00 bytes in the output while the
             //      reference will implicitely fill in those 0x00 when loading the rom.
-            assembler.rom_length = @truncate(try seekable.getPos());
+            assembler.rom_length = @truncate(writer.end);
 
-            try assembler.resolveReferences(output, seekable);
+            try assembler.resolveReferences(output);
         }
 
         pub fn includeFile(
             assembler: *@This(),
-            output: anytype,
-            seekable: anytype,
+            output: *io.Writer,
             path: []const u8,
         ) !void {
             const dir = assembler.include_base orelse
@@ -514,20 +540,20 @@ pub fn Assembler(comptime lim: scan.Limits) type {
             assembler.include_stack.appendAssumeCapacity(included_path);
 
             // Do assemble
-            const reader = file.reader();
+            var buffer: [1024]u8 = undefined;
+            var reader = file.reader(&buffer).interface;
             var scanner = Scanner.init();
 
             errdefer {
                 assembler.err_input_pos = assembler.lexicalInformationFromScanner(&scanner);
             }
 
-            while (try scanner.readToken(reader)) |token| {
+            while (try scanner.readToken(&reader)) |token| {
                 try assembler.processToken(
                     &scanner,
                     token,
-                    reader,
+                    &reader,
                     output,
-                    seekable,
                 );
             }
 
@@ -538,8 +564,7 @@ pub fn Assembler(comptime lim: scan.Limits) type {
 
         fn resolveReferences(
             assembler: *@This(),
-            output: anytype,
-            seekable: anytype,
+            output: []u8,
         ) !void {
             for (assembler.labels.items) |label| {
                 if (label.addr) |addr| {
@@ -557,15 +582,18 @@ pub fn Assembler(comptime lim: scan.Limits) type {
 
                             // Seek to the reference position and replace our placeholder 0xaa... with the
                             // resolved reference.
-                            try seekable.seekTo(ref_pos);
-
                             switch (ref.type) {
                                 .zero, .zero_raw => {
-                                    try output.writeByte(@truncate(addr));
+                                    output[ref_pos] = @truncate(addr);
                                 },
 
                                 .absolute, .absolute_raw => {
-                                    try output.writeInt(u16, addr -% ref.offset, .big);
+                                    mem.writeInt(
+                                        u16,
+                                        @ptrCast(output[ref_pos .. ref_pos + 2]),
+                                        addr -% ref.offset,
+                                        .big,
+                                    );
                                 },
 
                                 .relative, .relative_raw => {
@@ -577,7 +605,7 @@ pub fn Assembler(comptime lim: scan.Limits) type {
                                     if (relative > 127 or relative < -128)
                                         return error.ReferenceOutOfBounds;
 
-                                    try output.writeInt(i8, @as(i8, @truncate(relative)), .big);
+                                    output[ref_pos] = @bitCast(@as(i8, @truncate(relative)));
                                 },
                             }
                         }
@@ -594,8 +622,8 @@ pub fn Assembler(comptime lim: scan.Limits) type {
 
         pub fn generateSymbols(
             assembler: *@This(),
-            output: anytype,
-        ) @TypeOf(output).Error!void {
+            output: *io.Writer,
+        ) io.Writer.Error!void {
             // Sort the symbols before writing them so that inside the .sym file,
             // they are sorted from lowest to highest address. Reference assembler
             // gets away without sorting because label definitions and references
@@ -611,7 +639,7 @@ pub fn Assembler(comptime lim: scan.Limits) type {
             }
         }
 
-        pub fn issueDiagnostic(assembler: *@This(), err: anyerror, output: anytype) !void {
+        pub fn issueDiagnostic(assembler: *@This(), err: anyerror, output: *io.Writer) !void {
             const default_input = assembler.default_input_filename orelse "<input>";
 
             const error_str = switch (err) {

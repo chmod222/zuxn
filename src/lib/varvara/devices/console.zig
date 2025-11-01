@@ -1,6 +1,8 @@
 const Cpu = @import("uxn-core").Cpu;
 
 const std = @import("std");
+const io = std.io;
+const impl = @import("impl.zig");
 const logger = std.log.scoped(.uxn_varvara_console);
 
 pub const ports = struct {
@@ -12,17 +14,16 @@ pub const ports = struct {
 };
 
 pub const Console = struct {
-    addr: u4,
+    device: impl.DeviceMixin,
 
-    pub usingnamespace @import("impl.zig").DeviceMixin(@This());
+    stderr: *io.Writer,
+    stdout: *io.Writer,
 
     pub fn intercept(
-        dev: @This(),
+        con: @This(),
         cpu: *Cpu,
         port: u4,
         kind: Cpu.InterceptKind,
-        stdout_writer: anytype,
-        stderr_writer: anytype,
     ) !void {
         if (kind != .output)
             return;
@@ -30,12 +31,12 @@ pub const Console = struct {
         if (port != ports.write and port != ports.err)
             return;
 
-        const octet = dev.loadPort(u8, cpu, port);
+        const octet = con.device.loadPort(u8, cpu, port);
 
         if (port == ports.write) {
-            _ = stdout_writer.write(&[_]u8{octet}) catch return;
+            _ = con.stdout.writeByte(octet) catch unreachable;
         } else if (port == ports.err) {
-            _ = stderr_writer.write(&[_]u8{octet}) catch return;
+            _ = con.stderr.writeByte(octet) catch return;
         }
     }
 
@@ -46,16 +47,16 @@ pub const Console = struct {
     ) !void {
         for (0.., args) |i, arg| {
             for (arg) |oct| {
-                dev.storePort(u8, cpu, ports.typ, 0x2);
-                dev.storePort(u8, cpu, ports.read, oct);
+                dev.device.storePort(u8, cpu, ports.typ, 0x2);
+                dev.device.storePort(u8, cpu, ports.read, oct);
 
-                try cpu.evaluateVector(dev.loadPort(u16, cpu, ports.vector));
+                try cpu.evaluateVector(dev.device.loadPort(u16, cpu, ports.vector));
             }
 
-            dev.storePort(u8, cpu, ports.typ, if (i == args.len - 1) 0x4 else 0x3);
-            dev.storePort(u8, cpu, ports.read, 0x10);
+            dev.device.storePort(u8, cpu, ports.typ, if (i == args.len - 1) 0x4 else 0x3);
+            dev.device.storePort(u8, cpu, ports.read, 0x10);
 
-            try cpu.evaluateVector(dev.loadPort(u16, cpu, ports.vector));
+            try cpu.evaluateVector(dev.device.loadPort(u16, cpu, ports.vector));
         }
     }
 
@@ -64,7 +65,7 @@ pub const Console = struct {
         cpu: *Cpu,
         args: [][]const u8,
     ) void {
-        dev.storePort(u8, cpu, ports.typ, @intFromBool(args.len > 0));
+        dev.device.storePort(u8, cpu, ports.typ, @intFromBool(args.len > 0));
     }
 
     pub fn pushStdinByte(
@@ -72,10 +73,10 @@ pub const Console = struct {
         cpu: *Cpu,
         byte: u8,
     ) !void {
-        const vector = dev.loadPort(u16, cpu, ports.vector);
+        const vector = dev.device.loadPort(u16, cpu, ports.vector);
 
-        dev.storePort(u8, cpu, ports.typ, 0x1);
-        dev.storePort(u8, cpu, ports.read, byte);
+        dev.device.storePort(u8, cpu, ports.typ, 0x1);
+        dev.device.storePort(u8, cpu, ports.read, byte);
 
         if (vector > 0x0000)
             try cpu.evaluateVector(vector);

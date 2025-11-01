@@ -31,7 +31,6 @@ pub fn main() !void {
     var diag = clap.Diagnostic{};
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 
-    const stderr = std.io.getStdErr().writer();
     const alloc = gpa.allocator();
 
     const parsers = comptime .{
@@ -43,7 +42,7 @@ pub fn main() !void {
         .allocator = alloc,
     }) catch |err| {
         // Report useful error and exit
-        diag.report(stderr, err) catch {};
+        diag.reportToFile(.stderr(), err) catch {};
 
         return err;
     };
@@ -51,12 +50,11 @@ pub fn main() !void {
     defer res.deinit();
 
     if (res.args.help != 0)
-        return clap.help(stderr, clap.Help, &params, .{});
+        return clap.helpToFile(.stderr(), clap.Help, &params, .{});
 
     // Argparse end
 
     var output_rom: [0x10000]u8 = [1]u8{0x00} ** 0x10000;
-    var output = std.io.fixedBufferStream(&output_rom);
 
     const input_file_name = res.positionals[0].?;
     const input_file = try std.fs.cwd().openFile(input_file_name, .{});
@@ -68,12 +66,15 @@ pub fn main() !void {
     assembler.include_follow = false;
     assembler.default_input_filename = input_file_name;
 
-    assembler.assemble(
-        input_file.reader(),
-        output.writer(),
-        output.seekableStream(),
-    ) catch |err| {
-        assembler.issueDiagnostic(err, io.getStdErr().writer()) catch {};
+    var read_buffer: [1024]u8 = undefined;
+    var write_buffer: [1024]u8 = undefined;
+
+    var reader = input_file.reader(&read_buffer);
+    var err_writer = std.fs.File.stderr().writer(&write_buffer);
+
+    assembler.assemble(&reader.interface, &output_rom) catch |err| {
+        assembler.issueDiagnostic(err, &err_writer.interface) catch {};
+        try err_writer.end();
 
         return;
     };
@@ -84,12 +85,18 @@ pub fn main() !void {
     const outfile = try std.fs.cwd().createFile(outfile_name, .{});
     defer outfile.close();
 
-    try outfile.writer().writeAll(output_rom[0x100..assembler.rom_length]);
+    var out_writer = outfile.writer(&write_buffer);
+
+    try out_writer.interface.writeAll(output_rom[0x100..assembler.rom_length]);
+    try out_writer.end();
 
     if (res.args.symbols) |symbol_file| {
         const symfile = try std.fs.cwd().createFile(symbol_file, .{});
         defer symfile.close();
 
-        try assembler.generateSymbols(symfile.writer());
+        var sym_writer = symfile.writer(&write_buffer);
+
+        try assembler.generateSymbols(&sym_writer.interface);
+        try sym_writer.end();
     }
 }
