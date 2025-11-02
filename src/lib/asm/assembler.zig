@@ -541,18 +541,18 @@ pub fn Assembler(comptime lim: scan.Limits) type {
 
             // Do assemble
             var buffer: [1024]u8 = undefined;
-            var reader = file.reader(&buffer).interface;
+            var reader = file.reader(&buffer);
             var scanner = Scanner.init();
 
             errdefer {
                 assembler.err_input_pos = assembler.lexicalInformationFromScanner(&scanner);
             }
 
-            while (try scanner.readToken(&reader)) |token| {
+            while (try scanner.readToken(&reader.interface)) |token| {
                 try assembler.processToken(
                     &scanner,
                     token,
-                    &reader,
+                    &reader.interface,
                     output,
                 );
             }
