@@ -86,16 +86,7 @@ pub const Console = struct {
         } else {
             switch (port) {
                 ports.live, ports.exit => {
-                    if (con.forked_child) |*child| {
-                        const r = posix.waitpid(child.pid, std.c.W.NOHANG);
-
-                        if (r.pid > 0) {
-                            con.updateProcessState(cpu, 0xff, std.c.W.EXITSTATUS(r.status));
-                            con.cleanupChild(child);
-                        } else {
-                            con.updateProcessState(cpu, 0x01, 0x00);
-                        }
-                    }
+                    con.checkChild(cpu);
                 },
 
                 else => {},
@@ -112,6 +103,19 @@ pub const Console = struct {
     fn updateProcessState(con: *Console, cpu: *Cpu, live: u8, exit: u8) void {
         con.device.storePort(u8, cpu, ports.live, live);
         con.device.storePort(u8, cpu, ports.exit, exit);
+    }
+
+    fn checkChild(con: *Console, cpu: *Cpu) void {
+        if (con.forked_child) |*child| {
+            const r = posix.waitpid(child.pid, std.c.W.NOHANG);
+
+            if (r.pid > 0) {
+                con.updateProcessState(cpu, 0xff, std.c.W.EXITSTATUS(r.status));
+                con.cleanupChild(child);
+            } else {
+                con.updateProcessState(cpu, 0x01, 0x00);
+            }
+        }
     }
 
     fn mainChild(
@@ -257,12 +261,19 @@ pub const Console = struct {
     }
 
     fn cleanupChild(con: *Console, child: *ForkedChild) void {
+        con.tryRestoreFiles(child);
+        con.forked_child = null;
+    }
+
+    fn tryRestoreFiles(_: *Console, child: *ForkedChild) void {
         if (child.input) |connect| {
             // close child stdin and restore saved
             posix.close(connect.pipe[1]);
             posix.dup2(connect.shadowed, 1) catch |e| {
                 logger.warn("Failed restoring stdout: dup2(): {t}", .{e});
             };
+
+            child.input = null;
         }
 
         if (child.output) |connect| {
@@ -271,9 +282,18 @@ pub const Console = struct {
             posix.dup2(connect.shadowed, 0) catch |e| {
                 logger.warn("Failed restoring stdin: dup2(): {t}", .{e});
             };
-        }
 
-        con.forked_child = null;
+            child.output = null;
+        }
+    }
+
+    pub fn hasProcess(con: *const Console) bool {
+        return con.forked_child != null;
+    }
+
+    pub fn unpipeProcess(con: *Console) void {
+        if (con.forked_child) |*child|
+            con.tryRestoreFiles(child);
     }
 
     pub fn pushArguments(
