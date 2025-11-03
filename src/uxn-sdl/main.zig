@@ -1,5 +1,6 @@
 const std = @import("std");
 const fs = std.fs;
+const posix = std.posix;
 
 const clap = @import("clap");
 
@@ -98,17 +99,35 @@ fn Callbacks(comptime SystemType: type) type {
         pub fn receiveStdin(p: ?*anyopaque) callconv(.c) c_int {
             const sys: *SystemType = @ptrCast(@alignCast(p));
 
-            var stdin_buffer: [1024]u8 = undefined;
-            var stdin = std.fs.File.stdin().reader(&stdin_buffer);
             var event: SDL.SDL_Event = .{ .type = STDIN_RECEIVED };
+            var stdin_buffer: [1024]u8 = undefined;
+            var stdin = fs.File.stdin().readerStreaming(&stdin_buffer);
+
+            var fds: [1]posix.pollfd = [_]posix.pollfd{
+                .{ .fd = 0, .events = posix.system.POLL.IN, .revents = 0 },
+            };
 
             while (sys.system_device.exit_code == null) {
-                const b = stdin.interface.takeByte() catch
-                    break;
+                const ready = posix.poll(&fds, 100) catch |e| {
+                    logger.warn("poll() failed: {t}", .{e});
 
-                event.cbutton.button = b;
+                    continue;
+                };
 
-                _ = SDL.SDL_PushEvent(&event);
+                if (ready > 0) {
+                    stdin.interface.fillMore() catch |e| {
+                        logger.warn("read() failed: {t}", .{e});
+                        continue;
+                    };
+
+                    logger.debug("Pushing {} bytes from stdin", .{stdin.interface.bufferedLen()});
+
+                    while (stdin.interface.bufferedLen() > 0) {
+                        event.cbutton.button = stdin.interface.takeByte() catch unreachable;
+
+                        _ = SDL.SDL_PushEvent(&event);
+                    }
+                }
             }
 
             return 0;
@@ -509,8 +528,8 @@ pub fn main() !u8 {
 
     var diag = clap.Diagnostic{};
 
-    var stdout = std.fs.File.stdout().writer(&.{});
-    var stderr = std.fs.File.stderr().writer(&.{});
+    var stdout = fs.File.stdout().writer(&.{});
+    var stderr = fs.File.stderr().writer(&.{});
 
     var res = clap.parse(clap.Help, &params, shared.parsers, .{
         .diagnostic = &diag,
