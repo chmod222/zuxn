@@ -1,5 +1,6 @@
 const std = @import("std");
 const io = std.io;
+const fs = std.fs;
 
 const uxn = @import("uxn-core");
 const uxn_asm = @import("uxn-asm");
@@ -24,6 +25,8 @@ pub fn main() !void {
         \\-h, --help             Display this help and exit.
         \\-s, --symbols <FILE>   Generate symbol file
         \\-o, --output <FILE>    Input ROM file name (default: based on input file)
+        \\-r, --relative-include Consider includes to be relative to currently processed file
+        \\-C <DIR>               Use DIR as the current working directory (overridden by `-r`)
         \\<FILE>                 Input source file name
         \\
     );
@@ -35,6 +38,7 @@ pub fn main() !void {
 
     const parsers = comptime .{
         .FILE = clap.parsers.string,
+        .DIR = clap.parsers.string,
     };
 
     var res = clap.parse(clap.Help, &params, parsers, clap.ParseOptions{
@@ -56,14 +60,24 @@ pub fn main() !void {
 
     var output_rom: [0x10000]u8 = [1]u8{0x00} ** 0x10000;
 
+    const base_dir = if (res.args.C) |c|
+        try std.fs.cwd().openDir(c, .{})
+    else
+        std.fs.cwd();
+
     const input_file_name = res.positionals[0].?;
-    const input_file = try std.fs.cwd().openFile(input_file_name, .{});
+    const input_file = try base_dir.openFile(input_file_name, .{});
     defer input_file.close();
 
-    var assembler = Assembler.init(alloc, std.fs.cwd());
+    const include_base = if (res.args.@"relative-include" != 0)
+        try base_dir.openDir(fs.path.dirname(input_file_name).?, .{})
+    else
+        base_dir;
+
+    var assembler = Assembler.init(alloc, include_base);
     defer assembler.deinit();
 
-    assembler.include_follow = false;
+    assembler.include_follow = res.args.@"relative-include" != 0;
     assembler.default_input_filename = input_file_name;
 
     var read_buffer: [1024]u8 = undefined;
@@ -82,7 +96,7 @@ pub fn main() !void {
     const outfile_name = res.args.output orelse
         std.mem.sliceTo(&changeExtension(input_file_name, ".rom"), 0);
 
-    const outfile = try std.fs.cwd().createFile(outfile_name, .{});
+    const outfile = try base_dir.createFile(outfile_name, .{});
     defer outfile.close();
 
     var out_writer = outfile.writer(&write_buffer);
@@ -91,7 +105,7 @@ pub fn main() !void {
     try out_writer.end();
 
     if (res.args.symbols) |symbol_file| {
-        const symfile = try std.fs.cwd().createFile(symbol_file, .{});
+        const symfile = try base_dir.createFile(symbol_file, .{});
         defer symfile.close();
 
         var sym_writer = symfile.writer(&write_buffer);
