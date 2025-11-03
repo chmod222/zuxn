@@ -146,6 +146,7 @@ pub const BaseOpcode = enum(u5) {
 pub const Opcode = enum(u8) {
     // Please don't mess up my table.
     // zig fmt: off
+    // 0    1       2       3       4       5       6       7       8       9       a       b       c       d       e       f
     BRK,    INC,    POP,    NIP,    SWP,    ROT,    DUP,    OVR,    EQU,    NEQ,    GTH,    LTH,    JMP,    JCN,    JSR,    STH,
     LDZ,    STZ,    LDR,    STR,    LDA,    STA,    DEI,    DEO,    ADD,    SUB,    MUL,    DIV,    AND,    ORA,    EOR,    SFT,
     JCI,    INC2,   POP2,   NIP2,   SWP2,   ROT2,   DUP2,   OVR2,   EQU2,   NEQ2,   GTH2,   LTH2,   JMP2,   JCN2,   JSR2,   STH2,
@@ -154,6 +155,7 @@ pub const Opcode = enum(u8) {
     LDZr,   STZr,   LDRr,   STRr,   LDAr,   STAr,   DEIr,   DEOr,   ADDr,   SUBr,   MULr,   DIVr,   ANDr,   ORAr,   EORr,   SFTr,
     JSI,    INC2r,  POP2r,  NIP2r,  SWP2r,  ROT2r,  DUP2r,  OVR2r,  EQU2r,  NEQ2r,  GTH2r,  LTH2r,  JMP2r,  JCN2r,  JSR2r,  STH2r,
     LDZ2r,  STZ2r,  LDR2r,  STR2r,  LDA2r,  STA2r,  DEI2r,  DEO2r,  ADD2r,  SUB2r,  MUL2r,  DIV2r,  AND2r,  ORA2r,  EOR2r,  SFT2r,
+
     LIT,    INCk,   POPk,   NIPk,   SWPk,   ROTk,   DUPk,   OVRk,   EQUk,   NEQk,   GTHk,   LTHk,   JMPk,   JCNk,   JSRk,   STHk,
     LDZk,   STZk,   LDRk,   STRk,   LDAk,   STAk,   DEIk,   DEOk,   ADDk,   SUBk,   MULk,   DIVk,   ANDk,   ORAk,   EORk,   SFTk,
     LIT2,   INC2k,  POP2k,  NIP2k,  SWP2k,  ROT2k,  DUP2k,  OVR2k,  EQU2k,  NEQ2k,  GTH2k,  LTH2k,  JMP2k,  JCN2k,  JSR2k,  STH2k,
