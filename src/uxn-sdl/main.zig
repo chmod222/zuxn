@@ -19,6 +19,7 @@ pub const SDL = @cImport({
 pub const std_options = std.Options{
     .log_scope_levels = &[_]std.log.ScopeLevel{
         .{ .scope = .uxn_cpu, .level = .info },
+        .{ .scope = .uxn_sdl, .level = .info },
 
         .{ .scope = .uxn_varvara, .level = .info },
         .{ .scope = .uxn_varvara_system, .level = .info },
