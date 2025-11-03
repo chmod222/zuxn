@@ -1,8 +1,33 @@
 const Cpu = @import("uxn-core").Cpu;
 
-const ctime = @cImport({
-    @cInclude("time.h");
-});
+const builtin = @import("builtin");
+const ctime = if (builtin.target.os.tag != .freestanding)
+    @cImport({
+        @cInclude("time.h");
+    })
+else
+    struct {
+        const tm = struct {
+            tm_sec: c_int,
+            tm_min: c_int,
+            tm_hour: c_int,
+            tm_mday: c_int,
+            tm_mon: c_int,
+            tm_year: c_int,
+            tm_wday: c_int,
+            tm_yday: c_int,
+            tm_isdst: c_int,
+        };
+        fn time(_: ?*anyopaque) ?*anyopaque {
+            unreachable;
+        }
+        fn localtime(_: *const ?*anyopaque) *tm {
+            unreachable;
+        }
+        fn gmtime(_: *const ?*anyopaque) *tm {
+            unreachable;
+        }
+    };
 
 const impl = @import("impl.zig");
 

@@ -59,6 +59,7 @@ pub const Controller = struct {
         logger.debug("Sending key press: {x:0>2}", .{key});
 
         ctrl.device.storePort(u8, cpu, ports.key, key);
+        defer ctrl.device.storePort(u8, cpu, ports.key, 0);
 
         try ctrl.invokeVector(cpu);
     }
