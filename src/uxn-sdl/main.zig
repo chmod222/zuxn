@@ -116,17 +116,15 @@ fn Callbacks(comptime SystemType: type) type {
                 };
 
                 if (ready > 0) {
-                    if (stdin.interface.bufferedLen() == 0) {
-                        stdin.interface.fillMore() catch |e| {
-                            logger.warn("read() failed: {t}", .{e});
+                    stdin.interface.fillMore() catch |e| {
+                        logger.warn("read() failed: {t}", .{e});
 
-                            if (e == error.EndOfStream) {
-                                sys.console_device.unpipeProcess();
-                            }
+                        if (e == error.EndOfStream) {
+                            _ = sys.console_device.unpipeProcess();
+                        }
 
-                            continue;
-                        };
-                    }
+                        continue;
+                    };
 
                     logger.debug("Pushing {} bytes from stdin", .{stdin.interface.bufferedLen()});
 

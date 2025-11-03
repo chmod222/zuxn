@@ -261,11 +261,13 @@ pub const Console = struct {
     }
 
     fn cleanupChild(con: *Console, child: *ForkedChild) void {
-        con.tryRestoreFiles(child);
+        _ = con.tryRestoreFiles(child);
         con.forked_child = null;
     }
 
-    fn tryRestoreFiles(_: *Console, child: *ForkedChild) void {
+    fn tryRestoreFiles(_: *Console, child: *ForkedChild) bool {
+        var changed = child.input != null or child.output != null;
+
         if (child.input) |connect| {
             // close child stdin and restore saved
             posix.close(connect.pipe[1]);
@@ -284,16 +286,21 @@ pub const Console = struct {
             };
 
             child.output = null;
+            changed = true;
         }
+
+        return changed;
     }
 
     pub fn hasProcess(con: *const Console) bool {
         return con.forked_child != null;
     }
 
-    pub fn unpipeProcess(con: *Console) void {
+    pub fn unpipeProcess(con: *Console) bool {
         if (con.forked_child) |*child|
-            con.tryRestoreFiles(child);
+            return con.tryRestoreFiles(child);
+
+        return false;
     }
 
     pub fn pushArguments(

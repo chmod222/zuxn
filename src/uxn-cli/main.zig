@@ -3,6 +3,7 @@ const build_options = @import("build_options");
 const std = @import("std");
 const os = std.os;
 const fs = std.fs;
+const posix = std.posix;
 
 const clap = @import("clap");
 
@@ -139,14 +140,42 @@ pub fn main() !u8 {
     if (system.system_device.exit_code) |c|
         return c;
 
-    // Loop until either exit is requested or EOF reached
-    while (stdin.interface.takeByte() catch null) |b| {
-        system.console_device.pushStdinByte(&cpu, b) catch |fault|
-            try system.system_device.handleFault(&cpu, fault);
+    var fds: [1]posix.pollfd = [_]posix.pollfd{
+        .{ .fd = 0, .events = posix.system.POLL.IN, .revents = 0 },
+    };
 
-        if (system.system_device.exit_code) |c|
-            return c;
+    // Loop until either exit is requested or EOF reached
+    while (system.system_device.exit_code == null) {
+        const ready = posix.poll(&fds, 100) catch |e| {
+            logger.warn("poll() failed: {t}", .{e});
+
+            continue;
+        };
+
+        if (ready > 0) {
+            stdin.interface.fillMore() catch |e| {
+                if (e == error.EndOfStream and !system.console_device.unpipeProcess()) {
+                    // EOF and EOF cannot be restored
+                    break;
+                } else if (e != error.EndOfStream) {
+                    logger.warn("read(): {t}", .{e});
+
+                    break;
+                }
+
+                continue;
+            };
+
+            logger.debug("Pushing {} bytes from stdin", .{stdin.interface.bufferedLen()});
+
+            while (stdin.interface.bufferedLen() > 0) {
+                const b = stdin.interface.takeByte() catch unreachable;
+
+                system.console_device.pushStdinByte(&cpu, b) catch |fault|
+                    try system.system_device.handleFault(&cpu, fault);
+            }
+        }
     }
 
-    return 0;
+    return system.system_device.exit_code orelse 0;
 }
