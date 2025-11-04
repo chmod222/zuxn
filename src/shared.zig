@@ -61,13 +61,16 @@ pub fn loadOrAssembleRom(
     debug_source: ?[]const u8,
 ) !LoadResult {
     const cwd = std.fs.cwd();
+
     const input_file = try cwd.openFile(input_source, .{});
+    defer input_file.close();
 
     var stderr_buffer: [1024]u8 = undefined;
     var stderr = std.fs.File.stderr().writer(&stderr_buffer);
     defer stderr.interface.flush() catch {};
 
-    defer input_file.close();
+    var buffer: [1024]u8 = undefined;
+    var file_reader = input_file.reader(&buffer);
 
     if (build_options.enable_jit_assembly and
         std.ascii.endsWithIgnoreCase(input_source, ".tal"))
@@ -76,8 +79,6 @@ pub fn loadOrAssembleRom(
         defer assembler.deinit();
 
         var rom_data = try alloc.create([uxn.Cpu.page_size]u8);
-        var buffer: [1024]u8 = undefined;
-        var file_reader = input_file.reader(&buffer);
 
         @memset(rom_data[0..], 0x00);
 
@@ -118,7 +119,7 @@ pub fn loadOrAssembleRom(
         return .{
             .alloc = alloc,
 
-            .rom = try uxn.loadRom(alloc, input_file),
+            .rom = try uxn.loadRom(alloc, &file_reader.interface),
 
             .debug_symbols = if (debug_source) |debug_symbols| r: {
                 const symbols_file = try cwd.openFile(debug_symbols, .{});

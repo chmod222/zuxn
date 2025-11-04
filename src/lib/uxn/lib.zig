@@ -4,25 +4,27 @@ pub const Cpu = @import("Cpu.zig");
 pub const faults_enabled = false;
 
 const std = @import("std");
+const io = std.io;
 
 const Allocator = std.mem.Allocator;
 
-pub fn loadRom(alloc: Allocator, reader: anytype) !*[Cpu.page_size]u8 {
-    var ram_pos: u16 = 0x0100;
-    var ram = try alloc.alloc(u8, Cpu.page_size);
+pub fn loadRom(alloc: Allocator, reader: *io.Reader) !*[Cpu.page_size]u8 {
+    const ram = try alloc.create([Cpu.page_size]u8);
 
-    while (true) {
-        const r = try reader.readAll(ram[ram_pos..ram_pos +| 0x1000]);
+    var writer = io.Writer.fixed(ram);
 
-        ram_pos += @truncate(r);
+    // Fill zero page
+    _ = try writer.splatByte(0x00, 0x100);
 
-        if (r < 0x1000)
-            break;
-    }
+    // Read ROM data until EOF or full
+    _ = reader.streamRemaining(&writer) catch |e| {
+        if (e != error.WriteFailed) {
+            return e;
+        }
+    };
 
-    // Zero out the zero-page and everything behind the ROM
-    @memset(ram[0..0x100], 0x00);
-    @memset(ram[ram_pos..Cpu.page_size], 0x00);
+    // Clear remaining ROM data
+    _ = writer.splatByte(0x00, writer.unusedCapacityLen()) catch {};
 
-    return @ptrCast(ram);
+    return ram;
 }
