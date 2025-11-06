@@ -3,18 +3,28 @@ const build_options = @import("build_options");
 const std = @import("std");
 const clap = @import("clap");
 
+const Allocator = std.mem.Allocator;
 const os = std.os;
+const fs = std.fs;
 
 const uxn = @import("uxn-core");
 const uxn_asm = @import("uxn-asm");
+
+const Assembler = uxn_asm.Assembler(.{});
 
 pub const Debug = @import("Debug.zig");
 
 pub const parsers = .{
     .FILE = clap.parsers.string,
+    .DIR = clap.parsers.string,
     .ARG = clap.parsers.string,
     .INT = clap.parsers.int(u8, 10),
 };
+
+pub const jit_assembly_args =
+    \\-r, --relative-include Consider includes to be relative to currently processed file
+    \\-C <DIR>               Use DIR as the current assembler working directory (overridden by `-r`)
+;
 
 pub const LoadResult = struct {
     alloc: std.mem.Allocator,
@@ -29,6 +39,27 @@ pub const LoadResult = struct {
             debug.unload();
     }
 };
+
+pub fn createAssembler(clap_res: anytype, alloc: Allocator) !Assembler {
+    const input_file_name = clap_res.positionals[0].?;
+
+    const base_dir = if (clap_res.args.C) |c|
+        try std.fs.cwd().openDir(c, .{})
+    else
+        std.fs.cwd();
+
+    const include_base = if (clap_res.args.@"relative-include" != 0)
+        try base_dir.openDir(fs.path.dirname(input_file_name).?, .{})
+    else
+        base_dir;
+
+    var assembler = Assembler.init(alloc, include_base);
+
+    assembler.include_follow = clap_res.args.@"relative-include" != 0;
+    assembler.default_input_filename = input_file_name;
+
+    return assembler;
+}
 
 pub fn handleCommonArgs(
     clap_res: anytype,
@@ -57,10 +88,16 @@ pub fn handleCommonArgs(
 
 pub fn loadOrAssembleRom(
     alloc: std.mem.Allocator,
+    args: anytype,
     input_source: []const u8,
     debug_source: ?[]const u8,
 ) !LoadResult {
-    const cwd = std.fs.cwd();
+    const cwd = if (!@hasField(@TypeOf(args.args), "C"))
+        std.fs.cwd()
+    else if (args.args.C) |c|
+        try std.fs.cwd().openDir(c, .{})
+    else
+        std.fs.cwd();
 
     const input_file = try cwd.openFile(input_source, .{});
     defer input_file.close();
@@ -75,15 +112,12 @@ pub fn loadOrAssembleRom(
     if (build_options.enable_jit_assembly and
         std.ascii.endsWithIgnoreCase(input_source, ".tal"))
     {
-        var assembler = uxn_asm.Assembler(.{}).init(alloc, cwd);
+        var assembler = try createAssembler(args, alloc);
         defer assembler.deinit();
 
         var rom_data = try alloc.create([uxn.Cpu.page_size]u8);
 
         @memset(rom_data[0..], 0x00);
-
-        assembler.include_follow = false;
-        assembler.default_input_filename = input_source;
 
         assembler.assemble(
             &file_reader.interface,

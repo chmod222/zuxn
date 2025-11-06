@@ -150,6 +150,7 @@ pub fn build(b: *std.Build) void {
     });
 
     uxn_asm.root_module.addImport("uxn-asm", asm_mod);
+    uxn_asm.root_module.addImport("uxn-shared", shared_mod);
     uxn_asm.root_module.addImport("clap", dep_clap.module("clap"));
 
     b.installArtifact(uxn_cli);

@@ -1,3 +1,5 @@
+const build_options = @import("build_options");
+
 const std = @import("std");
 const fs = std.fs;
 const posix = std.posix;
@@ -527,8 +529,19 @@ pub fn main() !u8 {
     const params = comptime clap.parseParamsComptime(
         \\-h, --help                 Display this help and exit.
         \\-s, --scale <INT>          Display scale factor
+        \\
+    ++ (if (build_options.enable_jit_assembly)
+        (shared.jit_assembly_args ++
+            \\
+            \\-S, --symbols <FILE>       Load debug symbols (argument ignored if self-assembling)
+            \\<FILE>                     Input ROM or Tal
+            \\
+        )
+    else
         \\-S, --symbols <FILE>       Load debug symbols
         \\<FILE>                     Input ROM
+        \\
+    ) ++
         \\<ARG>...                   Command line arguments for the module
     );
 
@@ -555,6 +568,7 @@ pub fn main() !u8 {
 
     var env = try shared.loadOrAssembleRom(
         alloc,
+        res,
         res.positionals[0].?,
         res.args.symbols,
     );

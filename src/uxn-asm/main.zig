@@ -4,6 +4,7 @@ const fs = std.fs;
 
 const uxn = @import("uxn-core");
 const uxn_asm = @import("uxn-asm");
+const shared = @import("uxn-shared");
 
 const clap = @import("clap");
 
@@ -69,16 +70,8 @@ pub fn main() !void {
     const input_file = try base_dir.openFile(input_file_name, .{});
     defer input_file.close();
 
-    const include_base = if (res.args.@"relative-include" != 0)
-        try base_dir.openDir(fs.path.dirname(input_file_name).?, .{})
-    else
-        base_dir;
-
-    var assembler = Assembler.init(alloc, include_base);
+    var assembler = try shared.createAssembler(res, alloc);
     defer assembler.deinit();
-
-    assembler.include_follow = res.args.@"relative-include" != 0;
-    assembler.default_input_filename = input_file_name;
 
     var read_buffer: [1024]u8 = undefined;
     var write_buffer: [1024]u8 = undefined;
