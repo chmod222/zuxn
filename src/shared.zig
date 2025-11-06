@@ -116,6 +116,7 @@ pub fn loadOrAssembleRom(
         defer assembler.deinit();
 
         var rom_data = try alloc.create([uxn.Cpu.page_size]u8);
+        errdefer alloc.free(rom_data);
 
         @memset(rom_data[0..], 0x00);
 
@@ -124,8 +125,6 @@ pub fn loadOrAssembleRom(
             rom_data,
         ) catch |err| {
             assembler.issueDiagnostic(err, &stderr.interface) catch {};
-
-            alloc.free(rom_data);
 
             return error.AssemblyFailed;
         };
