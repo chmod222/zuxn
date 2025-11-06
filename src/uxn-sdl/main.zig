@@ -80,23 +80,19 @@ fn Callbacks(comptime SystemType: type) type {
             @memset(samples, 0x0000);
 
             for (&sys.audio_devices) |*poly| {
-                if (poly.duration <= 0) {
-                    poly.evaluateFinishVector(cpu) catch unreachable;
-                }
-
-                poly.updateDuration();
                 poly.renderAudio(samples);
+
+                if (poly.active_sample) |s| {
+                    if (s.envelope.isFinished()) {
+                        poly.evaluateFinishVector(cpu) catch |fault|
+                            sys.system_device.handleFault(cpu, fault) catch {};
+                    }
+                }
             }
 
             for (0..samples.len) |i| {
                 samples[i] <<= 6;
             }
-
-            //if (still_playing == 0) {
-            //    const audio_id: *SDL.SDL_AudioDeviceID = @alignCast(@ptrCast(u.?));
-            //
-            //    SDL.SDL_PauseAudioDevice(audio_id.*, 1);
-            //}
         }
 
         pub fn receiveStdin(p: ?*anyopaque) callconv(.c) c_int {

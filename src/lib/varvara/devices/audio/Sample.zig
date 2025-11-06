@@ -26,7 +26,7 @@ pub fn getNextSample(sample: *@This()) ?f32 {
     const p1: usize = @intFromFloat(sample.position);
     const raw: f32 = @floatFromInt(@as(i8, @bitCast(sample.data[p1] ^ 0x80)));
 
-    return raw * std.math.clamp(sample.envelope.vol, 0.0, 1.0);
+    return raw * std.math.clamp(sample.envelope.volume(), 0.0, 1.0);
 }
 
 fn advance(sample: *@This()) void {

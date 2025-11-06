@@ -1,78 +1,58 @@
-const AdsrFlags = @import("../audio.zig").AdsrFlags;
+const audio = @import("../audio.zig");
+const AdsrFlags = audio.AdsrFlags;
+const std = @import("std");
+
+const step = 1.0 / 15.0;
+const sample_rate = audio.sample_rate;
 
 a: f32,
 d: f32,
 s: f32,
 r: f32,
 
-vol: f32,
+age: f32,
 
-stage: enum {
-    attack,
-    decay,
-    sustain,
-    release,
-},
+pub fn init(adsr: AdsrFlags) @This() {
+    const attack = @as(f32, @floatFromInt(adsr.attack)) * step;
+    const decay = @as(f32, @floatFromInt(adsr.decay)) * step;
+    const sustain = @as(f32, @floatFromInt(adsr.sustain)) * step;
+    const release = @as(f32, @floatFromInt(adsr.release)) * step;
 
-pub fn init(timing: f32, adsr: AdsrFlags) @This() {
-    const attack = @as(f32, @floatFromInt(adsr.attack)) * 64;
-    const decay = @as(f32, @floatFromInt(adsr.decay)) * 64;
-    const sustain = @as(f32, @floatFromInt(adsr.sustain)) / 16;
-    const release = @as(f32, @floatFromInt(adsr.release)) * 64;
-
-    var env = @This(){
-        .a = 0.0,
-        .d = timing / @max(10.0, decay),
-        .s = sustain,
-        .r = timing / @max(10.0, release),
-        .vol = 0.0,
-        .stage = .attack,
+    return @This(){
+        .a = attack,
+        .d = attack + decay,
+        .s = attack + decay + sustain,
+        .r = attack + decay + sustain + release,
+        .age = 0.0,
     };
+}
 
-    if (attack > 0) {
-        env.a = timing / attack;
-    } else if (env.stage == .attack) {
-        env.stage = .decay;
-        env.vol = 1.0;
-    }
+pub fn volume(env: *const @This()) f32 {
+    return if (env.a == 0.0 and
+        env.d == 0.0 and
+        env.s == 0.0 and
+        env.r == 0.0)
+        1.0
+    else if (env.age < env.a)
+        env.age / env.a
+    else if (env.age < env.d)
+        0.5 * (2 * env.d - env.a - env.age) / (env.d - env.a)
+    else if (env.age < env.s)
+        0.5
+    else if (env.age < env.r)
+        0.5 * (env.r - env.age) / (env.r - env.s)
+    else
+        0.0;
+}
 
-    return env;
+pub fn isFinished(env: *const @This()) bool {
+    return env.age >= env.r;
 }
 
 pub fn off(env: *@This()) void {
-    env.stage = .release;
+    env.age = env.r;
 }
 
 pub fn advance(env: *@This()) void {
-    switch (env.stage) {
-        .attack => {
-            env.vol += env.a;
-
-            if (env.vol >= 1.0) {
-                env.stage = .decay;
-                env.vol = 1.0;
-            }
-        },
-
-        .decay => {
-            env.vol -= env.d;
-
-            if (env.vol <= env.s or env.d <= 0.0) {
-                env.stage = .sustain;
-                env.vol = env.s;
-            }
-        },
-
-        .sustain => {
-            env.vol = env.s;
-        },
-
-        .release => {
-            if (env.vol <= 0.0 or env.r <= 0.0) {
-                env.vol = 0;
-            } else {
-                env.vol -= env.r;
-            }
-        },
-    }
+    env.age += 1.0 / @as(f32, @floatFromInt(sample_rate));
 }

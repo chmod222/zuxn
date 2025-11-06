@@ -38,7 +38,6 @@ pub const ports = struct {
     pub const vector = 0x0;
     pub const position = 0x2;
     pub const output = 0x4;
-    pub const duration = 0x5;
     pub const adsr = 0x8;
     pub const length = 0xa;
     pub const addr = 0xc;
@@ -70,13 +69,6 @@ fn getFrequency(pitch: PitchFlags) f32 {
     return base_frequencies[pitch.note()] * pitch_exponential;
 }
 
-fn getDuration(pitch: PitchFlags, sample: []const u8) f32 {
-    const tone_freq = getFrequency(pitch);
-    const base_freq = getFrequency(@bitCast(@as(u8, 60)));
-
-    return @as(f32, @floatFromInt(sample.len)) / (tone_freq / base_freq);
-}
-
 const pitch_names: [12][:0]const u8 = .{
     "C",
     "C♯ / D♭",
@@ -102,36 +94,37 @@ pub const Audio = struct {
     next_sample: ?Sample = null,
 
     pitch: PitchFlags = undefined,
-    duration: f32 = 0.0,
 
-    pub fn getOutputVU(aud: *@This()) u8 {
-        return if (aud.active_sample) |sample|
-            @as(u8, @intFromFloat(sample.envelope.vol * 255))
-        else
-            0x00;
+    pub fn getOutputVU(aud: *Audio) u8 {
+        if (aud.active_sample) |sample| {
+            const vol = sample.envelope.volume();
+
+            return @as(u8, @intFromFloat(vol * aud.vol_left * 15)) << 4 |
+                @as(u8, @intFromFloat(vol * aud.vol_right * 15));
+        } else {
+            return 0x00;
+        }
     }
 
-    fn startAudio(aud: *@This(), cpu: *Cpu) void {
+    fn startAudio(aud: *Audio, cpu: *Cpu) void {
         var pitch = aud.device.loadPort(PitchFlags, cpu, ports.pitch);
 
         const volume = aud.device.loadPort(VolumeFlags, cpu, ports.volume);
         const adsr = aud.device.loadPort(AdsrFlags, cpu, ports.adsr);
 
-        const duration = aud.device.loadPort(u16, cpu, ports.duration);
         const addr = aud.device.loadPort(u16, cpu, ports.addr);
         const len = aud.device.loadPort(u16, cpu, ports.length);
 
         const sample = cpu.mem[addr..addr +| len];
 
         if (pitch.midi_note == 0) {
-            return aud.stopNote(duration);
+            return aud.stopNote();
         } else if (pitch.midi_note < 20 or len == 0) {
             pitch.midi_note = 20;
         }
 
         aud.next_sample = aud.startNote(
             pitch,
-            duration,
             volume,
             adsr,
             sample,
@@ -139,9 +132,8 @@ pub const Audio = struct {
     }
 
     pub fn startNote(
-        aud: *@This(),
+        aud: *Audio,
         pitch: PitchFlags,
-        duration: u16,
         volume: VolumeFlags,
         adsr: AdsrFlags,
         sample: []const u8,
@@ -161,26 +153,21 @@ pub const Audio = struct {
             else
                 tone_freq / rate_adjust / (sample_rate / 1000),
 
-            .envelope = Envelope.init(timer / sample_count, adsr),
+            .envelope = Envelope.init(adsr),
         };
 
         aud.vol_left = @as(f32, @floatFromInt(volume.left)) / 15.0;
         aud.vol_right = @as(f32, @floatFromInt(volume.right)) / 15.0;
 
         aud.pitch = pitch;
-        aud.duration = if (duration == 0)
-            getDuration(pitch, sample)
-        else
-            @floatFromInt(duration);
 
-        logger.debug("[Audio@{x}] Start playing {s} {d} ({x:0>2}); ADSR: {x:0>4}; Volume: {x:0>2}; Duration: {:.3}; SL = {x:0>4}; F = {d:.6}", .{
+        logger.debug("[Audio@{x}] Start playing {s} {d} ({x:0>2}); ADSR: {x:0>4}; Volume: {x:0>2}; SL = {x:0>4}; F = {d:.6}", .{
             aud.device.addr,
             pitch_names[pitch.note()],
             pitch.octave(),
             pitch.midi_note,
             @as(u16, @bitCast(adsr)),
             @as(u8, @bitCast(volume)),
-            aud.duration,
             sample.len,
             tone_freq,
         });
@@ -189,30 +176,18 @@ pub const Audio = struct {
     }
 
     pub fn stopNote(
-        aud: *@This(),
-        duration: u16,
+        aud: *Audio,
     ) void {
-        logger.debug("[Audio@{x}] Stop playing; Duration: {:.3}", .{
-            aud.device.addr,
-            duration,
-        });
+        logger.debug("[Audio@{x}] Stop playing", .{aud.device.addr});
 
         if (aud.active_sample) |*s| {
-            aud.duration = if (duration == 0)
-                getDuration(@bitCast(@as(u8, 20)), s.data)
-            else
-                @floatFromInt(duration);
-
             s.envelope.off();
         }
     }
 
-    pub fn updateDuration(aud: *@This()) void {
-        aud.duration -= timer;
-    }
-
-    pub fn evaluateFinishVector(aud: *@This(), cpu: *Cpu) !void {
+    pub fn evaluateFinishVector(aud: *Audio, cpu: *Cpu) !void {
         const vector = aud.device.loadPort(u16, cpu, ports.vector);
+        defer aud.active_sample = null;
 
         if (vector != 0x0000) {
             return cpu.evaluateVector(vector);
@@ -224,7 +199,7 @@ pub const Audio = struct {
     // Divide once at comptime so we only need to multiply below.
     const inv_crossfade: f32 = 1.0 / @as(f32, @floatFromInt(crossfade_samples * 2));
 
-    pub fn renderAudio(aud: *@This(), samples: []i16) void {
+    pub fn renderAudio(aud: *Audio, samples: []i16) void {
         var i: usize = 0;
 
         if (aud.next_sample) |*next_sample| {
@@ -265,7 +240,7 @@ pub const Audio = struct {
     }
 
     pub fn intercept(
-        aud: *@This(),
+        aud: *Audio,
         cpu: *Cpu,
         port: u4,
         kind: Cpu.InterceptKind,
