@@ -140,10 +140,7 @@ pub fn loadOrAssembleRom(
 
                 try assembler.generateSymbols(&symbol_writer.writer);
 
-                var symbol_data = symbol_writer.toArrayList();
-                defer symbol_data.deinit(alloc);
-
-                var symbol_reader = std.io.Reader.fixed(symbol_data.items);
+                var symbol_reader = std.io.Reader.fixed(symbol_writer.writer.buffered());
 
                 break :r try Debug.loadSymbols(alloc, &symbol_reader);
             } else null,
