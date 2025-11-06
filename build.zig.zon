@@ -3,6 +3,7 @@
     .fingerprint = 0x3a108afea50e7a5e,
 
     .version = "0.0.1",
+    .minimum_zig_version = "0.15.2",
 
     .paths = .{
         "src/",
