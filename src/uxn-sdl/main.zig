@@ -283,6 +283,7 @@ fn mainGraphical(
     cpu: *uxn.Cpu,
     system: *varvara.VarvaraDefault,
     scale: u8,
+    fps_limit: ?usize,
     args: [][]const u8,
 ) !u8 {
     if (SDL.SDL_Init(SDL.SDL_INIT_JOYSTICK | SDL.SDL_INIT_VIDEO | SDL.SDL_INIT_EVENTS | SDL.SDL_INIT_AUDIO) < 0)
@@ -349,6 +350,8 @@ fn mainGraphical(
         system.screen_device.height,
         scale,
     );
+
+    const target_frametime = 1.0 / @as(f32, @floatFromInt(fps_limit orelse std.math.maxInt(u32)));
 
     main_loop: while (system.system_device.exit_code == null) {
         const t0 = SDL.SDL_GetPerformanceCounter();
@@ -487,11 +490,6 @@ fn mainGraphical(
             }
         }
 
-        const t1 = SDL.SDL_GetPerformanceCounter();
-        const frametime = @as(f32, @floatFromInt(t1 - t0)) / @as(f32, @floatFromInt(SDL.SDL_GetPerformanceFrequency())) * 1000.0;
-
-        _ = frametime;
-
         system.screen_device.evaluateFrame(cpu) catch |fault|
             try system.system_device.handleFault(cpu, fault);
 
@@ -510,6 +508,16 @@ fn mainGraphical(
         }
 
         drawScreen(&system.screen_device, &system.system_device, texture, renderer);
+
+        const t1 = SDL.SDL_GetPerformanceCounter();
+        const frametime = @as(f32, @floatFromInt(t1 - t0)) / @as(f32, @floatFromInt(SDL.SDL_GetPerformanceFrequency()));
+
+        // Frame rendered too quickly, sleep until target framerate is achieved.
+        if (frametime < target_frametime) {
+            const delay = (target_frametime - frametime) * 1000;
+
+            SDL.SDL_Delay(@intFromFloat(delay));
+        }
     }
 
     if (system.system_device.exit_code == null) {
@@ -525,6 +533,7 @@ pub fn main() !u8 {
     const params = comptime clap.parseParamsComptime(
         \\-h, --help                 Display this help and exit.
         \\-s, --scale <INT>          Display scale factor
+        \\-r <INT>                   Limit target frames per second to INT (default: unlimited)
         \\
     ++ (if (build_options.enable_jit_assembly)
         (shared.jit_assembly_args ++
@@ -599,5 +608,11 @@ pub fn main() !u8 {
     cpu.input_intercepts = varvara.full_intercepts.input;
 
     // Run main
-    return mainGraphical(&cpu, &system, res.args.scale orelse 1, @constCast(res.positionals[1]));
+    return mainGraphical(
+        &cpu,
+        &system,
+        @truncate(res.args.scale orelse 1),
+        res.args.r,
+        @constCast(res.positionals[1]),
+    );
 }
