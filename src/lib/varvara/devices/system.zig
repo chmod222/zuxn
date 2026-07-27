@@ -38,6 +38,8 @@ pub const System = struct {
         .{ .r = 0, .g = 0, .b = 0 },
     },
 
+    env: *std.process.Environ.Map,
+
     fn splitRgb(r: u16, g: u16, b: u16, c: u2) Color {
         const sw = @as(u4, 3 - c) * 4;
 
@@ -253,7 +255,7 @@ pub const System = struct {
 
                 logger.debug("Expansion: Fetch environment variable \"{s}\" (dest len = {})", .{ env_name, dest_len });
 
-                const env = std.posix.getenv(env_name) orelse "";
+                const env = sys.env.get(env_name) orelse "";
                 const cpy_len = @min(env.len, dest.len);
 
                 if (cpy_len > 0) {

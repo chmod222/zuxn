@@ -4,14 +4,14 @@ pub const Cpu = @import("Cpu.zig");
 pub const faults_enabled = false;
 
 const std = @import("std");
-const io = std.io;
+const Io = std.Io;
 
 const Allocator = std.mem.Allocator;
 
-pub fn loadRom(alloc: Allocator, reader: *io.Reader) !*[Cpu.page_size]u8 {
+pub fn loadRom(alloc: Allocator, reader: *Io.Reader) !*[Cpu.page_size]u8 {
     const ram = try alloc.create([Cpu.page_size]u8);
 
-    var writer = io.Writer.fixed(ram);
+    var writer = Io.Writer.fixed(ram);
 
     // Fill zero page
     _ = try writer.splatByte(0x00, 0x100);

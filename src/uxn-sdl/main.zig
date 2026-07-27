@@ -1,8 +1,8 @@
 const build_options = @import("build_options");
 
 const std = @import("std");
-const fs = std.fs;
 const posix = std.posix;
+const Io = std.Io;
 
 const clap = @import("clap");
 
@@ -38,7 +38,6 @@ pub const std_options = std.Options{
 var AUDIO_FINISHED: u32 = undefined;
 var STDIN_RECEIVED: u32 = undefined;
 
-var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 var audio_id: SDL.SDL_AudioDeviceID = undefined;
 
 fn sdlPanic() noreturn {
@@ -100,7 +99,7 @@ fn Callbacks(comptime SystemType: type) type {
 
             var event: SDL.SDL_Event = .{ .type = STDIN_RECEIVED };
             var stdin_buffer: [1024]u8 = undefined;
-            var stdin = fs.File.stdin().readerStreaming(&stdin_buffer);
+            var stdin = Io.File.stdin().readerStreaming(sys.io, &stdin_buffer);
 
             var fds: [1]posix.pollfd = [_]posix.pollfd{
                 .{ .fd = 0, .events = posix.system.POLL.IN, .revents = 0 },
@@ -527,8 +526,8 @@ fn mainGraphical(
     return system.system_device.exit_code.?;
 }
 
-pub fn main() !u8 {
-    const alloc = gpa.allocator();
+pub fn main(init: std.process.Init) !u8 {
+    const alloc = init.gpa;
 
     const params = comptime clap.parseParamsComptime(
         \\-h, --help                 Display this help and exit.
@@ -552,10 +551,10 @@ pub fn main() !u8 {
 
     var diag = clap.Diagnostic{};
 
-    var stdout = fs.File.stdout().writer(&.{});
-    var stderr = fs.File.stderr().writer(&.{});
+    var stdout = Io.File.stdout().writer(init.io, &.{});
+    var stderr = Io.File.stderr().writer(init.io, &.{});
 
-    var res = clap.parse(clap.Help, &params, shared.parsers, .{
+    var res = clap.parse(clap.Help, &params, shared.parsers, init.minimal.args, .{
         .diagnostic = &diag,
         .allocator = alloc,
     }) catch |err| {
@@ -567,12 +566,13 @@ pub fn main() !u8 {
 
     defer res.deinit();
 
-    if (shared.handleCommonArgs(res, params)) |exit| {
+    if (shared.handleCommonArgs(init.io, res, params)) |exit| {
         return exit;
     }
 
     var env = try shared.loadOrAssembleRom(
         alloc,
+        init.io,
         res,
         res.positionals[0].?,
         res.args.symbols,
@@ -582,13 +582,15 @@ pub fn main() !u8 {
 
     // Initialize system devices
     var system = try varvara.VarvaraDefault.init(
-        gpa.allocator(),
+        init.gpa,
+        init.io,
+        init.environ_map,
         &stdout.interface,
         &stderr.interface,
     );
     defer system.deinit();
 
-    if (!system.sandboxFiles(fs.cwd())) {
+    if (!system.sandboxFiles(Io.Dir.cwd())) {
         logger.debug("File implementation does not suport sandboxing", .{});
     }
 

@@ -93,6 +93,7 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("src/uxn-cli/main.zig"),
             .target = target,
             .optimize = optimize,
+            .link_libc = true,
         }),
     });
 
@@ -101,7 +102,6 @@ pub fn build(b: *std.Build) void {
     uxn_cli.root_module.addImport("uxn-varvara", varvara_mod);
     uxn_cli.root_module.addImport("clap", dep_clap.module("clap"));
     uxn_cli.root_module.addImport("build_options", build_options_mod);
-    uxn_cli.linkLibC();
 
     if (enable_jit_assembly)
         uxn_cli.root_module.addImport("uxn-asm", asm_mod);
@@ -113,6 +113,7 @@ pub fn build(b: *std.Build) void {
                 .root_source_file = b.path("src/uxn-sdl/main.zig"),
                 .target = target,
                 .optimize = optimize,
+                .link_libc = true,
             }),
         });
 
@@ -121,8 +122,7 @@ pub fn build(b: *std.Build) void {
         uxn_sdl.root_module.addImport("uxn-varvara", varvara_mod);
         uxn_sdl.root_module.addImport("clap", dep_clap.module("clap"));
         uxn_sdl.root_module.addImport("build_options", build_options_mod);
-        uxn_sdl.linkLibC();
-        uxn_sdl.linkSystemLibrary("SDL2");
+        uxn_sdl.root_module.linkSystemLibrary("SDL2", .{});
 
         if (enable_jit_assembly)
             uxn_sdl.root_module.addImport("uxn-asm", asm_mod);

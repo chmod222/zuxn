@@ -1,12 +1,11 @@
 const Debug = @This();
 
 const std = @import("std");
-const io = std.io;
+const Io = std.Io;
 
 const uxn = @import("uxn-core");
 
 const Allocator = std.mem.Allocator;
-const File = std.fs.File;
 
 const Symbol = struct {
     addr: u16,
@@ -27,14 +26,14 @@ fn cmpAddr(ctx: void, a: Symbol, b: Symbol) bool {
     return a.addr < b.addr;
 }
 
-pub fn loadSymbols(alloc: Allocator, reader: *io.Reader) !Debug {
+pub fn loadSymbols(alloc: Allocator, reader: *Io.Reader) !Debug {
     var symbol_list = std.ArrayListUnmanaged(Symbol).empty;
 
     errdefer symbol_list.deinit(alloc);
 
     return while (true) {
         var temp: Symbol = undefined;
-        var symbol_writer = std.io.Writer.fixed(&temp.symbol);
+        var symbol_writer = Io.Writer.fixed(&temp.symbol);
 
         temp.addr = reader.takeInt(u16, .big) catch {
             std.mem.sort(Symbol, symbol_list.items, {}, cmpAddr);

@@ -1,9 +1,8 @@
 const build_options = @import("build_options");
 
 const std = @import("std");
-const os = std.os;
-const fs = std.fs;
 const posix = std.posix;
+const Io = std.Io;
 
 const clap = @import("clap");
 
@@ -33,8 +32,6 @@ pub const std_options = std.Options{
     },
 };
 
-var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-
 fn intercept(
     cpu: *uxn.Cpu,
     addr: u8,
@@ -47,15 +44,15 @@ fn intercept(
         try sys.intercept(cpu, addr, kind);
 }
 
-pub fn main() !u8 {
-    const alloc = gpa.allocator();
+pub fn main(init: std.process.Init) !u8 {
+    const alloc = init.gpa;
 
     var stdin_buffer: [1024]u8 = undefined;
-    var stdin = std.fs.File.stdin().reader(&stdin_buffer);
+    var stdin = Io.File.stdin().reader(init.io, &stdin_buffer);
 
     // Explicitely unbuffered
-    var stdout = std.fs.File.stdout().writer(&.{});
-    var stderr = std.fs.File.stderr().writer(&.{});
+    var stdout = Io.File.stdout().writer(init.io, &.{});
+    var stderr = Io.File.stderr().writer(init.io, &.{});
 
     const params = comptime clap.parseParamsComptime(
         \\-h, --help                 Display this help and exit.
@@ -82,7 +79,7 @@ pub fn main() !u8 {
         .allocator = alloc,
     };
 
-    const res = clap.parse(clap.Help, &params, shared.parsers, clap_args) catch |err| {
+    const res = clap.parse(clap.Help, &params, shared.parsers, init.minimal.args, clap_args) catch |err| {
         // Report useful error and exit
         diag.report(&stderr.interface, err) catch {};
 
@@ -91,12 +88,13 @@ pub fn main() !u8 {
 
     defer res.deinit();
 
-    if (shared.handleCommonArgs(res, params)) |exit| {
+    if (shared.handleCommonArgs(init.io, res, params)) |exit| {
         return exit;
     }
 
     var env = try shared.loadOrAssembleRom(
         alloc,
+        init.io,
         res,
         res.positionals[0].?,
         res.args.symbols,
@@ -105,13 +103,15 @@ pub fn main() !u8 {
     defer env.deinit();
 
     var system = try varvara.VarvaraDefault.init(
-        gpa.allocator(),
+        init.gpa,
+        init.io,
+        init.environ_map,
         &stdout.interface,
         &stderr.interface,
     );
     defer system.deinit();
 
-    if (!system.sandboxFiles(fs.cwd())) {
+    if (!system.sandboxFiles(Io.Dir.cwd())) {
         logger.debug("File implementation does not support sandboxing", .{});
     }
 

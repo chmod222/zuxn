@@ -1,8 +1,7 @@
 const Cpu = @import("uxn-core").Cpu;
 
 const std = @import("std");
-const io = std.io;
-const posix = std.posix;
+const Io = std.Io;
 const impl = @import("impl.zig");
 const logger = std.log.scoped(.uxn_varvara_console);
 
@@ -20,10 +19,17 @@ pub const ports = struct {
     pub const exec = 0xf;
 };
 
+fn catchErrno(res: c_int) !c_int {
+    return switch (std.c.errno(res)) {
+        .SUCCESS => res,
+        else => return error.Errno,
+    };
+}
+
 pub const Console = struct {
     const ConnectedPipe = struct {
-        pipe: [2]posix.fd_t,
-        shadowed: posix.fd_t,
+        pipe: [2]std.c.fd_t,
+        shadowed: std.c.fd_t,
     };
 
     const ForkMode = packed struct(u8) {
@@ -37,7 +43,7 @@ pub const Console = struct {
 
     const ForkedChild = struct {
         mode: ForkMode,
-        pid: posix.pid_t,
+        pid: std.c.pid_t,
 
         /// Input to forked process from main stdout
         // TODO: hook up directly to Console/write, Console/error DEOs
@@ -50,8 +56,8 @@ pub const Console = struct {
 
     device: impl.DeviceMixin,
 
-    stderr: *io.Writer,
-    stdout: *io.Writer,
+    stderr: *Io.Writer,
+    stdout: *Io.Writer,
 
     forked_child: ?ForkedChild = null,
 
@@ -107,10 +113,11 @@ pub const Console = struct {
 
     fn checkChild(con: *Console, cpu: *Cpu) void {
         if (con.forked_child) |*child| {
-            const r = posix.waitpid(child.pid, std.c.W.NOHANG);
+            var status: c_int = 0;
+            const r = std.c.waitpid(child.pid, &status, std.c.W.NOHANG);
 
-            if (r.pid > 0) {
-                con.updateProcessState(cpu, 0xff, std.c.W.EXITSTATUS(r.status));
+            if (r > 0) {
+                con.updateProcessState(cpu, 0xff, @intCast(status));
                 con.cleanupChild(child);
             } else {
                 con.updateProcessState(cpu, 0x01, 0x00);
@@ -122,28 +129,28 @@ pub const Console = struct {
         con: *Console,
         cmd: []const u8,
         mode: ForkMode,
-        input: ?[2]posix.fd_t,
-        output: ?[2]posix.fd_t,
+        input: ?[2]std.c.fd_t,
+        output: ?[2]std.c.fd_t,
     ) !noreturn {
         if (input) |pipe| {
-            posix.dup2(pipe[0], 0) catch |e|
+            _ = catchErrno(std.c.dup2(pipe[0], 0)) catch |e|
                 logger.warn("Failed connecting pipe to child input: dup2(): {t}", .{e});
 
-            posix.close(pipe[1]);
+            _ = try catchErrno(std.c.close(pipe[1]));
         }
 
         if (output) |pipe| {
             if (mode.pipe_stdout) {
-                posix.dup2(pipe[1], 1) catch |e|
+                _ = catchErrno(std.c.dup2(pipe[1], 1)) catch |e|
                     logger.warn("Failed connecting child stdout to output pipe: dup2(): {t}", .{e});
             }
 
             if (mode.pipe_stderr) {
-                posix.dup2(pipe[1], 2) catch |e|
+                _ = catchErrno(std.c.dup2(pipe[1], 2)) catch |e|
                     logger.warn("Failed connecting child stderr to output pipe: dup2(): {t}", .{e});
             }
 
-            posix.close(pipe[0]);
+            _ = try catchErrno(std.c.close(pipe[0]));
         }
 
         con.stdout.flush() catch {};
@@ -155,7 +162,8 @@ pub const Console = struct {
             null,
         };
 
-        return posix.execvpeZ(args[0].?, args, &.{null});
+        _ = std.c.execve(args[0].?, args, &.{null});
+        unreachable;
     }
 
     fn execForked(con: *Console, cpu: *Cpu, cmd: []const u8, mode: ForkMode) !void {
@@ -177,84 +185,90 @@ pub const Console = struct {
 
         errdefer con.updateProcessState(cpu, 0xff, 0xff);
 
+        var tmp_pipe: [2]std.c.fd_t = .{ 0, 0 };
+
         const input_pipe = if (mode.pipe_stdin) p: {
-            break :p posix.pipe() catch |e| {
+            _ = catchErrno(std.c.pipe(&tmp_pipe)) catch |e| {
                 logger.warn("Failed creating input pipe: pipe(): {t}", .{e});
+
                 return e;
             };
+
+            break :p tmp_pipe;
         } else null;
 
         const output_pipe = if (mode.pipe_stdout or mode.pipe_stderr) p: {
-            break :p posix.pipe() catch |e| {
+            _ = catchErrno(std.c.pipe(&tmp_pipe)) catch |e| {
                 logger.warn("Failed creating output pipe: pipe(): {t}", .{e});
+
                 return e;
             };
+            break :p tmp_pipe;
         } else null;
 
-        logger.debug("Executing '{s}'", .{ cmd, mode });
+        logger.debug("Executing '{s}' (mode: {})", .{ cmd, mode });
 
-        if (posix.fork()) |p| {
-            switch (p) {
-                0 => con.mainChild(cmd, mode, input_pipe, output_pipe) catch {
-                    posix.exit(1);
-                },
+        if (catchErrno(std.c.fork())) |child| {
+            if (child == 0) {
+                con.mainChild(cmd, mode, input_pipe, output_pipe) catch {
+                    std.c.exit(1);
+                };
+            } else {
+                // Main process
+                con.updateProcessState(cpu, 0x00, 0x01);
 
-                else => |child| {
-                    // Main process
-                    con.updateProcessState(cpu, 0x00, 0x01);
+                var connected_input: ?ConnectedPipe = null;
+                var connected_output: ?ConnectedPipe = null;
 
-                    var connected_input: ?ConnectedPipe = null;
-                    var connected_output: ?ConnectedPipe = null;
-
-                    if (input_pipe) |pipe| {
-                        connected_input = ConnectedPipe{
-                            .pipe = pipe,
-                            .shadowed = posix.dup(1) catch unreachable,
-                        };
-
-                        posix.dup2(pipe[1], 1) catch |e|
-                            logger.warn("Failed connecting parent stdout to input pipe: dup2(): {t}", .{e});
-
-                        posix.close(pipe[0]);
-                    }
-
-                    if (output_pipe) |pipe| {
-                        connected_output = ConnectedPipe{
-                            .pipe = pipe,
-                            .shadowed = posix.dup(0) catch unreachable,
-                        };
-
-                        posix.dup2(pipe[0], 0) catch |e|
-                            logger.warn("Failed connecting output pipe to parent stdin: dup2(): {t}", .{e});
-
-                        posix.close(pipe[1]);
-                    }
-
-                    con.forked_child = ForkedChild{
-                        .mode = mode,
-                        .pid = child,
-
-                        .input = connected_input,
-                        .output = connected_output,
+                if (input_pipe) |pipe| {
+                    connected_input = ConnectedPipe{
+                        .pipe = pipe,
+                        .shadowed = std.c.dup(1),
                     };
-                },
+
+                    _ = catchErrno(std.c.dup2(pipe[1], 1)) catch |e|
+                        logger.warn("Failed connecting parent stdout to input pipe: dup2(): {t}", .{e});
+
+                    _ = std.c.close(pipe[0]);
+                }
+
+                if (output_pipe) |pipe| {
+                    connected_output = ConnectedPipe{
+                        .pipe = pipe,
+                        .shadowed = std.c.dup(0),
+                    };
+
+                    _ = catchErrno(std.c.dup2(pipe[0], 0)) catch |e|
+                        logger.warn("Failed connecting output pipe to parent stdin: dup2(): {t}", .{e});
+
+                    _ = std.c.close(pipe[1]);
+                }
+
+                con.forked_child = ForkedChild{
+                    .mode = mode,
+                    .pid = child,
+
+                    .input = connected_input,
+                    .output = connected_output,
+                };
             }
         } else |e| {
             logger.warn("Failed forking process: fork(): {t}", .{e});
+
             return e;
         }
     }
 
     fn killChild(con: *Console, cpu: *Cpu, child: *ForkedChild) void {
         // Send sigterm
-        posix.kill(child.pid, 9) catch |e| {
+        _ = catchErrno(std.c.kill(child.pid, .KILL)) catch |e|
             logger.warn("Failed killing child process: kill({}): {t}", .{ child.pid, e });
-        };
 
-        const r = posix.waitpid(child.pid, std.c.W.NOHANG);
+        var status: c_int = 0;
+        const r = std.c.waitpid(child.pid, &status, std.c.W.NOHANG);
 
-        if (r.pid > 0) {
-            con.updateProcessState(cpu, 0xff, std.c.W.EXITSTATUS(r.status));
+        if (r > 0) {
+            con.updateProcessState(cpu, 0xff, @intCast(status));
         }
 
         con.cleanupChild(child);
@@ -270,20 +284,19 @@ pub const Console = struct {
 
         if (child.input) |connect| {
             // close child stdin and restore saved
-            posix.close(connect.pipe[1]);
-            posix.dup2(connect.shadowed, 1) catch |e| {
+            _ = std.c.close(connect.pipe[1]);
+
+            _ = catchErrno(std.c.dup2(connect.shadowed, 1)) catch |e|
                 logger.warn("Failed restoring stdout: dup2(): {t}", .{e});
-            };
 
             child.input = null;
         }
 
         if (child.output) |connect| {
             // close child stderr/stdout and restore saved
-            posix.close(connect.pipe[0]);
-            posix.dup2(connect.shadowed, 0) catch |e| {
+            _ = std.c.close(connect.pipe[0]);
+            _ = catchErrno(std.c.dup2(connect.shadowed, 0)) catch |e|
                 logger.warn("Failed restoring stdin: dup2(): {t}", .{e});
-            };
 
             child.output = null;
             changed = true;

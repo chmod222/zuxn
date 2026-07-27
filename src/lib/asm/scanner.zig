@@ -1,7 +1,7 @@
 const uxn = @import("uxn-core");
 
 const std = @import("std");
-const io = std.io;
+const Io = std.Io;
 const mem = std.mem;
 const fmt = std.fmt;
 const ascii = std.ascii;
@@ -126,7 +126,7 @@ pub fn Scanner(comptime lim: Limits) type {
             return .{};
         }
 
-        fn readByte(scanner: *@This(), input: *io.Reader) ?u8 {
+        fn readByte(scanner: *@This(), input: *Io.Reader) ?u8 {
             const b = input.takeByte() catch return null;
 
             if (b == '\n') {
@@ -139,11 +139,11 @@ pub fn Scanner(comptime lim: Limits) type {
             return b;
         }
 
-        fn readHexDigit(scanner: *@This(), input: *io.Reader) Error!?u4 {
+        fn readHexDigit(scanner: *@This(), input: *Io.Reader) Error!?u4 {
             return try parseHexDigit(scanner.readByte(input) orelse return null);
         }
 
-        fn readLiteral(scanner: *@This(), input: *io.Reader) Error!Literal {
+        fn readLiteral(scanner: *@This(), input: *Io.Reader) Error!Literal {
             const h0n: u8 = try scanner.readHexDigit(input) orelse return error.PrematureEof;
             const l0n: u8 = try scanner.readHexDigit(input) orelse return error.PrematureEof;
 
@@ -168,11 +168,10 @@ pub fn Scanner(comptime lim: Limits) type {
         fn readWhitespaceDelimited(
             scanner: *@This(),
             comptime maxlen: usize,
-            input: *io.Reader,
+            input: *Io.Reader,
         ) Error![maxlen:0]u8 {
             var output = [1:0]u8{0x00} ** maxlen;
-            var fbs = std.io.fixedBufferStream(&output);
-            var writer = fbs.writer();
+            var writer = Io.Writer.fixed(&output);
 
             while (true) {
                 const oct = scanner.readByte(input) orelse ' ';
@@ -188,7 +187,7 @@ pub fn Scanner(comptime lim: Limits) type {
             return output;
         }
 
-        fn readLabel(scanner: *@This(), input: *io.Reader) Error!Label {
+        fn readLabel(scanner: *@This(), input: *Io.Reader) Error!Label {
             const label = try scanner.readWhitespaceDelimited(limits.identifier_length, input);
 
             for (label) |oct| {
@@ -199,7 +198,7 @@ pub fn Scanner(comptime lim: Limits) type {
             return label;
         }
 
-        fn readPath(scanner: *@This(), input: *io.Reader) Error![256:0]u8 {
+        fn readPath(scanner: *@This(), input: *Io.Reader) Error![256:0]u8 {
             return scanner.readWhitespaceDelimited(256, input) catch {
                 return error.PathTooLong;
             };
@@ -232,7 +231,7 @@ pub fn Scanner(comptime lim: Limits) type {
             return false;
         }
 
-        pub fn readToken(scanner: *@This(), input: *io.Reader) Error!?SourceToken {
+        pub fn readToken(scanner: *@This(), input: *Io.Reader) Error!?SourceToken {
             var comment_depth: usize = 0;
 
             while (scanner.readByte(input)) |b| {

@@ -3,15 +3,16 @@ pub const NativeBackend = @This();
 const builtin = @import("builtin");
 const std = @import("std");
 const fs = std.fs;
-const io = std.io;
+const Io = std.Io;
 
 // TOOD: readFile/writeFile more efficient buffering
 const Opened = union(enum) {
     none,
-    file: fs.File,
-    directory: fs.Dir.Iterator,
+    file: Io.File,
+    directory: Io.Dir.Iterator,
 };
 
+io: Io,
 open_file: Opened = .none,
 
 pub fn deinit(bck: *NativeBackend) void {
@@ -19,11 +20,11 @@ pub fn deinit(bck: *NativeBackend) void {
         .none => {},
 
         .file => |*file| {
-            file.close();
+            file.close(bck.io);
         },
 
         .directory => |*dir| {
-            dir.dir.close();
+            dir.reader.dir.close(bck.io);
         },
     }
 
@@ -32,12 +33,12 @@ pub fn deinit(bck: *NativeBackend) void {
 
 pub fn readFile(bck: *NativeBackend, path: []const u8, dest: []u8) !u16 {
     if (bck.open_file == .none) {
-        if (fs.cwd().openDir(path, .{ .iterate = true })) |dir| {
+        if (Io.Dir.cwd().openDir(bck.io, path, .{ .iterate = true })) |dir| {
             bck.open_file = .{ .directory = dir.iterate() };
         } else |e| {
             if (e == error.NotDir) {
                 bck.open_file = .{
-                    .file = try fs.cwd().openFile(path, .{}),
+                    .file = try Io.Dir.cwd().openFile(bck.io, path, .{}),
                 };
             }
         }
@@ -45,26 +46,26 @@ pub fn readFile(bck: *NativeBackend, path: []const u8, dest: []u8) !u16 {
 
     const n: usize = r: switch (bck.open_file) {
         .file => |f| {
-            var writer = f.readerStreaming(&.{});
+            var writer = f.readerStreaming(bck.io, &.{});
 
             break :r try writer.interface.readSliceShort(dest);
         },
 
         .directory => |*d| {
-            var writer = std.io.Writer.fixed(dest);
+            var writer = Io.Writer.fixed(dest);
 
-            if (d.next() catch null) |entry| {
+            if (d.next(bck.io) catch null) |entry| {
                 if (entry.kind != .directory) {
                     const file_size = if (comptime builtin.os.tag == .wasi) s: {
                         // Some problems with statFile not working under WASI
-                        if (d.dir.openFile(entry.name, .{})) |f| {
+                        if (d.reader.dir.openFile(bck.io, entry.name, .{})) |f| {
                             defer f.close();
 
                             break :s f.getEndPos() catch 0x10000;
                         } else |_| {
                             break :s 0x10000;
                         }
-                    } else (try d.dir.statFile(entry.name)).size;
+                    } else (try d.reader.dir.statFile(bck.io, entry.name, .{})).size;
 
                     try if (file_size > 0xffff)
                         writer.print("???? {s}\n", .{entry.name})
@@ -98,11 +99,11 @@ pub fn writeFile(
 ) !u16 {
     if (bck.open_file == .none) {
         bck.open_file = .{
-            .file = try fs.cwd().createFile(path, .{ .truncate = truncate }),
+            .file = try Io.Dir.cwd().createFile(bck.io, path, .{ .truncate = truncate }),
         };
     }
 
-    var writer = bck.open_file.file.writerStreaming(&.{});
+    var writer = bck.open_file.file.writerStreaming(bck.io, &.{});
     try writer.interface.writeAll(src);
     try writer.interface.flush();
 
@@ -110,7 +111,5 @@ pub fn writeFile(
 }
 
 pub fn deleteFile(bck: *NativeBackend, path: []const u8) !void {
-    _ = bck;
-
-    try fs.cwd().deleteFile(path);
+    try Io.Dir.cwd().deleteFile(bck.io, path);
 }

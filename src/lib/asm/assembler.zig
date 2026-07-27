@@ -1,13 +1,13 @@
 const std = @import("std");
 const mem = std.mem;
 
+const Io = std.Io;
+
 const scan = @import("scanner.zig");
 
 const can_include = true;
 
 const fs = std.fs;
-const io = std.io;
-const os = std.os;
 
 pub const AssemblerError = error{
     OutOfMemory,
@@ -33,43 +33,7 @@ pub const AssemblerError = error{
     IncludeNotFound,
     NotAllowed,
     CannotOpenFile,
-} || scan.Error || io.Writer.Error;
-
-pub const OutputWriter = struct {
-    inner: union(enum) {
-        file: fs.File.Writer,
-        fixed_buffer: io.Writer,
-    },
-    writer: io.Writer,
-
-    pub fn initFile(fs_writer: *fs.Writer) @This() {
-        return .{
-            .inner = .{
-                .file = fs_writer,
-            },
-            .writer = .{
-                .vtable = .{
-                    .drain = OutputWriter.drainFile,
-                },
-                .buffer = &[0]u8{},
-            },
-        };
-    }
-
-    pub fn initFixedBuffer(slice: []u8) @This() {
-        return .{
-            .inner = .{
-                .fixed_buffer = .fixed(slice),
-            },
-            .writer = .{
-                .vtable = .{
-                    .drain = OutputWriter.drainFixed,
-                },
-                .buffer = &[0]u8{},
-            },
-        };
-    }
-};
+} || scan.Error || Io.Writer.Error;
 
 pub fn Assembler(comptime lim: scan.Limits) type {
     return struct {
@@ -114,11 +78,12 @@ pub fn Assembler(comptime lim: scan.Limits) type {
         };
 
         allocator: mem.Allocator,
+        io: Io,
 
         rom_length: usize = 0,
 
         default_input_filename: ?[]const u8 = null,
-        include_base: ?fs.Dir,
+        include_base: ?Io.Dir,
         include_follow: bool = true,
         include_stack: std.ArrayListUnmanaged([]const u8) = .empty,
 
@@ -132,9 +97,10 @@ pub fn Assembler(comptime lim: scan.Limits) type {
         lambdas: std.ArrayListUnmanaged(usize) = .empty,
         lambda_counter: usize = 0,
 
-        pub fn init(alloc: mem.Allocator, include_base: ?fs.Dir) @This() {
+        pub fn init(alloc: mem.Allocator, io: Io, include_base: ?Io.Dir) @This() {
             return .{
                 .allocator = alloc,
+                .io = io,
                 .include_base = include_base,
             };
         }
@@ -249,9 +215,9 @@ pub fn Assembler(comptime lim: scan.Limits) type {
 
         fn generateLambdaLabel(id: usize) Scanner.TypedLabel {
             var lambda_label = [1:0]u8{0x00} ** Scanner.limits.identifier_length;
-            var stream = std.io.fixedBufferStream(&lambda_label);
+            var stream = Io.Writer.fixed(&lambda_label);
 
-            stream.writer().print("lambda/{x:0>3}", .{id}) catch unreachable;
+            stream.print("lambda/{x:0>3}", .{id}) catch unreachable;
 
             return .{ .root = lambda_label };
         }
@@ -322,8 +288,8 @@ pub fn Assembler(comptime lim: scan.Limits) type {
             assembler: *@This(),
             scanner: *Scanner,
             token: Scanner.SourceToken,
-            input: *io.Reader,
-            output: *io.Writer,
+            input: *Io.Reader,
+            output: *Io.Writer,
         ) AssemblerError!void {
             assembler.err_token = null;
 
@@ -464,7 +430,7 @@ pub fn Assembler(comptime lim: scan.Limits) type {
 
         pub fn assemble(
             assembler: *@This(),
-            input: *std.Io.Reader,
+            input: *Io.Reader,
             output: []u8,
         ) AssemblerError!void {
             var scanner = Scanner.init();
@@ -473,7 +439,7 @@ pub fn Assembler(comptime lim: scan.Limits) type {
                 assembler.err_input_pos = assembler.lexicalInformationFromScanner(&scanner);
             }
 
-            var writer: std.Io.Writer = .fixed(output);
+            var writer: Io.Writer = .fixed(output);
 
             while (try scanner.readToken(input)) |token| {
                 try assembler.processToken(
@@ -495,7 +461,7 @@ pub fn Assembler(comptime lim: scan.Limits) type {
 
         pub fn includeFile(
             assembler: *@This(),
-            output: *io.Writer,
+            output: *Io.Writer,
             path: []const u8,
         ) !void {
             const dir = assembler.include_base orelse
@@ -507,15 +473,15 @@ pub fn Assembler(comptime lim: scan.Limits) type {
             const builtin = @import("builtin");
 
             const full_path = if (builtin.target.cpu.arch != .wasm32)
-                dir.realpath(path, &full_path_buffer) catch return error.IncludeNotFound
+                full_path_buffer[0 .. dir.realPathFile(assembler.io, path, &full_path_buffer) catch return error.IncludeNotFound]
             else
                 path;
 
             // Open the include file
-            const file = dir.openFile(full_path, .{}) catch
+            const file = dir.openFile(assembler.io, full_path, .{}) catch
                 return error.CannotOpenFile;
 
-            defer file.close();
+            defer file.close(assembler.io);
 
             // If we're following relative includes, update our include_base to point
             // to the parent folder of the included file and set it back to our old value
@@ -524,12 +490,12 @@ pub fn Assembler(comptime lim: scan.Limits) type {
                 const basename = fs.path.dirname(full_path) orelse
                     return error.IncludeNotFound;
 
-                assembler.include_base = dir.openDir(basename, .{}) catch
+                assembler.include_base = dir.openDir(assembler.io, basename, .{}) catch
                     return error.IncludeNotFound;
             }
 
             defer if (assembler.include_follow) {
-                assembler.include_base.?.close();
+                assembler.include_base.?.close(assembler.io);
                 assembler.include_base = dir;
             };
 
@@ -541,7 +507,7 @@ pub fn Assembler(comptime lim: scan.Limits) type {
 
             // Do assemble
             var buffer: [1024]u8 = undefined;
-            var reader = file.reader(&buffer);
+            var reader = file.reader(assembler.io, &buffer);
             var scanner = Scanner.init();
 
             errdefer {
@@ -622,8 +588,8 @@ pub fn Assembler(comptime lim: scan.Limits) type {
 
         pub fn generateSymbols(
             assembler: *@This(),
-            output: *io.Writer,
-        ) io.Writer.Error!void {
+            output: *Io.Writer,
+        ) Io.Writer.Error!void {
             // Sort the symbols before writing them so that inside the .sym file,
             // they are sorted from lowest to highest address. Reference assembler
             // gets away without sorting because label definitions and references
@@ -639,7 +605,7 @@ pub fn Assembler(comptime lim: scan.Limits) type {
             }
         }
 
-        pub fn issueDiagnostic(assembler: *@This(), err: anyerror, output: *io.Writer) !void {
+        pub fn issueDiagnostic(assembler: *@This(), err: anyerror, output: *Io.Writer) !void {
             const default_input = assembler.default_input_filename orelse "<input>";
 
             const error_str = switch (err) {

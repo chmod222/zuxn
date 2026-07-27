@@ -1,6 +1,6 @@
 const std = @import("std");
 const fs = std.fs;
-const io = std.io;
+const Io = std.Io;
 const mem = std.mem;
 
 const uxn = @import("uxn-core");
@@ -20,8 +20,9 @@ pub const pages = 4;
 
 pub const VarvaraDefault = struct {
     allocator: std.mem.Allocator,
+    io: Io,
     page_table: ?[][uxn.Cpu.page_size]u8 = null,
-    sandbox_base: ?fs.Dir = null,
+    sandbox_base: ?Io.Dir = null,
 
     system_device: system.System,
     console_device: console.Console,
@@ -34,17 +35,21 @@ pub const VarvaraDefault = struct {
 
     pub fn init(
         allocator: std.mem.Allocator,
-        stdout: *io.Writer,
-        stderr: *io.Writer,
+        io: Io,
+        env: *std.process.Environ.Map,
+        stdout: *Io.Writer,
+        stderr: *Io.Writer,
     ) !@This() {
         const page_table = try allocator.alloc([uxn.Cpu.page_size]u8, pages);
 
         var sys: @This() = .{
             .allocator = allocator,
+            .io = io,
             .page_table = page_table,
 
             .system_device = .{
                 .device = .init(0x0),
+                .env = env,
                 .additional_pages = page_table,
             },
 
@@ -68,8 +73,8 @@ pub const VarvaraDefault = struct {
             .controller_device = .{ .device = .init(0x8) },
             .mouse_device = .{ .device = .init(0x9) },
             .file_devices = .{
-                .{ .device = .init(0xa) },
-                .{ .device = .init(0xb) },
+                .{ .device = .init(0xa), .backend = file.File.defaultBackend(io) },
+                .{ .device = .init(0xb), .backend = file.File.defaultBackend(io) },
             },
             .datetime_device = .{ .device = .init(0xc) },
         };
@@ -97,11 +102,11 @@ pub const VarvaraDefault = struct {
 
         const ptr: *const @This() = @ptrCast(@alignCast(data));
 
-        const file_path = ptr.sandbox_base.?.realpath(path, &buffer_path) catch return false;
-        const self_path = ptr.sandbox_base.?.realpath(".", &buffer_self) catch return false;
+        const file_path = ptr.sandbox_base.?.realPathFile(ptr.io, path, &buffer_path) catch return false;
+        const self_path = ptr.sandbox_base.?.realPathFile(ptr.io, ".", &buffer_self) catch return false;
 
-        if (!mem.startsWith(u8, file_path, self_path)) {
-            logger.warn("Preventing out-of-sandbox {s} access to {s}", .{ @tagName(mode), file_path });
+        if (!mem.startsWith(u8, buffer_path[0..file_path], buffer_self[0..self_path])) {
+            logger.warn("Preventing out-of-sandbox {s} access to {s}", .{ @tagName(mode), buffer_path[0..file_path] });
 
             return false;
         } else {
@@ -109,7 +114,7 @@ pub const VarvaraDefault = struct {
         }
     }
 
-    pub fn sandboxFiles(sys: *@This(), base_dir: fs.Dir) bool {
+    pub fn sandboxFiles(sys: *@This(), base_dir: Io.Dir) bool {
         if (!@hasDecl(file.File, "setAccessFilter")) {
             return false;
         }

@@ -5,6 +5,8 @@ const impl = @import("impl.zig");
 const std = @import("std");
 const logger = std.log.scoped(.uxn_varvara_file);
 
+const Io = std.Io;
+
 pub const ports = struct {
     pub const vector = 0x0;
     pub const success = 0x2;
@@ -26,15 +28,24 @@ pub const Mode = enum {
 
 pub const AccessFilterFn = fn (*File, ?*anyopaque, []const u8, Mode) bool;
 
+pub const Backend = if (builtin.target.os.tag != .freestanding)
+    @import("fs/NativeBackend.zig")
+else
+    @import("fs/NoopBackend.zig");
+
 pub const File = struct {
     device: impl.DeviceMixin,
-    backend: if (builtin.target.os.tag != .freestanding)
-        @import("fs/NativeBackend.zig")
-    else
-        @import("fs/NoopBackend.zig") = .{},
+    backend: Backend,
 
     access_filter: *const AccessFilterFn = &File.permitAllFilter,
     access_filter_arg: ?*anyopaque = null,
+
+    pub fn defaultBackend(io: Io) Backend {
+        return if (Backend == @import("fs/NativeBackend.zig"))
+            .{ .io = io }
+        else
+            .{};
+    }
 
     pub fn cleanup(file: *File) void {
         file.backend.deinit();
