@@ -59,6 +59,14 @@ pub fn build(b: *std.Build) void {
         ,
     ) orelse false;
 
+    const sdl_version = b.option(u8, "sdl_version",
+        \\Which SDL version to link against
+    ) orelse 2;
+
+    if (sdl_version != 2 and sdl_version != 3) {
+        @panic("Only SDL2 and SDL3 are supported");
+    }
+
     build_options.addOption(
         bool,
         "enable_jit_assembly",
@@ -117,12 +125,45 @@ pub fn build(b: *std.Build) void {
             }),
         });
 
+        const files = b.addWriteFiles();
+        const header = files.add(
+            "sdl-sys.h",
+
+            if (sdl_version == 2)
+                \\#include <SDL2/SDL.h>
+            else
+                \\#define SDL_DISABLE_OLD_NAMES 1
+                \\#include <SDL3/SDL.h>
+            ,
+        );
+
+        const c_module = b.addTranslateC(.{
+            .optimize = optimize,
+            .target = target,
+            .root_source_file = header,
+        });
+
+        // Not sure if there’s a better way for this.
+        c_module.addIncludePath(.{
+            .cwd_relative = b.fmt("/usr/include/{t}-{t}-{t}", .{
+                target.result.cpu.arch,
+                target.result.os.tag,
+                target.result.abi,
+            }),
+        });
+
+        uxn_sdl.root_module.addImport("sdl-sys", c_module.createModule());
         uxn_sdl.root_module.addImport("uxn-shared", shared_mod);
         uxn_sdl.root_module.addImport("uxn-core", core_mod);
         uxn_sdl.root_module.addImport("uxn-varvara", varvara_mod);
         uxn_sdl.root_module.addImport("clap", dep_clap.module("clap"));
         uxn_sdl.root_module.addImport("build_options", build_options_mod);
-        uxn_sdl.root_module.linkSystemLibrary("SDL2", .{});
+
+        if (sdl_version == 2) {
+            uxn_sdl.root_module.linkSystemLibrary("SDL2", .{});
+        } else {
+            uxn_sdl.root_module.linkSystemLibrary("SDL3", .{});
+        }
 
         if (enable_jit_assembly)
             uxn_sdl.root_module.addImport("uxn-asm", asm_mod);
