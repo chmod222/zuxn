@@ -104,8 +104,6 @@ fn mainGraphical(
             window_height = system.screen_device.height;
             window_width = system.screen_device.width;
 
-            logger.info("Resizing\n", .{});
-            
             try impl.resizeScreen(scale);
         }
 
