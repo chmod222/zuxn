@@ -313,12 +313,7 @@ pub fn pollEvents(impl: *Sdl3Impl) !bool {
                 }
             },
 
-            else => {
-                if (ev.type == impl.generic.stdin_event_id) {
-                    system.console_device.pushStdinByte(cpu, @truncate(ev.common.reserved)) catch |fault|
-                        try system.system_device.handleFault(cpu, fault);
-                }
-            },
+            else => {},
         }
     }
 

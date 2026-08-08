@@ -33,61 +33,6 @@ pub fn init(cpu: *uxn.Cpu, sys: *varvara.VarvaraDefault) @This() {
     };
 }
 
-pub fn startStdinReceiver(impl: *@This()) ?*c.SDL_Thread {
-    impl.stdin_event_id = c.SDL_RegisterEvents(1);
-
-    const stdin_thread = c.SDL_CreateThread(&receiveStdin, "stdin", impl);
-
-    c.SDL_DetachThread(stdin_thread);
-
-    return stdin_thread;
-}
-
-pub fn receiveStdin(p: ?*anyopaque) callconv(.c) c_int {
-    const impl: *@This() = @ptrCast(@alignCast(p));
-
-    var event: c.SDL_Event = .{ .type = impl.stdin_event_id };
-    var stdin_buffer: [1024]u8 = undefined;
-    var stdin = Io.File.stdin().readerStreaming(impl.sys.io, &stdin_buffer);
-
-    var fds: [1]posix.pollfd = [_]posix.pollfd{
-        .{ .fd = 0, .events = posix.system.POLL.IN, .revents = 0 },
-    };
-
-    while (impl.sys.system_device.exit_code == null) {
-        const ready = posix.poll(&fds, 100) catch |e| {
-            logger.warn("poll() failed: {t}", .{e});
-
-            continue;
-        };
-
-        if (ready > 0) {
-            stdin.interface.fillMore() catch |e| {
-                logger.warn("read() failed: {t}", .{e});
-
-                if (e == error.EndOfStream) {
-                    _ = impl.sys.console_device.unpipeProcess();
-                }
-
-                continue;
-            };
-
-            logger.debug("Pushing {} bytes from stdin", .{stdin.interface.bufferedLen()});
-
-            while (stdin.interface.bufferedLen() > 0) {
-                if (sdl2) {
-                    event.cbutton.button = stdin.interface.takeByte() catch unreachable;
-                } else {
-                    event.common.reserved = stdin.interface.takeByte() catch unreachable;
-                }
-                _ = c.SDL_PushEvent(&event);
-            }
-        }
-    }
-
-    return 0;
-}
-
 pub fn renderAudio(impl: *@This(), samples: []i16) void {
     // TODO: 0x00 should ideally be SDL_AudioSpec.silence here
     @memset(samples, 0x0000);

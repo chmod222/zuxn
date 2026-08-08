@@ -271,12 +271,7 @@ pub fn pollEvents(impl: *Sdl2Impl) !bool {
                 }
             },
 
-            else => {
-                if (ev.type == impl.generic.stdin_event_id) {
-                    system.console_device.pushStdinByte(cpu, ev.cbutton.button) catch |fault|
-                        try system.system_device.handleFault(cpu, fault);
-                }
-            },
+            else => {},
         }
     }
 
