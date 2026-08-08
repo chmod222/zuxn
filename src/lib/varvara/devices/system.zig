@@ -10,6 +10,79 @@ pub const Color = struct {
     b: u8,
 };
 
+pub const WellKnownMetadata = union(enum) {
+    varvara_version: u16,
+    app_icon: *const [144]u8,
+    manifest: u16,
+    muxn_api: u16,
+};
+
+pub const MetadataElement = struct {
+    identifier: u8,
+    value: u16,
+
+    pub fn wellKnown(elem: *const MetadataElement, cpu: *Cpu) ?WellKnownMetadata {
+        switch (elem.identifier) {
+            0x56 => {
+                return WellKnownMetadata{
+                    .varvara_version = elem.value,
+                };
+            },
+
+            0x83 => {
+                const ptr = cpu.mem[elem.value..][0..144];
+
+                return WellKnownMetadata{
+                    .app_icon = @ptrCast(ptr.ptr),
+                };
+            },
+
+            0xa0 => {
+                return WellKnownMetadata{
+                    .manifest = elem.value,
+                };
+            },
+
+            0xf0 => {
+                return WellKnownMetadata{
+                    .muxn_api = elem.value,
+                };
+            },
+
+            else => {
+                return null;
+            },
+        }
+    }
+};
+
+pub const MetadataIterator = struct {
+    cpu: *Cpu,
+    ptr: u16,
+    remain: u8,
+
+    pub fn next(iter: *MetadataIterator) ?MetadataElement {
+        if (iter.remain == 0) {
+            return null;
+        }
+
+        defer iter.remain -= 1;
+
+        const ident = iter.cpu.loadMem(u8, iter.ptr);
+        const value = iter.cpu.loadMem(u16, iter.ptr + 1);
+
+        return MetadataElement{
+            .identifier = ident,
+            .value = value,
+        };
+    }
+};
+
+pub const Metadata = struct {
+    version: u8,
+    text: []const u8,
+};
+
 pub const ports = struct {
     pub const catch_vector = 0x00;
     pub const expansion = 0x02;
@@ -101,6 +174,36 @@ pub const System = struct {
                 else => {},
             }
         }
+    }
+
+    pub fn fetchMetadata(sys: *@This(), cpu: *Cpu) ?struct { Metadata, MetadataIterator } {
+        var ptr = sys.device.loadPort(u16, cpu, ports.metadata);
+
+        if (ptr == 0x0000) {
+            return null;
+        }
+
+        const version = cpu.loadMem(u8, ptr);
+        ptr += 1;
+
+        const text = std.mem.sliceTo(cpu.mem[ptr..], 0);
+        ptr += @as(u16, @truncate(text.len)) + 1;
+
+        const fields = cpu.loadMem(u8, ptr);
+
+        ptr += 1;
+
+        return .{
+            Metadata{
+                .version = version,
+                .text = text,
+            },
+            MetadataIterator{
+                .cpu = cpu,
+                .ptr = ptr,
+                .remain = fields,
+            },
+        };
     }
 
     pub fn handleFault(sys: *@This(), cpu: *Cpu, fault: Cpu.SystemFault) !void {

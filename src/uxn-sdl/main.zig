@@ -73,6 +73,31 @@ fn mainGraphical(
     // so we know what our window size should be.
     try impl.initScreen(scale);
 
+    if (system.system_device.fetchMetadata(cpu)) |meta| {
+        logger.debug("Loaded ROM version {}: {s}", .{ meta.@"0".version, meta.@"0".text });
+
+        const first_line = if (std.mem.findScalar(u8, meta.@"0".text, '\n')) |idx|
+            meta.@"0".text[0..idx]
+        else
+            meta.@"0".text;
+
+        const title = try system.allocator.dupeSentinel(u8, first_line, 0x00);
+        defer system.allocator.free(title);
+
+        _ = c.SDL_SetWindowTitle(impl.window, title);
+
+        var iter = meta.@"1";
+
+        while (iter.next()) |e| {
+            if (e.wellKnown(cpu)) |wk| {
+                // TODO: Render App-Icon
+                logger.debug(" - {t}: {}", .{ wk, wk });
+            } else {
+                logger.debug(" - Unknown({x}): {x}", .{ e.identifier, e.value });
+            }
+        }
+    }
+
     const target_frametime = 1.0 / @as(f32, @floatFromInt(fps_limit orelse 60));
 
     var window_width = system.screen_device.width;
