@@ -89,9 +89,29 @@ fn mainGraphical(
         var iter = meta.@"1";
 
         while (iter.next()) |e| {
-            if (e.wellKnown(cpu)) |wk| {
-                // TODO: Render App-Icon
-                logger.debug(" - {t}: {}", .{ wk, wk });
+            if (e.wellKnown(cpu)) |wk| switch (wk) {
+                .app_icon => |data| {
+                    var icon: [24 * 24]u2 = @splat(0);
+
+                    varvara.screen.Screen.renderTiledSprite(
+                        .init(24, 24),
+                        .init(0, 0),
+                        .init(3, 3),
+                        &icon,
+                        .{
+                            .blending = 1,
+                            .two_bpp = true,
+                        },
+                        data,
+                    );
+
+                    const surf = Impl.Generic.renderSprite(system, 24, 24, &icon);
+                    defer Impl.Generic.freeSurface(surf);
+
+                    _ = c.SDL_SetWindowIcon(impl.window, surf);
+                },
+
+                else => {},
             } else {
                 logger.debug(" - Unknown({x}): {x}", .{ e.identifier, e.value });
             }

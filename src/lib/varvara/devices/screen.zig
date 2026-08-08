@@ -32,19 +32,33 @@ pub const PixelFlags = packed struct(u8) {
 };
 
 pub const SpriteFlags = packed struct(u8) {
-    blending: u4,
-    flip_x: bool,
-    flip_y: bool,
-    layer: u1,
-    two_bpp: bool,
+    blending: u4 = 0,
+    flip_x: bool = false,
+    flip_y: bool = false,
+    layer: u1 = 0,
+    two_bpp: bool = false,
 };
 
 const blending: [4][16]u2 = .{
-    .{ 0, 0, 0, 0, 1, 0, 1, 1, 2, 2, 0, 2, 3, 3, 3, 0 },
+    .{ 0, 0, 0, 0, 1, 0, 1, 1, 2, 2, 0, 2, 3, 3, 3, 3 },
     .{ 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3 },
     .{ 1, 2, 3, 1, 1, 2, 3, 1, 1, 2, 3, 1, 1, 2, 3, 1 },
     .{ 2, 3, 1, 2, 2, 3, 1, 2, 2, 3, 1, 2, 2, 3, 1, 2 },
 };
+
+fn Vec2(T: type) type {
+    return struct {
+        x: T, // or: width
+        y: T, // or: height
+
+        pub fn init(x: T, y: T) @This() {
+            return .{
+                .x = x,
+                .y = y,
+            };
+        }
+    };
+}
 
 pub const ports = struct {
     pub const vector = 0x0;
@@ -207,12 +221,14 @@ pub const Screen = struct {
                         const ic: i16 = @intCast(i);
 
                         // dy and dx flipped in original implementation
-                        scr.renderSprite(
+                        scr.renderSpriteToScreen(
                             cpu,
                             layer,
                             flags,
-                            @bitCast(x +% (dy * fx * ic)),
-                            @bitCast(y +% (dx * fy * ic)),
+                            .init(
+                                @bitCast(x +% (dy * fx * ic)),
+                                @bitCast(y +% (dx * fy * ic)),
+                            ),
                             addr,
                         );
 
@@ -243,34 +259,79 @@ pub const Screen = struct {
         }
     }
 
-    fn renderSprite(
+    fn renderSpriteToScreen(
         scr: *@This(),
         cpu: *Cpu,
         layer: []u2,
         flags: SpriteFlags,
-        x0: u16,
-        y0: u16,
+        pos: Vec2(u16),
         addr: u16,
     ) void {
+        return renderSprite(
+            .init(scr.width, scr.height),
+            pos,
+            layer,
+            flags,
+            cpu.mem[addr .. addr + @as(usize, if (flags.two_bpp) 16 else 8)],
+        );
+    }
+
+    fn defaultBlend(color: u2, mode: u4) u2 {
+        return blending[color][mode];
+    }
+
+    pub fn renderTiledSprite(
+        target_size: Vec2(u16),
+        target_pos: Vec2(u16),
+        tile_size: Vec2(u16),
+        target: []u2,
+        flags: SpriteFlags,
+        data: []const u8,
+    ) void {
+        for (0..tile_size.y) |y| {
+            for (0..tile_size.x) |x| {
+                renderSprite(
+                    target_size,
+                    .init(
+                        target_pos.x + 8 * @as(u16, @truncate(x)),
+                        target_pos.y + 8 * @as(u16, @truncate(y)),
+                    ),
+                    target,
+                    flags,
+                    data[x * 16 + y * 48 ..],
+                );
+            }
+        }
+    }
+
+    pub fn renderSprite(
+        target_size: Vec2(u16),
+        target_pos: Vec2(u16),
+        target: []u2,
+        flags: SpriteFlags,
+        data: []const u8,
+    ) void {
+        const size = Vec2(u16).init(8, 8);
         const opaq = flags.blending % 5 != 0;
 
         var y: u16 = 0;
 
-        while (y < 8) : (y += 1) {
-            const c1 = cpu.mem[addr +% y];
-            const c2 = if (flags.two_bpp) cpu.mem[addr +% (y +% 8)] else 0;
+        while (y < size.y) : (y += 1) {
+            const c1 = data[y];
+            const c2 = if (flags.two_bpp) data[y +% size.x] else 0;
 
             var x: u16 = 0;
 
-            while (x < 8) : (x += 1) {
-                const ch = ((c1 >> @truncate(x)) & 1) | (((c2 >> @truncate(x)) << 1) & 2);
+            while (x < size.x) : (x += 1) {
+                const ch: u2 = @truncate(((c1 >> @truncate(x)) & 1) | (((c2 >> @truncate(x)) << 1) & 2));
 
-                const yr = y0 +% (if (flags.flip_y) 7 - y else y);
-                const xr = x0 +% (if (flags.flip_x) x else 7 - x);
+                const yr = target_pos.y +% (if (flags.flip_y) @as(u16, @intCast(size.y - 1 - y)) else y);
+                const xr = target_pos.x +% (if (flags.flip_x) x else @as(u16, @intCast(size.x - 1 - x)));
 
                 if (opaq or ch != 0x0000) {
-                    if (xr < scr.width and yr < scr.height)
-                        layer[@as(usize, yr) * scr.width + xr] = blending[ch][flags.blending];
+                    if (xr < target_size.x and yr < target_size.y)
+                        target[@as(usize, yr) * target_size.x + xr] =
+                            defaultBlend(ch, flags.blending);
                 }
             }
         }

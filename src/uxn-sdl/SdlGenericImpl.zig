@@ -33,6 +33,54 @@ pub fn init(cpu: *uxn.Cpu, sys: *varvara.VarvaraDefault) @This() {
     };
 }
 
+pub fn renderSprite(
+    sys: *varvara.VarvaraDefault,
+    w: usize,
+    h: usize,
+    data: []const u2,
+) *c.SDL_Surface {
+    const surface = if (sdl2)
+        c.SDL_CreateRGBSurface(
+            0,
+            24,
+            24,
+            32,
+            0,
+            0,
+            0,
+            0,
+        ) orelse unreachable
+    else
+        c.SDL_CreateSurface(
+            24,
+            24,
+            c.SDL_PIXELFORMAT_XRGB8888,
+        ) orelse unreachable;
+
+    const pixels: [*c]u8 = @ptrCast(surface.*.pixels);
+
+    for (0..w) |y| {
+        for (0..h) |x| {
+            const idx = y * w + x;
+            const color = &sys.system_device.colors[data[idx]];
+
+            pixels[idx * 4 + 3] = 0x00;
+            pixels[idx * 4 + 2] = color.r;
+            pixels[idx * 4 + 1] = color.g;
+            pixels[idx * 4 + 0] = color.b;
+        }
+    }
+
+    return surface;
+}
+
+pub fn freeSurface(surf: *c.SDL_Surface) void {
+    if (sdl2)
+        c.SDL_FreeSurface(surf)
+    else
+        c.SDL_DestroySurface(surf);
+}
+
 pub fn renderAudio(impl: *@This(), samples: []i16) void {
     // TODO: 0x00 should ideally be SDL_AudioSpec.silence here
     @memset(samples, 0x0000);
