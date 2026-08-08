@@ -254,7 +254,7 @@ pub const System = struct {
         return src[offset..offset +| len];
     }
 
-    pub fn handleExpansion(sys: *@This(), cpu: *Cpu, operation: u16) !void {
+    fn handleExpansion(sys: *@This(), cpu: *Cpu, operation: u16) !void {
         switch (cpu.mem[operation]) {
             0x00 => {
                 // fill [ operation:u8 | len:u16 | srcpg:u16 | src:u16 | value ]
