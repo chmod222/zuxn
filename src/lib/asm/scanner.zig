@@ -41,6 +41,7 @@ pub const Error = error{
     TokenTooLong,
     PathTooLong,
     UppercaseLabelForbidden,
+    ReadFailed,
 };
 
 pub fn Scanner(comptime lim: Limits) type {
@@ -126,8 +127,13 @@ pub fn Scanner(comptime lim: Limits) type {
             return .{};
         }
 
-        fn readByte(scanner: *@This(), input: *Io.Reader) ?u8 {
-            const b = input.takeByte() catch return null;
+        fn readByteOrEof(scanner: *@This(), input: *Io.Reader) error{ReadFailed}!?u8 {
+            const b = input.takeByte() catch |e| {
+                return switch (e) {
+                    error.EndOfStream => null,
+                    else => |err| err
+                };
+            };
 
             if (b == '\n') {
                 scanner.location[0] += 1;
@@ -140,7 +146,7 @@ pub fn Scanner(comptime lim: Limits) type {
         }
 
         fn readHexDigit(scanner: *@This(), input: *Io.Reader) Error!?u4 {
-            return try parseHexDigit(scanner.readByte(input) orelse return null);
+            return try parseHexDigit(try scanner.readByteOrEof(input) orelse return null);
         }
 
         fn readLiteral(scanner: *@This(), input: *Io.Reader) Error!Literal {
@@ -148,7 +154,7 @@ pub fn Scanner(comptime lim: Limits) type {
             const l0n: u8 = try scanner.readHexDigit(input) orelse return error.PrematureEof;
 
             // Catch EOF as whitespace so we exit cleanly in case "#xy" is the very last thing in the input
-            const next = scanner.readByte(input) orelse ' ';
+            const next = try scanner.readByteOrEof(input) orelse ' ';
 
             const h1n: u8 = if (ascii.isWhitespace(next))
                 return .{ .byte = @as(u8, h0n << 4) | l0n }
@@ -174,7 +180,7 @@ pub fn Scanner(comptime lim: Limits) type {
             var writer = Io.Writer.fixed(&output);
 
             while (true) {
-                const oct = scanner.readByte(input) orelse ' ';
+                const oct = try scanner.readByteOrEof(input) orelse ' ';
 
                 if (ascii.isWhitespace(oct))
                     break;
@@ -199,8 +205,11 @@ pub fn Scanner(comptime lim: Limits) type {
         }
 
         fn readPath(scanner: *@This(), input: *Io.Reader) Error![256:0]u8 {
-            return scanner.readWhitespaceDelimited(256, input) catch {
-                return error.PathTooLong;
+            return scanner.readWhitespaceDelimited(256, input) catch |e| {
+                return switch (e) {
+                    error.TokenTooLong => error.PathTooLong,
+                    else => |err| err,
+                };
             };
         }
 
@@ -234,7 +243,7 @@ pub fn Scanner(comptime lim: Limits) type {
         pub fn readToken(scanner: *@This(), input: *Io.Reader) Error!?SourceToken {
             var comment_depth: usize = 0;
 
-            while (scanner.readByte(input)) |b| {
+            while (try scanner.readByteOrEof(input)) |b| {
                 if (comment_depth > 0 and (b != ')') and (b != '('))
                     continue;
 
@@ -370,7 +379,7 @@ pub fn Scanner(comptime lim: Limits) type {
                         var word = [1:0]u8{0x00} ** 64;
                         var i: usize = 0;
 
-                        while (scanner.readByte(input)) |oct| : (i += 1) {
+                        while (try scanner.readByteOrEof(input)) |oct| : (i += 1) {
                             if (ascii.isWhitespace(oct))
                                 break;
 
