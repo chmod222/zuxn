@@ -98,13 +98,22 @@ pub const VarvaraDefault = struct {
     fn filterFileAccess(dev: *file.File, data: ?*anyopaque, path: []const u8, mode: file.Mode) bool {
         _ = dev;
 
-        var buffer_path: [256]u8 = undefined;
-        var buffer_self: [256]u8 = undefined;
+        var buffer_path: [std.c.PATH_MAX]u8 = undefined;
+        var buffer_self: [std.c.PATH_MAX]u8 = undefined;
 
         const ptr: *const @This() = @ptrCast(@alignCast(data));
 
-        const file_path = ptr.sandbox_base.?.realPathFile(ptr.io, path, &buffer_path) catch return false;
-        const self_path = ptr.sandbox_base.?.realPathFile(ptr.io, ".", &buffer_self) catch return false;
+        const file_path = ptr.sandbox_base.?.realPathFile(ptr.io, path, &buffer_path) catch |e| {
+            logger.warn("Failed to realpath(\"{s}\"): {t}", .{path, e});
+
+            return false;
+        };
+
+        const self_path = ptr.sandbox_base.?.realPathFile(ptr.io, ".", &buffer_self) catch |e| {
+            logger.warn("Failed to realpath(\".\"): {t}", .{e});
+
+            return false;
+        };
 
         if (!mem.startsWith(u8, buffer_path[0..file_path], buffer_self[0..self_path])) {
             logger.warn("Preventing out-of-sandbox {s} access to {s}", .{ @tagName(mode), buffer_path[0..file_path] });
