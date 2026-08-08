@@ -73,7 +73,7 @@ fn mainGraphical(
     // so we know what our window size should be.
     try impl.initScreen(scale);
 
-    const target_frametime = 1.0 / @as(f32, @floatFromInt(fps_limit orelse std.math.maxInt(u32)));
+    const target_frametime = 1.0 / @as(f32, @floatFromInt(fps_limit orelse 60));
 
     var window_width = system.screen_device.width;
     var window_height = system.screen_device.height;
@@ -224,7 +224,7 @@ pub fn main(init: std.process.Init) !u8 {
     const params = comptime clap.parseParamsComptime(
         \\-h, --help                 Display this help and exit.
         \\-s, --scale <INT>          Display scale factor
-        \\-r <INT>                   Limit target frames per second to INT (default: unlimited)
+        \\-r <INT>                   Limit target frames per second to INT (default: 60)
         \\
     ++ (if (build_options.enable_jit_assembly)
         (shared.jit_assembly_args ++
