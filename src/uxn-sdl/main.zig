@@ -35,10 +35,10 @@ pub const std_options = std.Options{
 const logger = std.log.scoped(.uxn_sdl);
 
 const Event = union(enum) {
-    stdin_avail: Io.Reader.Error!void,
+    stdin_avail: (Io.File.Reader.Error || Io.Reader.Error)!void,
     frame_timer: Io.Cancelable!void,
-    child_out: Io.Reader.Error!void,
-    child_err: Io.Reader.Error!void,
+    child_out: (Io.File.Reader.Error || Io.Reader.Error)!void,
+    child_err: (Io.File.Reader.Error || Io.Reader.Error)!void,
 };
 
 fn mainGraphical(
@@ -161,7 +161,7 @@ fn mainGraphical(
 
         defer _ = select.cancel();
 
-        select.async(.stdin_avail, Io.Reader.fill, .{ &stdin.interface, 1 });
+        select.async(.stdin_avail, fillBuffer, .{ &stdin });
 
         // Get the active child ID, if any
         const child_id = if (system.console_device.forked_child) |chld|
@@ -184,10 +184,10 @@ fn mainGraphical(
 
         // If channels are open, add them to the set.
         if (child_stdout) |*f|
-            select.async(.child_out, Io.Reader.fill, .{ &f.interface, 1 });
+            select.async(.child_out, fillBuffer, .{ f });
 
         if (child_stderr) |*f|
-            select.async(.child_err, Io.Reader.fill, .{ &f.interface, 1 });
+            select.async(.child_err, fillBuffer, .{ f });
 
         const t1 = c.SDL_GetPerformanceCounter();
         const frametime = @as(f32, @floatFromInt(t1 - t0)) / @as(f32, @floatFromInt(c.SDL_GetPerformanceFrequency()));
@@ -216,25 +216,25 @@ fn mainGraphical(
                     };
 
                     // Re-register request
-                    select.async(.stdin_avail, Io.Reader.fill, .{ &stdin.interface, 1 });
+                    select.async(.stdin_avail, fillBuffer, .{ &stdin });
                 },
 
                 inline .child_out, .child_err => |result, t| {
-                    if (result) {
-                        const stream = if (t == .child_out)
-                            &child_stdout.?
-                        else
-                            &child_stderr.?;
+                    const stream = if (t == .child_out)
+                        &child_stdout.?
+                    else
+                        &child_stderr.?;
 
+                    if (result) {
                         copyAvailable(&stream.interface, &uxn_stdin.interface) catch |e| {
                             logger.warn("Failed to stream child output to Uxn stdin: {t}", .{e});
                         };
 
                         // Re-register request
-                        select.async(t, Io.Reader.fill, .{ &stream.interface, 1 });
+                        select.async(t, fillBuffer, .{ stream });
                     } else |e| {
                         if (e != error.EndOfStream) {
-                            logger.warn("{t}: {t}", .{ t, e });
+                            logger.warn("{t}: {t}", .{ t, stream.err orelse e });
                         } else {
                             logger.debug("{t}: end of stream", .{t});
                         }
@@ -259,7 +259,13 @@ fn mainGraphical(
     return system.system_device.exit_code.?;
 }
 
-fn copyAvailable(reader: *Io.Reader, writer: *Io.Writer) !void {
+fn fillBuffer(reader: *Io.File.Reader) (Io.File.Reader.Error || Io.Reader.Error)!void {
+    reader.interface.fill(1) catch |e| {
+        return reader.err orelse e;
+    };
+}
+
+fn copyAvailable(reader: *Io.Reader, writer: *Io.Writer) (Io.Reader.StreamError || Io.Reader.Error)!void {
     try reader.streamExact(writer, reader.bufferedLen());
     try writer.flush();
 }

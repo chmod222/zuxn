@@ -154,9 +154,9 @@ pub fn main(init: std.process.Init) !u8 {
     var child_stderr: ?Io.File.Reader = null;
 
     const Event = union(enum) {
-        stdin_avail: Io.Reader.Error!void,
-        child_out: Io.Reader.Error!void,
-        child_err: Io.Reader.Error!void,
+        stdin_avail: (Io.File.Reader.Error || Io.Reader.Error)!void,
+        child_out: (Io.File.Reader.Error || Io.Reader.Error)!void,
+        child_err: (Io.File.Reader.Error || Io.Reader.Error)!void,
     };
 
     // Loop until either exit is requested or EOF reached
@@ -166,7 +166,7 @@ pub fn main(init: std.process.Init) !u8 {
 
         defer _ = select.cancel();
 
-        select.async(.stdin_avail, Io.Reader.fill, .{ &stdin.interface, 1 });
+        select.async(.stdin_avail, fillBuffer, .{ &stdin });
 
         // Get the active child ID, if any
         const child_id = if (system.console_device.forked_child) |chld|
@@ -189,10 +189,10 @@ pub fn main(init: std.process.Init) !u8 {
 
         // If channels are open, add them to the set.
         if (child_stdout) |*f|
-            select.async(.child_out, Io.Reader.fill, .{ &f.interface, 1 });
+            select.async(.child_out, fillBuffer, .{ f });
 
         if (child_stderr) |*f|
-            select.async(.child_err, Io.Reader.fill, .{ &f.interface, 1 });
+            select.async(.child_err, fillBuffer, .{ f });
 
         defer {
             stdout.interface.flush() catch {};
@@ -210,7 +210,7 @@ pub fn main(init: std.process.Init) !u8 {
                 };
 
                 // Re-register request
-                select.async(.stdin_avail, Io.Reader.fill, .{ &stdin.interface, 1 });
+                select.async(.stdin_avail, fillBuffer, .{ &stdin });
             },
 
             inline .child_out, .child_err => |result, t| {
@@ -231,8 +231,8 @@ pub fn main(init: std.process.Init) !u8 {
                     // Recreate the request
                     select.async(
                         t,
-                        Io.Reader.fillMore,
-                        .{&stream.interface},
+                        fillBuffer,
+                        .{stream},
                     );
                 } else |e| {
                     if (e != error.EndOfStream) {
@@ -252,4 +252,10 @@ pub fn main(init: std.process.Init) !u8 {
     }
 
     return system.system_device.exit_code orelse 0;
+}
+
+fn fillBuffer(reader: *Io.File.Reader) (Io.File.Reader.Error || Io.Reader.Error)!void {
+    reader.interface.fill(1) catch |e| {
+        return reader.err orelse e;
+    };
 }

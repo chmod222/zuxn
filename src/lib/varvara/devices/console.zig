@@ -112,12 +112,17 @@ pub const Console = struct {
                 ports.write, ports.err => {
                     const octet = con.device.loadPort(u8, cpu, port);
 
+                    // TODO: stdout and stderr may implicitely raise error.Canceled as well
+                    //       how to handle?
                     if (port == ports.write) {
                         // stdout may write to a child if requested.
                         var child_stdin = con.childStdin(&.{});
 
                         if (child_stdin) |*child| {
-                            child.interface.writeByte(octet) catch {};
+                            child.interface.writeByte(octet) catch |e| {
+                                if (child.err orelse e == error.Canceled)
+                                    con.io.recancel();
+                            };
                         } else {
                             con.stdout.writeByte(octet) catch {};
                         }
@@ -132,7 +137,11 @@ pub const Console = struct {
                         cpu,
                         con.getAddrSlice(cpu),
                         con.device.loadPort(ForkMode, cpu, ports.mode),
-                    ) catch {};
+                    ) catch |e| {
+                        if (e == error.Canceled) {
+                            con.io.recancel();
+                        }
+                    };
                 },
 
                 else => {},
