@@ -55,6 +55,7 @@ pub const VarvaraDefault = struct {
 
             .console_device = .{
                 .device = .init(0x1),
+                .io = io,
                 .stderr = stderr,
                 .stdout = stdout,
             },

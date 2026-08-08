@@ -1,6 +1,8 @@
 const Cpu = @import("uxn-core").Cpu;
 
 const std = @import("std");
+const process = std.process;
+const c = std.c;
 const Io = std.Io;
 const impl = @import("impl.zig");
 const logger = std.log.scoped(.uxn_varvara_console);
@@ -26,12 +28,62 @@ fn catchErrno(res: c_int) !c_int {
     };
 }
 
-pub const Console = struct {
-    const ConnectedPipe = struct {
-        pipe: [2]std.c.fd_t,
-        shadowed: std.c.fd_t,
-    };
+fn writerDrain(w: *Io.Writer, data: []const []const u8, splat: usize) Io.Writer.Error!usize {
+    const cw: *Writer = @fieldParentPtr("interface", w);
 
+    const additional = data[0 .. data.len - 1];
+    const splat_elem = data[additional.len];
+
+    for (w.buffer[0..w.end]) |oct|
+        cw.con.pushStdinByte(cw.cpu, oct) catch return error.WriteFailed;
+
+    for (additional) |buf| {
+        for (buf) |oct|
+            cw.con.pushStdinByte(cw.cpu, oct) catch return error.WriteFailed;
+    }
+
+    for (0..splat) |_|
+        for (splat_elem) |oct|
+            cw.con.pushStdinByte(cw.cpu, oct) catch return error.WriteFailed;
+
+    return w.consume(Io.Writer.countSplat(data, splat) + w.end);
+}
+
+const writer_vtable: Io.Writer.VTable = .{
+    .drain = &writerDrain,
+};
+
+pub const Writer = struct {
+    cpu: *Cpu,
+    con: *Console,
+    interface: Io.Writer,
+};
+
+fn kill(proc: *process.Child) !void {
+    const rc = c.kill(proc.id orelse return, .KILL);
+
+    if (rc < 0) {
+        logger.warn("kill({}): {t}", .{ proc.id.?, c.errno(rc) });
+
+        return error.Errno;
+    }
+}
+
+fn status(proc: *const process.Child) !?u8 {
+    var raw_status: c_int = 0;
+
+    if (c.waitpid(proc.id orelse return null, &raw_status, std.c.W.NOHANG) >= 0) {
+        if (c.W.IFEXITED(@intCast(raw_status))) {
+            return c.W.EXITSTATUS(@intCast(raw_status));
+        } else {
+            return null;
+        }
+    } else {
+        return error.Errno;
+    }
+}
+
+pub const Console = struct {
     const ForkMode = packed struct(u8) {
         pipe_stdin: bool,
         pipe_stdout: bool,
@@ -41,25 +93,13 @@ pub const Console = struct {
         _: u4,
     };
 
-    const ForkedChild = struct {
-        mode: ForkMode,
-        pid: std.c.pid_t,
-
-        /// Input to forked process from main stdout
-        // TODO: hook up directly to Console/write, Console/error DEOs
-        input: ?ConnectedPipe,
-
-        /// Output from forked process to main stdin
-        // TODO: hook up directly(ish) to Console/read, Console/vector
-        output: ?ConnectedPipe,
-    };
-
     device: impl.DeviceMixin,
+    io: Io,
 
     stderr: *Io.Writer,
     stdout: *Io.Writer,
 
-    forked_child: ?ForkedChild = null,
+    forked_child: ?process.Child = null,
 
     pub fn intercept(
         con: *Console,
@@ -73,9 +113,17 @@ pub const Console = struct {
                     const octet = con.device.loadPort(u8, cpu, port);
 
                     if (port == ports.write) {
-                        _ = con.stdout.writeByte(octet) catch return;
+                        // stdout may write to a child if requested.
+                        var child_stdin = con.childStdin(&.{});
+
+                        if (child_stdin) |*child| {
+                            child.interface.writeByte(octet) catch {};
+                        } else {
+                            con.stdout.writeByte(octet) catch {};
+                        }
                     } else if (port == ports.err) {
-                        _ = con.stderr.writeByte(octet) catch return;
+                        // stderr always writes to stderr.
+                        _ = con.stderr.writeByte(octet) catch {};
                     }
                 },
 
@@ -100,70 +148,21 @@ pub const Console = struct {
         }
     }
 
+    pub fn stdin(con: *Console, cpu: *Cpu, buffer: []u8) Writer {
+        return Writer{
+            .cpu = cpu,
+            .con = con,
+            .interface = Io.Writer{
+                .vtable = &writer_vtable,
+                .buffer = buffer,
+            },
+        };
+    }
+
     fn getAddrSlice(con: *Console, cpu: *Cpu) []const u8 {
         const ptr: usize = con.device.loadPort(u16, cpu, ports.addr);
 
         return std.mem.sliceTo(cpu.mem[ptr..], 0x00);
-    }
-
-    fn updateProcessState(con: *Console, cpu: *Cpu, live: u8, exit: u8) void {
-        con.device.storePort(u8, cpu, ports.live, live);
-        con.device.storePort(u8, cpu, ports.exit, exit);
-    }
-
-    fn checkChild(con: *Console, cpu: *Cpu) void {
-        if (con.forked_child) |*child| {
-            var status: c_int = 0;
-            const r = std.c.waitpid(child.pid, &status, std.c.W.NOHANG);
-
-            if (r > 0) {
-                con.updateProcessState(cpu, 0xff, @intCast(status));
-                con.cleanupChild(child);
-            } else {
-                con.updateProcessState(cpu, 0x01, 0x00);
-            }
-        }
-    }
-
-    fn mainChild(
-        con: *Console,
-        cmd: []const u8,
-        mode: ForkMode,
-        input: ?[2]std.c.fd_t,
-        output: ?[2]std.c.fd_t,
-    ) !noreturn {
-        if (input) |pipe| {
-            _ = catchErrno(std.c.dup2(pipe[0], 0)) catch |e|
-                logger.warn("Failed connecting pipe to child input: dup2(): {t}", .{e});
-
-            _ = try catchErrno(std.c.close(pipe[1]));
-        }
-
-        if (output) |pipe| {
-            if (mode.pipe_stdout) {
-                _ = catchErrno(std.c.dup2(pipe[1], 1)) catch |e|
-                    logger.warn("Failed connecting child stdout to output pipe: dup2(): {t}", .{e});
-            }
-
-            if (mode.pipe_stderr) {
-                _ = catchErrno(std.c.dup2(pipe[1], 2)) catch |e|
-                    logger.warn("Failed connecting child stderr to output pipe: dup2(): {t}", .{e});
-            }
-
-            _ = try catchErrno(std.c.close(pipe[0]));
-        }
-
-        con.stdout.flush() catch {};
-
-        const args = &[_:null]?[*:0]const u8{
-            "/bin/sh",
-            "-c",
-            @ptrCast(cmd.ptr),
-            null,
-        };
-
-        _ = std.c.execve(args[0].?, args, &.{null});
-        unreachable;
     }
 
     fn execForked(con: *Console, cpu: *Cpu, cmd: []const u8, mode: ForkMode) !void {
@@ -171,149 +170,88 @@ pub const Console = struct {
             con.killChild(cpu, child);
         }
 
-        if (con.forked_child != null) {
-            logger.warn("Child was not properly cleanup up, ignoring exec", .{});
-
-            return;
-        }
-
         if (mode.terminate) {
-            con.updateProcessState(cpu, 0x00, 0x00);
-
-            return;
+            return con.updateProcessState(cpu, 0x00, 0x00);
         }
 
         errdefer con.updateProcessState(cpu, 0xff, 0xff);
 
-        var tmp_pipe: [2]std.c.fd_t = .{ 0, 0 };
+        con.forked_child = try process.spawn(con.io, .{
+            .argv = &.{ "/bin/sh", "-c", cmd },
+            .stdin = if (mode.pipe_stdin) .pipe else .close,
+            .stdout = if (mode.pipe_stdout) .pipe else .close,
+            .stderr = if (mode.pipe_stderr) .pipe else .close,
+        });
 
-        const input_pipe = if (mode.pipe_stdin) p: {
-            _ = catchErrno(std.c.pipe(&tmp_pipe)) catch |e| {
-                logger.warn("Failed creating input pipe: pipe(): {t}", .{e});
+        logger.debug("Spawned: {s}", .{cmd});
+    }
 
-                return e;
-            };
-
-            break :p tmp_pipe;
-        } else null;
-
-        const output_pipe = if (mode.pipe_stdout or mode.pipe_stderr) p: {
-            _ = catchErrno(std.c.pipe(&tmp_pipe)) catch |e| {
-                logger.warn("Failed creating output pipe: pipe(): {t}", .{e});
-
-                return e;
-            };
-            break :p tmp_pipe;
-        } else null;
-
-        logger.debug("Executing '{s}' (mode: {})", .{ cmd, mode });
-
-        if (catchErrno(std.c.fork())) |child| {
-            if (child == 0) {
-                con.mainChild(cmd, mode, input_pipe, output_pipe) catch {
-                    std.c.exit(1);
-                };
-            } else {
-                // Main process
-                con.updateProcessState(cpu, 0x00, 0x01);
-
-                var connected_input: ?ConnectedPipe = null;
-                var connected_output: ?ConnectedPipe = null;
-
-                if (input_pipe) |pipe| {
-                    connected_input = ConnectedPipe{
-                        .pipe = pipe,
-                        .shadowed = std.c.dup(1),
-                    };
-
-                    _ = catchErrno(std.c.dup2(pipe[1], 1)) catch |e|
-                        logger.warn("Failed connecting parent stdout to input pipe: dup2(): {t}", .{e});
-
-                    _ = std.c.close(pipe[0]);
-                }
-
-                if (output_pipe) |pipe| {
-                    connected_output = ConnectedPipe{
-                        .pipe = pipe,
-                        .shadowed = std.c.dup(0),
-                    };
-
-                    _ = catchErrno(std.c.dup2(pipe[0], 0)) catch |e|
-                        logger.warn("Failed connecting output pipe to parent stdin: dup2(): {t}", .{e});
-
-                    _ = std.c.close(pipe[1]);
-                }
-
-                con.forked_child = ForkedChild{
-                    .mode = mode,
-                    .pid = child,
-
-                    .input = connected_input,
-                    .output = connected_output,
-                };
+    fn childStream(con: *Console, buffer: []u8, comptime field: []const u8) ?Io.File.Reader {
+        if (con.forked_child) |child| {
+            if (@field(child, field)) |f| {
+                return f.readerStreaming(con.io, buffer);
             }
-        } else |e| {
-            logger.warn("Failed forking process: fork(): {t}", .{e});
+        }
 
-            return e;
+        return null;
+    }
+
+    pub fn childStdin(con: *Console, buffer: []u8) ?Io.File.Writer {
+        if (con.forked_child) |child| {
+            if (child.stdin) |f| {
+                return f.writerStreaming(con.io, buffer);
+            }
+        }
+
+        return null;
+    }
+    pub fn childStdout(con: *Console, buffer: []u8) ?Io.File.Reader {
+        return con.childStream(buffer, "stdout");
+    }
+
+    pub fn childStderr(con: *Console, buffer: []u8) ?Io.File.Reader {
+        return con.childStream(buffer, "stderr");
+    }
+
+    fn updateProcessState(con: *Console, cpu: *Cpu, live: u8, exit: u8) void {
+        con.device.storePort(u8, cpu, ports.live, live);
+        con.device.storePort(u8, cpu, ports.exit, exit);
+    }
+
+    pub fn checkChild(con: *Console, cpu: *Cpu) void {
+        if (con.forked_child) |*child| {
+            if (status(child) catch null) |exit_code| {
+                con.updateProcessState(cpu, 0xff, exit_code);
+                con.cleanupChild(child);
+            } else {
+                con.updateProcessState(cpu, 0x01, 0x00);
+            }
         }
     }
 
-    fn killChild(con: *Console, cpu: *Cpu, child: *ForkedChild) void {
+    fn killChild(con: *Console, cpu: *Cpu, child: *process.Child) void {
         // Send sigterm
-        _ = catchErrno(std.c.kill(child.pid, .KILL)) catch |e|
-            logger.warn("Failed killing child process: kill({}): {t}", .{ child.pid, e });
+        kill(child) catch |e| {
+            logger.warn("Failed killing child process: kill(): {t}", .{e});
+        };
 
-        var status: c_int = 0;
-        const r = std.c.waitpid(child.pid, &status, std.c.W.NOHANG);
-
-        if (r > 0) {
-            con.updateProcessState(cpu, 0xff, @intCast(status));
+        if (status(child) catch null) |exit_code| {
+            con.updateProcessState(cpu, 0xff, exit_code);
         }
 
         con.cleanupChild(child);
-    }
-
-    fn cleanupChild(con: *Console, child: *ForkedChild) void {
-        _ = con.tryRestoreFiles(child);
         con.forked_child = null;
     }
 
-    fn tryRestoreFiles(_: *Console, child: *ForkedChild) bool {
-        var changed = child.input != null or child.output != null;
+    fn cleanupChild(con: *Console, child: *process.Child) void {
+        if (child.stdin) |f|
+            f.close(con.io);
 
-        if (child.input) |connect| {
-            // close child stdin and restore saved
-            _ = std.c.close(connect.pipe[1]);
+        if (child.stdout) |f|
+            f.close(con.io);
 
-            _ = catchErrno(std.c.dup2(connect.shadowed, 1)) catch |e|
-                logger.warn("Failed restoring stdout: dup2(): {t}", .{e});
-
-            child.input = null;
-        }
-
-        if (child.output) |connect| {
-            // close child stderr/stdout and restore saved
-            _ = std.c.close(connect.pipe[0]);
-            _ = catchErrno(std.c.dup2(connect.shadowed, 0)) catch |e|
-                logger.warn("Failed restoring stdin: dup2(): {t}", .{e});
-
-            child.output = null;
-            changed = true;
-        }
-
-        return changed;
-    }
-
-    pub fn hasProcess(con: *const Console) bool {
-        return con.forked_child != null;
-    }
-
-    pub fn unpipeProcess(con: *Console) bool {
-        if (con.forked_child) |*child|
-            return con.tryRestoreFiles(child);
-
-        return false;
+        if (child.stderr) |f|
+            f.close(con.io);
     }
 
     pub fn pushArguments(

@@ -34,8 +34,16 @@ pub const std_options = std.Options{
 
 const logger = std.log.scoped(.uxn_sdl);
 
+const Event = union(enum) {
+    stdin_avail: Io.Reader.Error!void,
+    frame_timer: Io.Cancelable!void,
+    child_out: Io.Reader.Error!void,
+    child_err: Io.Reader.Error!void,
+};
+
 fn mainGraphical(
     Impl: type,
+    io: Io,
     cpu: *uxn.Cpu,
     system: *varvara.VarvaraDefault,
     scale: u8,
@@ -49,8 +57,6 @@ fn mainGraphical(
 
     impl.initAudio();
     impl.initJoystick();
-
-    _ = impl.generic.startStdinReceiver();
 
     system.console_device.setArgc(cpu, args);
 
@@ -70,7 +76,20 @@ fn mainGraphical(
     const target_frametime = 1.0 / @as(f32, @floatFromInt(fps_limit orelse std.math.maxInt(u32)));
 
     var window_width = system.screen_device.width;
-    var window_height = system.screen_device.height; 
+    var window_height = system.screen_device.height;
+
+    var stdin_buffer: [1024]u8 = undefined;
+    var uxn_stdin_buffer: [128]u8 = undefined;
+
+    var stdin = Io.File.stdin().reader(io, &stdin_buffer);
+    var uxn_stdin = system.console_device.stdin(cpu, &uxn_stdin_buffer);
+
+    var child_stdout_buffer: [1024]u8 = undefined;
+    var child_stderr_buffer: [1024]u8 = undefined;
+
+    var last_child_id: ?std.process.Child.Id = null;
+    var child_stdout: ?Io.File.Reader = null;
+    var child_stderr: ?Io.File.Reader = null;
 
     main_loop: while (system.system_device.exit_code == null) {
         const t0 = c.SDL_GetPerformanceCounter();
@@ -96,10 +115,96 @@ fn mainGraphical(
         const frametime = @as(f32, @floatFromInt(t1 - t0)) / @as(f32, @floatFromInt(c.SDL_GetPerformanceFrequency()));
 
         // Frame rendered too quickly, sleep until target framerate is achieved.
-        if (frametime < target_frametime) {
-            const delay = (target_frametime - frametime) * 1000;
+        const timeout: Io.Timeout = .{
+            .duration = .{
+                .clock = .cpu_thread,
+                .raw = Io.Duration.fromMilliseconds(@intFromFloat(@max(0, (target_frametime - frametime) * 1000))),
+            },
+        };
 
-            c.SDL_Delay(@intFromFloat(delay));
+        // Shouldn’t do this in high performance graphics code, but I hazard that it’s fine for
+        // what can be expected of Uxn.
+        var events: [4]Event = undefined;
+        var select = Io.Select(Event).init(io, &events);
+
+        defer _ = select.cancel();
+
+        // Start the frame timer
+        select.async(.frame_timer, Io.Timeout.sleep, .{ timeout, io });
+        select.async(.stdin_avail, Io.Reader.fill, .{ &stdin.interface, 1 });
+
+        // Get the active child ID, if any
+        const child_id = if (system.console_device.forked_child) |chld|
+            chld.id
+        else
+            null;
+
+        // If the process scope of the open channels has changed, re-open them, otherwise
+        // keep them as is so they don’t get reopened after they’re closed and to give the
+        // loop a chance to finish reading.
+        if (last_child_id != child_id) {
+            if (child_stdout == null) {
+                child_stdout = system.console_device.childStdout(&child_stdout_buffer);
+            }
+
+            if (child_stderr == null) {
+                child_stderr = system.console_device.childStderr(&child_stderr_buffer);
+            }
+        }
+
+        // If channels are open, add them to the set.
+        if (child_stdout) |*f|
+            select.async(.child_out, Io.Reader.fill, .{ &f.interface, 1 });
+
+        if (child_stderr) |*f|
+            select.async(.child_err, Io.Reader.fill, .{ &f.interface, 1 });
+
+        while (true) {
+            switch (try select.await()) {
+                .frame_timer => {
+                    // Frame timer fired, got to go
+                    break;
+                },
+
+                .stdin_avail => {
+                    copyAvailable(&stdin.interface, &uxn_stdin.interface) catch |e| {
+                        logger.warn("Failed to stdin to Uxn stdin: {t}", .{e});
+                    };
+
+                    // Re-register request
+                    select.async(.stdin_avail, Io.Reader.fill, .{ &stdin.interface, 1 });
+                },
+
+                inline .child_out, .child_err => |result, t| {
+                    if (result) {
+                        const stream = if (t == .child_out)
+                            &child_stdout.?
+                        else
+                            &child_stderr.?;
+
+                        copyAvailable(&stream.interface, &uxn_stdin.interface) catch |e| {
+                            logger.warn("Failed to stream child output to Uxn stdin: {t}", .{e});
+                        };
+
+                        // Re-register request
+                        select.async(t, Io.Reader.fill, .{ &stream.interface, 1 });
+                    } else |e| {
+                        if (e != error.EndOfStream) {
+                            logger.warn("{t}: {t}", .{ t, e });
+                        } else {
+                            logger.debug("{t}: end of stream", .{t});
+                        }
+
+                        last_child_id = child_id;
+
+                        if (t == .child_out) {
+                            child_stdout = null;
+                        } else {
+                            child_stderr = null;
+                        }
+                    }
+                },
+            }
         }
     }
 
@@ -108,6 +213,11 @@ fn mainGraphical(
     }
 
     return system.system_device.exit_code.?;
+}
+
+fn copyAvailable(reader: *Io.Reader, writer: *Io.Writer) !void {
+    try reader.streamExact(writer, reader.bufferedLen());
+    try writer.flush();
 }
 
 pub fn main(init: std.process.Init) !u8 {
@@ -193,6 +303,7 @@ pub fn main(init: std.process.Init) !u8 {
             @import("Sdl2Impl.zig")
         else
             @import("Sdl3Impl.zig"),
+        init.io,
         &cpu,
         &system,
         @truncate(res.args.scale orelse 1),
