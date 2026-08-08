@@ -109,17 +109,6 @@ fn mainGraphical(
 
         impl.drawScreen();
 
-        const t1 = c.SDL_GetPerformanceCounter();
-        const frametime = @as(f32, @floatFromInt(t1 - t0)) / @as(f32, @floatFromInt(c.SDL_GetPerformanceFrequency()));
-
-        // Frame rendered too quickly, sleep until target framerate is achieved.
-        const timeout: Io.Timeout = .{
-            .duration = .{
-                .clock = .cpu_thread,
-                .raw = Io.Duration.fromMilliseconds(@intFromFloat(@max(0, (target_frametime - frametime) * 1000))),
-            },
-        };
-
         // Shouldn’t do this in high performance graphics code, but I hazard that it’s fine for
         // what can be expected of Uxn.
         var events: [4]Event = undefined;
@@ -127,8 +116,6 @@ fn mainGraphical(
 
         defer _ = select.cancel();
 
-        // Start the frame timer
-        select.async(.frame_timer, Io.Timeout.sleep, .{ timeout, io });
         select.async(.stdin_avail, Io.Reader.fill, .{ &stdin.interface, 1 });
 
         // Get the active child ID, if any
@@ -156,6 +143,20 @@ fn mainGraphical(
 
         if (child_stderr) |*f|
             select.async(.child_err, Io.Reader.fill, .{ &f.interface, 1 });
+
+        const t1 = c.SDL_GetPerformanceCounter();
+        const frametime = @as(f32, @floatFromInt(t1 - t0)) / @as(f32, @floatFromInt(c.SDL_GetPerformanceFrequency()));
+
+        // Frame rendered too quickly, sleep until target framerate is achieved.
+        const timeout: Io.Timeout = .{
+            .duration = .{
+                .clock = .real,
+                .raw = Io.Duration.fromMilliseconds(@intFromFloat(@max(0, (target_frametime - frametime) * 1000))),
+            },
+        };
+
+        // Start the frame timer
+        select.async(.frame_timer, Io.Timeout.sleep, .{ timeout, io });
 
         while (true) {
             switch (try select.await()) {
