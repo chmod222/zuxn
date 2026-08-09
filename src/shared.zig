@@ -125,6 +125,10 @@ pub fn loadOrAssembleRom(
             &file_reader.interface,
             rom_data,
         ) catch |err| {
+            if (err == error.ReadFailed) {
+                return file_reader.err orelse err;
+            }
+
             assembler.issueDiagnostic(err, &stderr.interface) catch {};
 
             return error.AssemblyFailed;
@@ -159,7 +163,12 @@ pub fn loadOrAssembleRom(
                 var read_buffer: [1024]u8 = undefined;
                 var reader = symbols_file.reader(io, &read_buffer);
 
-                break :r try Debug.loadSymbols(alloc, &reader.interface);
+                break :r Debug.loadSymbols(alloc, &reader.interface) catch |err| {
+                    if (err == error.ReadFailed)
+                        return reader.err orelse err;
+
+                    return err;
+                };
             } else null,
         };
     }

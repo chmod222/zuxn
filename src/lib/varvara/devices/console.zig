@@ -121,7 +121,7 @@ pub const Console = struct {
                         if (child_stdin) |*child| {
                             child.interface.writeByte(octet) catch |e| {
                                 if (child.err orelse e == error.Canceled)
-                                    con.io.recancel();
+                                    return error.Canceled;
                             };
                         } else {
                             con.stdout.writeByte(octet) catch {};
@@ -139,7 +139,7 @@ pub const Console = struct {
                         con.device.loadPort(ForkMode, cpu, ports.mode),
                     ) catch |e| {
                         if (e == error.Canceled) {
-                            con.io.recancel();
+                            return error.Canceled;
                         }
                     };
                 },

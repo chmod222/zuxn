@@ -110,6 +110,10 @@ pub const File = struct {
                 } else |err| r: {
                     logger.debug("[File@{x}] Failed to write data: {}", .{ file.device.addr, err });
 
+                    if (err == error.Canceled) {
+                        return error.Canceled;
+                    }
+
                     break :r 0x0000;
                 };
 
@@ -131,6 +135,10 @@ pub const File = struct {
                 } else |err| r: {
                     logger.debug("[File@{x}] Failed to read data: {}", .{ file.device.addr, err });
 
+                    if (err == error.Canceled) {
+                        return error.Canceled;
+                    }
+
                     break :r 0x0000;
                 };
 
@@ -150,6 +158,11 @@ pub const File = struct {
                     break :r 0x0000;
                 } else |err| r: {
                     logger.debug("[File@{x}] Failed deleting \"{s}\": {}", .{ file.device.addr, name_slice, err });
+
+                    if (err == error.Canceled) {
+                        return error.Canceled;
+                    }
+
 
                     break :r 0x0000;
                 };

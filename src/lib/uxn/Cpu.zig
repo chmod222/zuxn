@@ -20,10 +20,14 @@ pub const SystemFault = error{
     DivisionByZero,
 
     BadExpansion,
+    Canceled,
 };
 
 pub fn isCatchable(f: SystemFault) bool {
-    return f != error.BadExpansion;
+    return switch (f) {
+        error.BadExpansion, error.Canceled => false,
+        else => true,
+    };
 }
 
 pub const InterceptKind = enum {
