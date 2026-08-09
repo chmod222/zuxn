@@ -40,21 +40,25 @@ pub fn readFile(bck: *NativeBackend, path: []const u8, dest: []u8) !u16 {
                 bck.open_file = .{
                     .file = try Io.Dir.cwd().openFile(bck.io, path, .{}),
                 };
+            } else {
+                return e;
             }
         }
     }
 
     const n: usize = r: switch (bck.open_file) {
         .file => |f| {
-            var writer = f.readerStreaming(bck.io, &.{});
+            var reader = f.readerStreaming(bck.io, &.{});
 
-            break :r try writer.interface.readSliceShort(dest);
+            break :r reader.interface.readSliceShort(dest) catch {
+                return reader.err.?;
+            };
         },
 
         .directory => |*d| {
             var writer = Io.Writer.fixed(dest);
 
-            if (d.next(bck.io) catch null) |entry| {
+            if (try d.next(bck.io)) |entry| {
                 if (entry.kind != .directory) {
                     const file_size = if (comptime builtin.os.tag == .wasi) s: {
                         // Some problems with statFile not working under WASI
@@ -67,12 +71,12 @@ pub fn readFile(bck: *NativeBackend, path: []const u8, dest: []u8) !u16 {
                         }
                     } else (try d.reader.dir.statFile(bck.io, entry.name, .{})).size;
 
-                    try if (file_size > 0xffff)
-                        writer.print("???? {s}\n", .{entry.name})
+                    if (file_size > 0xffff)
+                        writer.print("????\t{s}\n", .{entry.name}) catch {}
                     else
-                        writer.print("{x:0>4} {s}\n", .{ file_size, entry.name });
+                        writer.print("{x:0>4}\t{s}\n", .{ file_size, entry.name }) catch {};
                 } else {
-                    try writer.print("---- {s}/\n", .{entry.name});
+                    writer.print("----\t{s}/\n", .{entry.name}) catch {};
                 }
 
                 writer.writeByte(0x00) catch {};
@@ -104,8 +108,8 @@ pub fn writeFile(
     }
 
     var writer = bck.open_file.file.writerStreaming(bck.io, &.{});
-    try writer.interface.writeAll(src);
-    try writer.interface.flush();
+    writer.interface.writeAll(src) catch return writer.err.?;
+    writer.interface.flush() catch return writer.err.?;
 
     return @truncate(src.len);
 }
