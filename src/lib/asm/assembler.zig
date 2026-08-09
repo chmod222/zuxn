@@ -33,7 +33,7 @@ pub const AssemblerError = error{
     IncludeNotFound,
     NotAllowed,
     CannotOpenFile,
-} || scan.Error || Io.Writer.Error;
+} || scan.Error || Io.Writer.Error || Io.File.Reader.Error;
 
 pub fn Assembler(comptime lim: scan.Limits) type {
     return struct {
@@ -514,13 +514,19 @@ pub fn Assembler(comptime lim: scan.Limits) type {
                 assembler.err_input_pos = assembler.lexicalInformationFromScanner(&scanner);
             }
 
-            while (try scanner.readToken(&reader.interface)) |token| {
+            while (scanner.readToken(&reader.interface)) |token| {
                 try assembler.processToken(
                     &scanner,
-                    token,
+                    token orelse break,
                     &reader.interface,
                     output,
                 );
+            } else |e| {
+                if (e == error.ReadFailed) {
+                    return reader.err orelse e;
+                } else {
+                    return e;
+                }
             }
 
             // We don't defer this so our include stack remains valid and pointed
