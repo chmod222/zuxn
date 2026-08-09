@@ -224,11 +224,8 @@ pub const System = struct {
                 else => unreachable,
             })) catch unreachable;
 
-            // Due to some weird effects of "usingnamespace" above, handle_fault() no longer feels
-            // like resolving itself in a recursive call, so we make a little indirection via
-            // @call() to help the resolver.
             cpu.evaluateVector(catch_vector) catch |new_fault|
-                try @call(.auto, handleFault, .{ sys, cpu, new_fault });
+                try sys.handleFault(cpu, new_fault);
         } else {
             return fault;
         }
