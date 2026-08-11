@@ -155,50 +155,43 @@ pub fn pollEvents(impl: *Sdl2Impl) !bool {
             },
 
             c.SDL_MOUSEMOTION => {
-                system.mouse_device.updatePosition(
+                try system.mouse_device.updatePosition(
                     cpu,
                     @truncate(@as(c_uint, @bitCast(ev.motion.x))),
                     @truncate(@as(c_uint, @bitCast(ev.motion.y))),
-                ) catch |fault|
-                    try system.system_device.handleFault(cpu, fault);
+                );
             },
 
             c.SDL_MOUSEBUTTONDOWN => {
-                system.mouse_device.pressButtons(
+                try system.mouse_device.pressButtons(
                     cpu,
                     @bitCast(@as(u8, 1) << @as(u3, @truncate(ev.button.button - 1))),
-                ) catch |fault|
-                    try system.system_device.handleFault(cpu, fault);
+                );
             },
 
             c.SDL_MOUSEBUTTONUP => {
-                system.mouse_device.releaseButtons(
+                try system.mouse_device.releaseButtons(
                     cpu,
                     @bitCast(@as(u8, 1) << @as(u3, @truncate(ev.button.button - 1))),
-                ) catch |fault|
-                    try system.system_device.handleFault(cpu, fault);
+                );
             },
 
             c.SDL_MOUSEWHEEL => {
-                system.mouse_device.updateScroll(cpu, ev.wheel.x, ev.wheel.y) catch |fault|
-                    try system.system_device.handleFault(cpu, fault);
+                try system.mouse_device.updateScroll(cpu, ev.wheel.x, ev.wheel.y);
             },
 
             c.SDL_TEXTINPUT => {
-                system.controller_device.pressKey(cpu, ev.text.text[0]) catch |fault|
-                    try system.system_device.handleFault(cpu, fault);
+                try system.controller_device.pressKey(cpu, ev.text.text[0]);
             },
 
             c.SDL_KEYDOWN => {
                 if (Generic.determineInput(&ev)) |input| switch (input) {
                     .buttons => |b| {
-                        system.controller_device.pressButtons(cpu, b, 0) catch |fault|
-                            try system.system_device.handleFault(cpu, fault);
+                        try system.controller_device.pressButtons(cpu, b, 0);
                     },
 
                     .key => |k| {
-                        system.controller_device.pressKey(cpu, k) catch |fault|
-                            try system.system_device.handleFault(cpu, fault);
+                        try system.controller_device.pressKey(cpu, k);
                     },
                 };
             },
@@ -206,8 +199,7 @@ pub fn pollEvents(impl: *Sdl2Impl) !bool {
             c.SDL_KEYUP => {
                 if (Generic.determineInput(&ev)) |input| switch (input) {
                     .buttons => |b| {
-                        system.controller_device.releaseButtons(cpu, b, 0) catch |fault|
-                            try system.system_device.handleFault(cpu, fault);
+                        try system.controller_device.releaseButtons(cpu, b, 0);
                     },
 
                     else => {},
@@ -232,12 +224,10 @@ pub fn pollEvents(impl: *Sdl2Impl) !bool {
                     else => break :b,
                 };
 
-                if (ev.type == c.SDL_JOYBUTTONUP)
-                    system.controller_device.releaseButtons(cpu, btn, player) catch |fault|
-                        try system.system_device.handleFault(cpu, fault)
+                try if (ev.type == c.SDL_JOYBUTTONUP)
+                    system.controller_device.releaseButtons(cpu, btn, player)
                 else
-                    system.controller_device.pressButtons(cpu, btn, player) catch |fault|
-                        try system.system_device.handleFault(cpu, fault);
+                    system.controller_device.pressButtons(cpu, btn, player);
             },
 
             c.SDL_JOYHATMOTION => {
@@ -262,12 +252,10 @@ pub fn pollEvents(impl: *Sdl2Impl) !bool {
                     .right = !btn.right,
                 };
 
-                system.controller_device.releaseButtons(cpu, inverse, player) catch |fault|
-                    try system.system_device.handleFault(cpu, fault);
+                try system.controller_device.releaseButtons(cpu, inverse, player);
 
                 if (@as(u8, @bitCast(btn)) != 0) {
-                    system.controller_device.pressButtons(cpu, btn, player) catch |fault|
-                        try system.system_device.handleFault(cpu, fault);
+                    try system.controller_device.pressButtons(cpu, btn, player);
                 }
             },
 

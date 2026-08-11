@@ -134,11 +134,8 @@ pub fn main(init: std.process.Init) !u8 {
 
     system.console_device.setArgc(&cpu, args);
 
-    cpu.evaluateVector(0x0100) catch |fault|
-        try system.system_device.handleFault(&cpu, fault);
-
-    system.console_device.pushArguments(&cpu, args) catch |fault|
-        try system.system_device.handleFault(&cpu, fault);
+    try cpu.evaluateVector(0x0100);
+    try system.console_device.pushArguments(&cpu, args);
 
     if (system.system_device.exit_code) |c|
         return c;

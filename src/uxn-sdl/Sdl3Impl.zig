@@ -195,52 +195,45 @@ pub fn pollEvents(impl: *Sdl3Impl) !bool {
             },
 
             c.SDL_EVENT_MOUSE_MOTION => {
-                system.mouse_device.updatePosition(
+                try system.mouse_device.updatePosition(
                     cpu,
                     @truncate(@as(c_uint, @intFromFloat(ev.motion.x))),
                     @truncate(@as(c_uint, @intFromFloat(ev.motion.y))),
-                ) catch |fault|
-                    try system.system_device.handleFault(cpu, fault);
+                );
             },
 
             c.SDL_EVENT_MOUSE_BUTTON_DOWN => {
-                system.mouse_device.pressButtons(
+                try system.mouse_device.pressButtons(
                     cpu,
                     @bitCast(@as(u8, 1) << @as(u3, @truncate(ev.button.button - 1))),
-                ) catch |fault|
-                    try system.system_device.handleFault(cpu, fault);
+                );
             },
 
             c.SDL_EVENT_MOUSE_BUTTON_UP => {
-                system.mouse_device.releaseButtons(
+                try system.mouse_device.releaseButtons(
                     cpu,
                     @bitCast(@as(u8, 1) << @as(u3, @truncate(ev.button.button - 1))),
-                ) catch |fault|
-                    try system.system_device.handleFault(cpu, fault);
+                );
             },
 
             c.SDL_EVENT_MOUSE_WHEEL => {
-                system.mouse_device.updateScroll(cpu, @floor(ev.wheel.x), @floor(ev.wheel.y)) catch |fault|
-                    try system.system_device.handleFault(cpu, fault);
+                try system.mouse_device.updateScroll(cpu, @floor(ev.wheel.x), @floor(ev.wheel.y));
             },
 
             c.SDL_EVENT_TEXT_INPUT => {
                 for (std.mem.span(ev.text.text)) |oct| {
-                    system.controller_device.pressKey(cpu, oct) catch |fault|
-                        try system.system_device.handleFault(cpu, fault);
+                    try system.controller_device.pressKey(cpu, oct);
                 }
             },
 
             c.SDL_EVENT_KEY_DOWN => {
                 if (Generic.determineInput(&ev)) |input| switch (input) {
                     .buttons => |b| {
-                        system.controller_device.pressButtons(cpu, b, 0) catch |fault|
-                            try system.system_device.handleFault(cpu, fault);
+                        try system.controller_device.pressButtons(cpu, b, 0);
                     },
 
                     .key => |k| {
-                        system.controller_device.pressKey(cpu, k) catch |fault|
-                            try system.system_device.handleFault(cpu, fault);
+                        try system.controller_device.pressKey(cpu, k);
                     },
                 };
             },
@@ -248,8 +241,7 @@ pub fn pollEvents(impl: *Sdl3Impl) !bool {
             c.SDL_EVENT_KEY_UP => {
                 if (Generic.determineInput(&ev)) |input| switch (input) {
                     .buttons => |b| {
-                        system.controller_device.releaseButtons(cpu, b, 0) catch |fault|
-                            try system.system_device.handleFault(cpu, fault);
+                        try system.controller_device.releaseButtons(cpu, b, 0);
                     },
 
                     else => {},
@@ -275,11 +267,9 @@ pub fn pollEvents(impl: *Sdl3Impl) !bool {
                 };
 
                 if (ev.type == c.SDL_EVENT_JOYSTICK_BUTTON_UP)
-                    system.controller_device.releaseButtons(cpu, btn, player) catch |fault|
-                        try system.system_device.handleFault(cpu, fault)
+                    try system.controller_device.releaseButtons(cpu, btn, player)
                 else
-                    system.controller_device.pressButtons(cpu, btn, player) catch |fault|
-                        try system.system_device.handleFault(cpu, fault);
+                    try system.controller_device.pressButtons(cpu, btn, player);
             },
 
             c.SDL_EVENT_JOYSTICK_HAT_MOTION => {
@@ -304,12 +294,10 @@ pub fn pollEvents(impl: *Sdl3Impl) !bool {
                     .right = !btn.right,
                 };
 
-                system.controller_device.releaseButtons(cpu, inverse, player) catch |fault|
-                    try system.system_device.handleFault(cpu, fault);
+                try system.controller_device.releaseButtons(cpu, inverse, player);
 
                 if (@as(u8, @bitCast(btn)) != 0) {
-                    system.controller_device.pressButtons(cpu, btn, player) catch |fault|
-                        try system.system_device.handleFault(cpu, fault);
+                    try system.controller_device.pressButtons(cpu, btn, player);
                 }
             },
 

@@ -155,7 +155,7 @@ pub const System = struct {
                 },
 
                 ports.expansion + 1 => {
-                    try sys.handleExpansion(cpu, sys.device.loadPort(u16, cpu, ports.expansion));
+                    sys.handleExpansion(cpu, sys.device.loadPort(u16, cpu, ports.expansion));
                 },
 
                 ports.red + 1, ports.green + 1, ports.blue + 1 => {
@@ -206,31 +206,6 @@ pub const System = struct {
         };
     }
 
-    pub fn handleFault(sys: *@This(), cpu: *Cpu, fault: Cpu.SystemFault) !void {
-        const catch_vector = sys.device.loadPort(u16, cpu, ports.catch_vector);
-
-        if (catch_vector > 0x0000 and Cpu.isCatchable(fault)) {
-            // Clear stacks, push fault information
-            cpu.wst.sp = 0;
-            cpu.rst.sp = 0;
-
-            cpu.wst.push(u16, cpu.pc) catch unreachable;
-            cpu.wst.push(u8, cpu.mem[cpu.pc]) catch unreachable;
-            cpu.wst.push(u8, @as(u8, switch (fault) {
-                error.StackUnderflow => 0x01,
-                error.StackOverflow => 0x02,
-                error.DivisionByZero => 0x03,
-
-                else => unreachable,
-            })) catch unreachable;
-
-            cpu.evaluateVector(catch_vector) catch |new_fault|
-                try sys.handleFault(cpu, new_fault);
-        } else {
-            return fault;
-        }
-    }
-
     fn selectMemoryPage(sys: *@This(), cpu: *Cpu, page: u16) ?*[Cpu.page_size]u8 {
         if (page == 0x0000) {
             return cpu.mem;
@@ -251,7 +226,7 @@ pub const System = struct {
         return src[offset..offset +| len];
     }
 
-    fn handleExpansion(sys: *@This(), cpu: *Cpu, operation: u16) !void {
+    fn handleExpansion(sys: *@This(), cpu: *Cpu, operation: u16) void {
         switch (cpu.mem[operation]) {
             0x00 => {
                 // fill [ operation:u8 | len:u16 | srcpg:u16 | src:u16 | value ]
@@ -272,7 +247,7 @@ pub const System = struct {
                 const dst = sys.getPagedSlice(cpu, page, offset, len) orelse {
                     logger.warn("Expansion: Invalid source page {x:0>4}:{x:0>4}", .{ page, offset });
 
-                    return error.BadExpansion;
+                    return;
                 };
 
                 @memset(dst, value);
@@ -300,13 +275,13 @@ pub const System = struct {
                 const src = sys.getPagedSlice(cpu, src_page, src_offset, len) orelse {
                     logger.warn("Expansion: Invalid source page {x:0>4}:{x:0>4}", .{ src_page, src_offset });
 
-                    return error.BadExpansion;
+                    return;
                 };
 
                 const dst = sys.getPagedSlice(cpu, dst_page, dst_offset, len) orelse {
                     logger.warn("Expansion: Invalid destination page {x:0>4}:{x:0>4}", .{ dst_page, dst_offset });
 
-                    return error.BadExpansion;
+                    return;
                 };
 
                 // N.B. this is impossible because all pages are equally sized
@@ -319,7 +294,7 @@ pub const System = struct {
                         src.len,  dst.len,
                     });
 
-                    return error.BadExpansion;
+                    return;
                 }
 
                 if (cpu.mem[operation] == 0x01) {

@@ -60,11 +60,8 @@ fn mainGraphical(
 
     system.console_device.setArgc(cpu, args);
 
-    cpu.evaluateVector(0x0100) catch |fault|
-        try system.system_device.handleFault(cpu, fault);
-
-    system.console_device.pushArguments(cpu, args) catch |fault|
-        try system.system_device.handleFault(cpu, fault);
+    try cpu.evaluateVector(0x0100);
+    try system.console_device.pushArguments(cpu, args);
 
     if (system.system_device.exit_code) |code|
         return code;
@@ -142,8 +139,7 @@ fn mainGraphical(
         if (try impl.pollEvents())
             break :main_loop;
 
-        system.screen_device.evaluateFrame(cpu) catch |fault|
-            try system.system_device.handleFault(cpu, fault);
+        try system.screen_device.evaluateFrame(cpu);
 
         if (system.screen_device.width != window_width or system.screen_device.height != window_height) {
             window_height = system.screen_device.height;

@@ -90,8 +90,9 @@ pub fn renderAudio(impl: *@This(), samples: []i16) void {
 
         if (poly.active_sample) |s| {
             if (s.envelope.isFinished()) {
-                poly.evaluateFinishVector(impl.cpu) catch |fault|
-                    impl.sys.system_device.handleFault(impl.cpu, fault) catch {};
+                poly.evaluateFinishVector(impl.cpu) catch {
+                    // Cannot really report errors in the audio renderer.
+                };
             }
         }
     }

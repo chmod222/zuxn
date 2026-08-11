@@ -5,30 +5,12 @@ pub const Stack = @import("cpu/Stack.zig");
 const std = @import("std");
 const logger = std.log.scoped(.uxn_cpu);
 
-pub const faults_enabled = @import("lib.zig").faults_enabled;
 pub const page_size = 0x10000;
 pub const device_page_size = 0x100;
 
 const isa = @import("cpu/isa.zig");
 
 pub const Opcode = isa.Opcode;
-
-pub const SystemFault = error{
-    StackOverflow,
-    StackUnderflow,
-
-    DivisionByZero,
-
-    BadExpansion,
-    Canceled,
-};
-
-pub fn isCatchable(f: SystemFault) bool {
-    return switch (f) {
-        error.BadExpansion, error.Canceled => false,
-        else => true,
-    };
-}
 
 pub const InterceptKind = enum {
     input,
@@ -66,10 +48,10 @@ device_intercept: ?*const fn (
     addr: u8,
     kind: InterceptKind,
     data: ?*anyopaque,
-) SystemFault!void = null,
+) anyerror!void = null,
 
 pub fn init(memory: *[page_size]u8) Cpu {
-    var cpu = Cpu{
+    return Cpu{
         .pc = 0x0100,
 
         .wst = Stack.init(),
@@ -78,16 +60,9 @@ pub fn init(memory: *[page_size]u8) Cpu {
         .mem = memory,
         .device_mem = [1]u8{0x00} ** 0x100,
     };
-
-    if (faults_enabled) {
-        cpu.wst.xflow_behaviour = .fault;
-        cpu.rst.xflow_behaviour = .fault;
-    }
-
-    return cpu;
 }
 
-pub fn evaluateVector(cpu: *Cpu, vector: u16) SystemFault!void {
+pub fn evaluateVector(cpu: *Cpu, vector: u16) !void {
     cpu.pc = vector;
 
     logger.debug("Vector {x:0>4}: Start evaluation", .{vector});
@@ -249,8 +224,8 @@ inline fn fetchImmedate(cpu: *Cpu, comptime T: type) T {
 }
 
 /// Execute a memory -> stack push.
-inline fn executeLiteralPush(cpu: *Cpu, comptime T: type) !void {
-    try cpu.primary_stack.push(T, cpu.fetchImmedate(T));
+inline fn executeLiteralPush(cpu: *Cpu, comptime T: type) void {
+    cpu.primary_stack.push(T, cpu.fetchImmedate(T));
 }
 
 /// Execute a jump based on a 16 bit relative immediate offset. Depending on
@@ -260,14 +235,14 @@ inline fn executeImmediateJump(
     cpu: *Cpu,
     comptime push_ret: bool,
     comptime conditional: bool,
-) !void {
+) void {
     const offset = cpu.fetchImmedate(u16);
 
     if (push_ret) {
-        try cpu.rst.push(u16, cpu.pc);
+        cpu.rst.push(u16, cpu.pc);
     }
 
-    _ = cpu.fetchJump(if (!conditional or try cpu.wst.pop(u8) > 0x00)
+    _ = cpu.fetchJump(if (!conditional or cpu.wst.pop(u8) > 0x00)
         cpu.pc +% offset
     else
         cpu.pc);
@@ -281,18 +256,18 @@ inline fn executeStackJump(
     comptime T: type,
     comptime push_ret: bool,
     comptime conditional: bool,
-) !void {
-    const operand = try cpu.primary_stack.pop(T);
+) void {
+    const operand = cpu.primary_stack.pop(T);
 
     const do_jump = if (conditional)
-        try cpu.primary_stack.pop(u8) > 0x00
+        cpu.primary_stack.pop(u8) > 0x00
     else
         true;
 
     cpu.finishPreExecute();
 
     if (push_ret) {
-        try cpu.secondary_stack.push(u16, cpu.pc);
+        cpu.secondary_stack.push(u16, cpu.pc);
     }
 
     _ = cpu.fetchJump(if (do_jump and T == u16)
@@ -310,19 +285,19 @@ inline fn executeStackShuffle(
     comptime T: type,
     comptime N: usize,
     out_order: anytype,
-) !void {
+) void {
     var popped: [N]T = undefined;
 
     inline for (&popped) |*p|
-        p.* = try cpu.primary_stack.pop(T);
+        p.* = cpu.primary_stack.pop(T);
 
     cpu.finishPreExecute();
 
     inline for (out_order) |i|
-        try cpu.primary_stack.push(T, popped[i]);
+        cpu.primary_stack.push(T, popped[i]);
 }
 
-pub fn run(cpu: *Cpu, step_limit: ?usize) SystemFault!?u16 {
+pub fn run(cpu: *Cpu, step_limit: ?usize) !?u16 {
     @setEvalBranchQuota(2048);
 
     var step: usize = 0;
@@ -353,11 +328,11 @@ pub fn run(cpu: *Cpu, step_limit: ?usize) SystemFault!?u16 {
             // Special case literals and immediates since they overload the BRK
             // base opcode.
             inline .LIT, .LIT2, .LITr, .LIT2r => |opcode| {
-                try cpu.executeLiteralPush(opcode.nativeOperandType());
+                cpu.executeLiteralPush(opcode.nativeOperandType());
             },
 
             inline .JCI, .JMI, .JSI => |opcode| {
-                try cpu.executeImmediateJump(
+                cpu.executeImmediateJump(
                     opcode == .JSI,
                     opcode == .JCI,
                 );
@@ -371,7 +346,7 @@ pub fn run(cpu: *Cpu, step_limit: ?usize) SystemFault!?u16 {
                     .BRK => unreachable,
 
                     .JMP, .JSR, .JCN => {
-                        try cpu.executeStackJump(
+                        cpu.executeStackJump(
                             T,
                             opcode.baseOpcode() == .JSR,
                             opcode.baseOpcode() == .JCN,
@@ -396,24 +371,24 @@ pub fn run(cpu: *Cpu, step_limit: ?usize) SystemFault!?u16 {
                             else => unreachable,
                         };
 
-                        try cpu.executeStackShuffle(T, n, order);
+                        cpu.executeStackShuffle(T, n, order);
                     },
 
                     .STH => {
-                        const val = try cpu.primary_stack.pop(T);
+                        const val = cpu.primary_stack.pop(T);
 
                         cpu.finishPreExecute();
 
-                        try cpu.secondary_stack.push(T, val);
+                        cpu.secondary_stack.push(T, val);
                     },
 
                     .EQU, .NEQ, .GTH, .LTH => {
-                        const b = try cpu.primary_stack.pop(T);
-                        const a = try cpu.primary_stack.pop(T);
+                        const b = cpu.primary_stack.pop(T);
+                        const a = cpu.primary_stack.pop(T);
 
                         cpu.finishPreExecute();
 
-                        try cpu.primary_stack.push(u8, @intFromBool(switch (opcode.baseOpcode()) {
+                        cpu.primary_stack.push(u8, @intFromBool(switch (opcode.baseOpcode()) {
                             .EQU => a == b,
                             .NEQ => a != b,
                             .GTH => a > b,
@@ -424,22 +399,19 @@ pub fn run(cpu: *Cpu, step_limit: ?usize) SystemFault!?u16 {
                     },
 
                     .ADD, .SUB, .MUL, .DIV, .AND, .ORA, .EOR => {
-                        const b = try cpu.primary_stack.pop(T);
-                        const a = try cpu.primary_stack.pop(T);
+                        const b = cpu.primary_stack.pop(T);
+                        const a = cpu.primary_stack.pop(T);
 
                         cpu.finishPreExecute();
 
-                        try cpu.primary_stack.push(T, switch (opcode.baseOpcode()) {
+                        cpu.primary_stack.push(T, switch (opcode.baseOpcode()) {
                             .ADD => a +% b,
                             .SUB => a -% b,
                             .MUL => a *% b,
                             .DIV => if (b != 0)
                                 a / b
-                            else if (!faults_enabled)
-                                0
                             else
-                                return error.DivisionByZero,
-
+                                0,
                             .AND => a & b,
                             .ORA => a | b,
                             .EOR => a ^ b,
@@ -449,16 +421,16 @@ pub fn run(cpu: *Cpu, step_limit: ?usize) SystemFault!?u16 {
                     },
 
                     .INC => {
-                        const val = try cpu.primary_stack.pop(T);
+                        const val = cpu.primary_stack.pop(T);
 
                         cpu.finishPreExecute();
 
-                        try cpu.primary_stack.push(T, val +% 1);
+                        cpu.primary_stack.push(T, val +% 1);
                     },
 
                     .SFT => {
-                        const shift = try cpu.primary_stack.pop(u8);
-                        const operand = try cpu.primary_stack.pop(T);
+                        const shift = cpu.primary_stack.pop(u8);
+                        const operand = cpu.primary_stack.pop(T);
 
                         cpu.finishPreExecute();
 
@@ -466,7 +438,7 @@ pub fn run(cpu: *Cpu, step_limit: ?usize) SystemFault!?u16 {
                         const lshift: u4 = @truncate(shift >> 4);
 
                         // If the operand would be shifted beyond its bit size, break :r 0
-                        try cpu.primary_stack.push(
+                        cpu.primary_stack.push(
                             T,
                             if (rshift < @bitSizeOf(T) and lshift < @bitSizeOf(T))
                                 operand >> @truncate(rshift) << @truncate(lshift)
@@ -479,9 +451,9 @@ pub fn run(cpu: *Cpu, step_limit: ?usize) SystemFault!?u16 {
                         const st = cpu.primary_stack;
 
                         const addr = switch (op) {
-                            inline .LDA, .STA => try st.pop(u16),
-                            inline .DEI, .DEO, .LDZ, .STZ => try st.pop(u8),
-                            else => addRelative(cpu.pc, try st.pop(u8)),
+                            inline .LDA, .STA => st.pop(u16),
+                            inline .DEI, .DEO, .LDZ, .STZ => st.pop(u8),
+                            else => addRelative(cpu.pc, st.pop(u8)),
                         };
 
                         switch (op) {
@@ -513,7 +485,7 @@ pub fn run(cpu: *Cpu, step_limit: ?usize) SystemFault!?u16 {
                                             );
                                 }
 
-                                try st.push(T, switch (op) {
+                                st.push(T, switch (op) {
                                     inline .DEI => cpu.loadDeviceMem(T, @truncate(addr)),
                                     inline .LDZ => cpu.loadZero(T, @truncate(addr)),
                                     inline .LDR, .LDA => cpu.loadMem(T, @truncate(addr)),
@@ -523,7 +495,7 @@ pub fn run(cpu: *Cpu, step_limit: ?usize) SystemFault!?u16 {
                             },
 
                             inline .DEO, .STZ, .STR, .STA => {
-                                const value = try st.pop(T);
+                                const value = st.pop(T);
 
                                 cpu.finishPreExecute();
 
