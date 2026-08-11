@@ -1,5 +1,10 @@
 const std = @import("std");
 
+const SdlVersion = enum {
+    sdl2,
+    sdl3,
+};
+
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
@@ -13,11 +18,11 @@ pub fn build(b: *std.Build) void {
     ) orelse false;
 
     const sdl_version = b.option(
-        u8,
+        SdlVersion,
         "sdl_version",
         \\Which SDL version to link against
         ,
-    ) orelse 3;
+    ) orelse .sdl3;
 
     const link_libc = b.option(
         bool,
@@ -25,10 +30,6 @@ pub fn build(b: *std.Build) void {
         \\Link against system libc (for Varavara device functionality)
         ,
     ) orelse true;
-
-    if (sdl_version != 2 and sdl_version != 3) {
-        @panic("Only SDL2 and SDL3 are supported");
-    }
 
     const build_options = b.addOptions();
     build_options.addOption(bool, "enable_jit_assembly", enable_jit_assembly);
@@ -114,18 +115,20 @@ pub fn build(b: *std.Build) void {
         const c_module = b.addTranslateC(.{
             .optimize = optimize,
             .target = target,
-            .root_source_file = files.add("sdl-sys.h", if (sdl_version == 2)
+            .root_source_file = files.add("sdl-sys.h", switch (sdl_version) {
+                .sdl2 =>
                 \\#include <SDL2/SDL.h>
-            else
+                ,
+                .sdl3 =>
                 \\#define SDL_DISABLE_OLD_NAMES 1
                 \\#include <SDL3/SDL.h>
-            ),
+            }),
         });
 
-        c_module.linkSystemLibrary(if (sdl_version == 2)
-            "SDL2"
-        else
-            "SDL3", .{});
+        c_module.linkSystemLibrary(switch (sdl_version) {
+            .sdl2 => "SDL2",
+            .sdl3 => "SDL3",
+        }, .{});
 
         uxn_sdl.root_module.addImport("sdl-sys", c_module.createModule());
         uxn_sdl.root_module.addImport("uxn-shared", shared_mod);
