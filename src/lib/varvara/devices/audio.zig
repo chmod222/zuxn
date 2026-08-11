@@ -95,6 +95,12 @@ pub const Audio = struct {
 
     pitch: PitchFlags = undefined,
 
+    pub fn init(addr: u4) Audio {
+        return Audio{
+            .device = .init(addr),
+        };
+    }
+
     pub fn getOutputVU(aud: *Audio) u8 {
         if (aud.active_sample) |sample| {
             const vol = sample.envelope.volume();

@@ -47,6 +47,13 @@ pub const File = struct {
             .{};
     }
 
+    pub fn init(addr: u4, io: Io) File {
+        return File{
+            .device = .init(addr),
+            .backend = defaultBackend(io),
+        };
+    }
+
     pub fn cleanup(file: *File) void {
         file.backend.deinit();
 

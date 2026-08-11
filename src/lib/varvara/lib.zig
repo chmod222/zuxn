@@ -47,37 +47,23 @@ pub const VarvaraDefault = struct {
             .io = io,
             .page_table = page_table,
 
-            .system_device = .{
-                .device = .init(0x0),
-                .env = env,
-                .additional_pages = page_table,
-            },
-
-            .console_device = .{
-                .device = .init(0x1),
-                .io = io,
-                .stderr = stderr,
-                .stdout = stdout,
-            },
-
-            .screen_device = .{
-                .device = .init(0x2),
-                .alloc = allocator,
-            },
+            .system_device = .init(0x0, env, page_table),
+            .console_device = .init(0x1, io, stderr, stdout),
+            .screen_device = .init(0x2, allocator),
 
             .audio_devices = .{
-                .{ .device = .init(0x3) },
-                .{ .device = .init(0x4) },
-                .{ .device = .init(0x5) },
-                .{ .device = .init(0x6) },
+                .init(0x3),
+                .init(0x4),
+                .init(0x5),
+                .init(0x6),
             },
-            .controller_device = .{ .device = .init(0x8) },
-            .mouse_device = .{ .device = .init(0x9) },
+            .controller_device = .init(0x8),
+            .mouse_device = .init(0x9),
             .file_devices = .{
-                .{ .device = .init(0xa), .backend = file.File.defaultBackend(io) },
-                .{ .device = .init(0xb), .backend = file.File.defaultBackend(io) },
+                .init(0xa, io),
+                .init(0xb, io),
             },
-            .datetime_device = .{ .device = .init(0xc) },
+            .datetime_device = .init(0xc),
         };
 
         try sys.screen_device.initializeGraphics();

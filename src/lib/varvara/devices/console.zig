@@ -101,6 +101,15 @@ pub const Console = struct {
 
     forked_child: ?process.Child = null,
 
+    pub fn init(addr: u4, io: Io, stdout: *Io.Writer, stderr: *Io.Writer) Console {
+        return Console{
+            .device = .init(addr),
+            .io = io,
+            .stdout = stdout,
+            .stderr = stderr,
+        };
+    }
+
     pub fn intercept(
         con: *Console,
         cpu: *Cpu,

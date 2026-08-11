@@ -27,6 +27,12 @@ pub const ports = struct {
 pub const Controller = struct {
     device: impl.DeviceMixin,
 
+    pub fn init(addr: u4) Controller {
+        return Controller{
+            .device = .init(addr),
+        };
+    }
+
     pub fn intercept(
         ctrl: *@This(),
         cpu: *Cpu,

@@ -4,6 +4,8 @@ const std = @import("std");
 const impl = @import("impl.zig");
 const logger = std.log.scoped(.uxn_varvara_screen);
 
+const Allocator = std.mem.Allocator;
+
 const default_window_width = 512;
 const default_window_height = 320;
 
@@ -85,7 +87,14 @@ pub const Screen = struct {
     background: []u2 = undefined,
 
     // "Private"
-    alloc: std.mem.Allocator,
+    alloc: Allocator,
+
+    pub fn init(addr: u4, allocator: Allocator) Screen {
+        return Screen{
+            .device = .init(addr),
+            .alloc = allocator,
+        };
+    }
 
     fn normalizeRegion(
         scr: *@This(),

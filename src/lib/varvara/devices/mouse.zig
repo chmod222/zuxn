@@ -23,6 +23,12 @@ pub const ports = struct {
 pub const Mouse = struct {
     device: impl.DeviceMixin,
 
+    pub fn init(addr: u4) Mouse {
+        return Mouse{
+            .device = .init(addr),
+        };
+    }
+
     pub fn intercept(
         mouse: @This(),
         cpu: *Cpu,

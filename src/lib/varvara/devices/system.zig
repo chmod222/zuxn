@@ -123,6 +123,14 @@ pub const System = struct {
         };
     }
 
+    pub fn init(addr: u4, env: *std.process.Environ.Map, pages: ?[][Cpu.page_size]u8) System {
+        return System{
+            .device = .init(addr),
+            .env = env,
+            .additional_pages = pages,
+        };
+    }
+
     pub fn intercept(
         sys: *@This(),
         cpu: *Cpu,

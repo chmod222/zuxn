@@ -47,6 +47,12 @@ pub const Datetime = struct {
     device: impl.DeviceMixin,
     localtime: bool = true,
 
+    pub fn init(addr: u4) Datetime {
+        return Datetime{
+            .device = .init(addr),
+        };
+    }
+
     pub fn intercept(
         clk: @This(),
         cpu: *Cpu,
