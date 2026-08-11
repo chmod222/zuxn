@@ -90,7 +90,7 @@ pub const VarvaraDefault = struct {
         const ptr: *const @This() = @ptrCast(@alignCast(data));
 
         const file_path = ptr.sandbox_base.?.realPathFile(ptr.io, path, &buffer_path) catch |e| {
-            logger.warn("Failed to realpath(\"{s}\"): {t}", .{path, e});
+            logger.warn("Failed to realpath(\"{s}\"): {t}", .{ path, e });
 
             return false;
         };

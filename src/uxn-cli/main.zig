@@ -163,7 +163,7 @@ pub fn main(init: std.process.Init) !u8 {
 
         defer _ = select.cancel();
 
-        select.async(.stdin_avail, fillBuffer, .{ &stdin });
+        select.async(.stdin_avail, fillBuffer, .{&stdin});
 
         // Get the active child ID, if any
         const child_id = if (system.console_device.forked_child) |chld|
@@ -186,10 +186,10 @@ pub fn main(init: std.process.Init) !u8 {
 
         // If channels are open, add them to the set.
         if (child_stdout) |*f|
-            select.async(.child_out, fillBuffer, .{ f });
+            select.async(.child_out, fillBuffer, .{f});
 
         if (child_stderr) |*f|
-            select.async(.child_err, fillBuffer, .{ f });
+            select.async(.child_err, fillBuffer, .{f});
 
         defer {
             stdout.interface.flush() catch {};
@@ -207,7 +207,7 @@ pub fn main(init: std.process.Init) !u8 {
                 };
 
                 // Re-register request
-                select.async(.stdin_avail, fillBuffer, .{ &stdin });
+                select.async(.stdin_avail, fillBuffer, .{&stdin});
             },
 
             inline .child_out, .child_err => |result, t| {

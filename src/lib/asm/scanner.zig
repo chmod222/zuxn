@@ -131,7 +131,7 @@ pub fn Scanner(comptime lim: Limits) type {
             const b = input.takeByte() catch |e| {
                 return switch (e) {
                     error.EndOfStream => null,
-                    else => |err| err
+                    else => |err| err,
                 };
             };
 

@@ -157,7 +157,7 @@ fn mainGraphical(
 
         defer _ = select.cancel();
 
-        select.async(.stdin_avail, fillBuffer, .{ &stdin });
+        select.async(.stdin_avail, fillBuffer, .{&stdin});
 
         // Get the active child ID, if any
         const child_id = if (system.console_device.forked_child) |chld|
@@ -180,10 +180,10 @@ fn mainGraphical(
 
         // If channels are open, add them to the set.
         if (child_stdout) |*f|
-            select.async(.child_out, fillBuffer, .{ f });
+            select.async(.child_out, fillBuffer, .{f});
 
         if (child_stderr) |*f|
-            select.async(.child_err, fillBuffer, .{ f });
+            select.async(.child_err, fillBuffer, .{f});
 
         const t1 = c.SDL_GetPerformanceCounter();
         const frametime = @as(f32, @floatFromInt(t1 - t0)) / @as(f32, @floatFromInt(c.SDL_GetPerformanceFrequency()));
@@ -212,7 +212,7 @@ fn mainGraphical(
                     };
 
                     // Re-register request
-                    select.async(.stdin_avail, fillBuffer, .{ &stdin });
+                    select.async(.stdin_avail, fillBuffer, .{&stdin});
                 },
 
                 inline .child_out, .child_err => |result, t| {
@@ -227,7 +227,7 @@ fn mainGraphical(
                         };
 
                         // Re-register request
-                        select.async(t, fillBuffer, .{ stream });
+                        select.async(t, fillBuffer, .{stream});
                     } else |e| {
                         if (e != error.EndOfStream) {
                             logger.warn("{t}: {t}", .{ t, stream.err orelse e });
