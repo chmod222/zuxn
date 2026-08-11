@@ -1,5 +1,7 @@
 const std = @import("std");
 
+const link_libc = true;
+
 // Although this function looks imperative, note that its job is to
 // declaratively construct a build graph that will be executed by an external
 // runner.
@@ -20,6 +22,18 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    const files = b.addWriteFiles();
+
+    const uxn_cli = b.addExecutable(.{
+        .name = "uxn-cli",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/uxn-cli/main.zig"),
+            .target = target,
+            .optimize = optimize,
+            .link_libc = link_libc,
+        }),
+    });
+
     // Core library modules
     const core_mod = b.addModule(
         "uxn-core",
@@ -32,12 +46,27 @@ pub fn build(b: *std.Build) void {
         "uxn-varvara",
         .{
             .root_source_file = b.path("src/lib/varvara/lib.zig"),
-            .imports = &.{.{
-                .name = "uxn-core",
-                .module = core_mod,
-            }},
         },
     );
+
+    varvara_mod.addImport("uxn-core", core_mod);
+
+    if (link_libc) {
+        const ctime_header = files.add(
+            "sys.h",
+
+            \\#include <time.h>
+            ,
+        );
+
+        const ctime_module = b.addTranslateC(.{
+            .optimize = optimize,
+            .target = target,
+            .root_source_file = ctime_header,
+        });
+
+        varvara_mod.addImport("sys", ctime_module.createModule());
+    }
 
     const asm_mod = b.addModule(
         "uxn-asm",
@@ -95,16 +124,6 @@ pub fn build(b: *std.Build) void {
         },
     );
 
-    const uxn_cli = b.addExecutable(.{
-        .name = "uxn-cli",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/uxn-cli/main.zig"),
-            .target = target,
-            .optimize = optimize,
-            .link_libc = true,
-        }),
-    });
-
     uxn_cli.root_module.addImport("uxn-shared", shared_mod);
     uxn_cli.root_module.addImport("uxn-core", core_mod);
     uxn_cli.root_module.addImport("uxn-varvara", varvara_mod);
@@ -114,7 +133,7 @@ pub fn build(b: *std.Build) void {
     if (enable_jit_assembly)
         uxn_cli.root_module.addImport("uxn-asm", asm_mod);
 
-    if (target.result.cpu.arch != .wasm32) {
+    if (target.result.cpu.arch != .wasm32 and link_libc) {
         const uxn_sdl = b.addExecutable(.{
             .name = "uxn-sdl",
             .root_module = b.createModule(.{
@@ -125,8 +144,7 @@ pub fn build(b: *std.Build) void {
             }),
         });
 
-        const files = b.addWriteFiles();
-        const header = files.add(
+        const sdl_header = files.add(
             "sdl-sys.h",
 
             if (sdl_version == 2)
@@ -140,7 +158,7 @@ pub fn build(b: *std.Build) void {
         const c_module = b.addTranslateC(.{
             .optimize = optimize,
             .target = target,
-            .root_source_file = header,
+            .root_source_file = sdl_header,
         });
 
         // Not sure if there’s a better way for this.
