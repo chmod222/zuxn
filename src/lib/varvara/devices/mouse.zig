@@ -41,12 +41,12 @@ pub const Mouse = struct {
         _ = kind;
     }
 
-    fn invokeVector(mouse: *@This(), cpu: *Cpu) !void {
+    fn invokeVector(mouse: *Mouse, cpu: *Cpu) !void {
         if (mouse.device.loadVector(cpu, ports.vector)) |vector|
             try cpu.evaluateVector(vector);
     }
 
-    pub fn pressButtons(mouse: *@This(), cpu: *Cpu, buttons: ButtonFlags) !void {
+    pub fn pressButtons(mouse: *Mouse, cpu: *Cpu, buttons: ButtonFlags) !void {
         const old_state = mouse.device.loadPort(u8, cpu, ports.state);
         const new_state = old_state | @as(u8, @bitCast(buttons));
 
@@ -57,7 +57,7 @@ pub const Mouse = struct {
         try mouse.invokeVector(cpu);
     }
 
-    pub fn releaseButtons(mouse: *@This(), cpu: *Cpu, buttons: ButtonFlags) !void {
+    pub fn releaseButtons(mouse: *Mouse, cpu: *Cpu, buttons: ButtonFlags) !void {
         const old_state = mouse.device.loadPort(u8, cpu, ports.state);
         const new_state = old_state & ~@as(u8, @bitCast(buttons));
 
@@ -68,7 +68,7 @@ pub const Mouse = struct {
         try mouse.invokeVector(cpu);
     }
 
-    pub fn updatePosition(mouse: *@This(), cpu: *Cpu, x: u16, y: u16) !void {
+    pub fn updatePosition(mouse: *Mouse, cpu: *Cpu, x: u16, y: u16) !void {
         logger.debug("Set position: X: {}; Y: {}", .{ x, y });
 
         mouse.device.storePort(u16, cpu, ports.x, x);
@@ -77,7 +77,7 @@ pub const Mouse = struct {
         try mouse.invokeVector(cpu);
     }
 
-    pub fn updateScroll(mouse: *@This(), cpu: *Cpu, x: i32, y: i32) !void {
+    pub fn updateScroll(mouse: *Mouse, cpu: *Cpu, x: i32, y: i32) !void {
         logger.debug("Scrolling: X: {}; Y: {}", .{ x, -y });
 
         mouse.device.storePort(i16, cpu, ports.scroll_x, @as(i16, @truncate(x)));

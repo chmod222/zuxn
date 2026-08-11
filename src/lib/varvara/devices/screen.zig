@@ -115,7 +115,7 @@ pub const Screen = struct {
     }
 
     fn updateDirtyRegion(
-        scr: *@This(),
+        scr: *Screen,
         x0: usize,
         y0: usize,
         x1: usize,
@@ -150,7 +150,7 @@ pub const Screen = struct {
     }
 
     pub fn intercept(
-        scr: *@This(),
+        scr: *Screen,
         cpu: *Cpu,
         port: u4,
         kind: Cpu.InterceptKind,
@@ -269,7 +269,7 @@ pub const Screen = struct {
     }
 
     fn renderSpriteToScreen(
-        scr: *@This(),
+        scr: *Screen,
         cpu: *Cpu,
         layer: []u2,
         flags: SpriteFlags,
@@ -347,7 +347,7 @@ pub const Screen = struct {
     }
 
     fn fillRegion(
-        scr: *@This(),
+        scr: *Screen,
         layer: []u2,
         x0: u16,
         y0: u16,
@@ -366,7 +366,7 @@ pub const Screen = struct {
         }
     }
 
-    pub fn forceRedraw(scr: *@This()) void {
+    pub fn forceRedraw(scr: *Screen) void {
         scr.dirty_region = .{
             .x0 = 0,
             .y0 = 0,
@@ -375,7 +375,7 @@ pub const Screen = struct {
         };
     }
 
-    pub fn initializeGraphics(scr: *@This()) !void {
+    pub fn initializeGraphics(scr: *Screen) !void {
         logger.debug("Initialize framebuffers ({}x{})", .{ scr.width, scr.height });
 
         scr.foreground = try scr.alloc.alloc(u2, @as(usize, scr.width) * scr.height);
@@ -390,14 +390,14 @@ pub const Screen = struct {
         scr.forceRedraw();
     }
 
-    pub fn cleanupGraphics(scr: *@This()) void {
+    pub fn cleanupGraphics(scr: *Screen) void {
         logger.debug("Destroying framebuffers", .{});
 
         scr.alloc.free(scr.foreground);
         scr.alloc.free(scr.background);
     }
 
-    pub fn evaluateFrame(scr: *@This(), cpu: *Cpu) !void {
+    pub fn evaluateFrame(scr: *Screen, cpu: *Cpu) !void {
         if (scr.device.loadVector(cpu, ports.vector)) |vector|
             return cpu.evaluateVector(vector);
     }

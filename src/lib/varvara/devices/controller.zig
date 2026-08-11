@@ -45,7 +45,7 @@ pub const Controller = struct {
         _ = kind;
     }
 
-    fn invokeVector(ctrl: *@This(), cpu: *Cpu) !void {
+    fn invokeVector(ctrl: *Controller, cpu: *Cpu) !void {
         if (ctrl.device.loadVector(cpu, ports.vector)) |vector|
             try cpu.evaluateVector(vector);
     }
@@ -59,7 +59,7 @@ pub const Controller = struct {
         };
     }
 
-    pub fn pressKey(ctrl: *@This(), cpu: *Cpu, key: u8) !void {
+    pub fn pressKey(ctrl: *Controller, cpu: *Cpu, key: u8) !void {
         logger.debug("Sending key press: {x:0>2}", .{key});
 
         ctrl.device.storePort(u8, cpu, ports.key, key);
@@ -68,7 +68,7 @@ pub const Controller = struct {
         try ctrl.invokeVector(cpu);
     }
 
-    pub fn pressButtons(ctrl: *@This(), cpu: *Cpu, buttons: ButtonFlags, player: u2) !void {
+    pub fn pressButtons(ctrl: *Controller, cpu: *Cpu, buttons: ButtonFlags, player: u2) !void {
         const playerPort = getPlayerPort(player);
 
         const old_state = ctrl.device.loadPort(u8, cpu, playerPort);
@@ -81,7 +81,7 @@ pub const Controller = struct {
         try ctrl.invokeVector(cpu);
     }
 
-    pub fn releaseButtons(ctrl: *@This(), cpu: *Cpu, buttons: ButtonFlags, player: u2) !void {
+    pub fn releaseButtons(ctrl: *Controller, cpu: *Cpu, buttons: ButtonFlags, player: u2) !void {
         const playerPort = getPlayerPort(player);
 
         const old_state = ctrl.device.loadPort(u8, cpu, playerPort);

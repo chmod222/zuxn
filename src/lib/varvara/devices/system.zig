@@ -184,7 +184,7 @@ pub const System = struct {
         }
     }
 
-    pub fn fetchMetadata(sys: *@This(), cpu: *Cpu) ?struct { Metadata, MetadataIterator } {
+    pub fn fetchMetadata(sys: *System, cpu: *Cpu) ?struct { Metadata, MetadataIterator } {
         var ptr = sys.device.loadPort(u16, cpu, ports.metadata);
 
         if (ptr == 0x0000) {
@@ -214,7 +214,7 @@ pub const System = struct {
         };
     }
 
-    fn selectMemoryPage(sys: *@This(), cpu: *Cpu, page: u16) ?*[Cpu.page_size]u8 {
+    fn selectMemoryPage(sys: *System, cpu: *Cpu, page: u16) ?*[Cpu.page_size]u8 {
         if (page == 0x0000) {
             return cpu.mem;
         } else if (sys.additional_pages) |page_table| {
@@ -226,7 +226,7 @@ pub const System = struct {
         return null;
     }
 
-    fn getPagedSlice(sys: *@This(), cpu: *Cpu, page: u16, offset: u16, len: u16) ?[]u8 {
+    fn getPagedSlice(sys: *System, cpu: *Cpu, page: u16, offset: u16, len: u16) ?[]u8 {
         const src = sys.selectMemoryPage(cpu, page) orelse {
             return null;
         };
@@ -234,7 +234,7 @@ pub const System = struct {
         return src[offset..offset +| len];
     }
 
-    fn handleExpansion(sys: *@This(), cpu: *Cpu, operation: u16) void {
+    fn handleExpansion(sys: *System, cpu: *Cpu, operation: u16) void {
         switch (cpu.mem[operation]) {
             0x00 => {
                 // fill [ operation:u8 | len:u16 | srcpg:u16 | src:u16 | value ]
