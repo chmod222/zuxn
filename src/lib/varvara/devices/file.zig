@@ -75,7 +75,7 @@ pub const File = struct {
         file.access_filter_arg = context;
     }
 
-    fn getPortSlice(file: *@This(), cpu: *Cpu, comptime port: comptime_int) []u8 {
+    fn getPortSlice(file: *File, cpu: *Cpu, comptime port: comptime_int) []u8 {
         const ptr: usize = file.device.loadPort(u16, cpu, port);
 
         return if (port == ports.name)

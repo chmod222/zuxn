@@ -1,6 +1,7 @@
 const std = @import("std");
 
 const Envelope = @import("Envelope.zig");
+const Sample = @This();
 
 data: []const u8,
 
@@ -10,7 +11,7 @@ loop_len: f32,
 
 envelope: Envelope,
 
-pub fn getNextSample(sample: *@This()) ?f32 {
+pub fn getNextSample(sample: *Sample) ?f32 {
     if (sample.position >= @as(f32, @floatFromInt(sample.data.len))) {
         if (sample.loop_len == 0) {
             return null;
@@ -29,7 +30,7 @@ pub fn getNextSample(sample: *@This()) ?f32 {
     return raw * std.math.clamp(sample.envelope.volume(), 0.0, 1.0);
 }
 
-fn advance(sample: *@This()) void {
+fn advance(sample: *Sample) void {
     sample.position += sample.increment;
     sample.envelope.advance();
 }

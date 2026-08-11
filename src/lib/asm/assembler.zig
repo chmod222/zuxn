@@ -37,6 +37,8 @@ pub const AssemblerError = error{
 
 pub fn Assembler(comptime lim: scan.Limits) type {
     return struct {
+        const AssemblerT = @This();
+
         pub const Scanner = scan.Scanner(lim);
 
         pub const Span = struct {
@@ -97,7 +99,7 @@ pub fn Assembler(comptime lim: scan.Limits) type {
         lambdas: std.ArrayListUnmanaged(usize) = .empty,
         lambda_counter: usize = 0,
 
-        pub fn init(alloc: mem.Allocator, io: Io, include_base: ?Io.Dir) @This() {
+        pub fn init(alloc: mem.Allocator, io: Io, include_base: ?Io.Dir) AssemblerT {
             return .{
                 .allocator = alloc,
                 .io = io,
@@ -105,7 +107,7 @@ pub fn Assembler(comptime lim: scan.Limits) type {
             };
         }
 
-        pub fn deinit(assembler: *@This()) void {
+        pub fn deinit(assembler: *AssemblerT) void {
             for (assembler.include_stack.items) |inc| assembler.allocator.free(inc);
             for (assembler.macros.items) |*macro| macro.body.deinit(assembler.allocator);
             for (assembler.labels.items) |*label| {
@@ -132,7 +134,7 @@ pub fn Assembler(comptime lim: scan.Limits) type {
         }
 
         fn lexicalInformationFromToken(
-            assembler: *@This(),
+            assembler: *AssemblerT,
             token: Scanner.SourceToken,
         ) LexicalInformation {
             const file = if (assembler.include_stack.getLastOrNull()) |last|
@@ -154,7 +156,7 @@ pub fn Assembler(comptime lim: scan.Limits) type {
         }
 
         fn lexicalInformationFromScanner(
-            assembler: *@This(),
+            assembler: *AssemblerT,
             scanner: *const Scanner,
         ) LexicalInformation {
             const file = if (assembler.include_stack.getLastOrNull()) |last|
@@ -175,7 +177,7 @@ pub fn Assembler(comptime lim: scan.Limits) type {
             };
         }
 
-        fn lookupLabel(assembler: *@This(), label: Scanner.Label) ?*DefinedLabel {
+        fn lookupLabel(assembler: *const AssemblerT, label: Scanner.Label) ?*DefinedLabel {
             for (assembler.labels.items) |*l|
                 if (mem.eql(u8, &label, &l.label))
                     return l;
@@ -183,7 +185,7 @@ pub fn Assembler(comptime lim: scan.Limits) type {
             return null;
         }
 
-        fn retrieveLabel(assembler: *@This(), label: Scanner.TypedLabel) !*DefinedLabel {
+        fn retrieveLabel(assembler: *AssemblerT, label: Scanner.TypedLabel) !*DefinedLabel {
             const full = try assembler.fullLabel(label);
 
             if (assembler.lookupLabel(full)) |def| {
@@ -202,7 +204,7 @@ pub fn Assembler(comptime lim: scan.Limits) type {
             return definition;
         }
 
-        fn defineLabel(assembler: *@This(), label: Scanner.TypedLabel, addr: u16) !*DefinedLabel {
+        fn defineLabel(assembler: *AssemblerT, label: Scanner.TypedLabel, addr: u16) !*DefinedLabel {
             const definition = try assembler.retrieveLabel(label);
 
             if (definition.addr != null)
@@ -222,7 +224,7 @@ pub fn Assembler(comptime lim: scan.Limits) type {
             return .{ .root = lambda_label };
         }
 
-        fn fullLabel(assembler: *@This(), label: Scanner.TypedLabel) !Scanner.Label {
+        fn fullLabel(assembler: *AssemblerT, label: Scanner.TypedLabel) !Scanner.Label {
             switch (label) {
                 .root => |l| {
                     // Special case "smart" lambda labels that get a unique identifier whenever encountered.
@@ -257,7 +259,7 @@ pub fn Assembler(comptime lim: scan.Limits) type {
             }
         }
 
-        fn lookupOffset(assembler: *@This(), offset: Scanner.Offset) !u16 {
+        fn lookupOffset(assembler: *AssemblerT, offset: Scanner.Offset) !u16 {
             return switch (offset) {
                 .literal => |lit| lit,
                 .label => |lbl| if (assembler.lookupLabel(try assembler.fullLabel(lbl))) |l| l.addr orelse error.UndefinedLabel else error.UndefinedLabel,
@@ -265,7 +267,7 @@ pub fn Assembler(comptime lim: scan.Limits) type {
         }
 
         fn rememberLocation(
-            assembler: *@This(),
+            assembler: *AssemblerT,
             reference: Scanner.Address,
             addr: u16,
             offset: u16,
@@ -285,7 +287,7 @@ pub fn Assembler(comptime lim: scan.Limits) type {
         }
 
         fn processToken(
-            assembler: *@This(),
+            assembler: *AssemblerT,
             scanner: *Scanner,
             token: Scanner.SourceToken,
             input: *Io.Reader,
@@ -429,7 +431,7 @@ pub fn Assembler(comptime lim: scan.Limits) type {
         }
 
         pub fn assemble(
-            assembler: *@This(),
+            assembler: *AssemblerT,
             input: *Io.Reader,
             output: []u8,
         ) AssemblerError!void {
@@ -460,7 +462,7 @@ pub fn Assembler(comptime lim: scan.Limits) type {
         }
 
         pub fn includeFile(
-            assembler: *@This(),
+            assembler: *AssemblerT,
             output: *Io.Writer,
             path: []const u8,
         ) !void {
@@ -535,7 +537,7 @@ pub fn Assembler(comptime lim: scan.Limits) type {
         }
 
         fn resolveReferences(
-            assembler: *@This(),
+            assembler: *AssemblerT,
             output: []u8,
         ) !void {
             for (assembler.labels.items) |label| {
@@ -593,7 +595,7 @@ pub fn Assembler(comptime lim: scan.Limits) type {
         }
 
         pub fn generateSymbols(
-            assembler: *@This(),
+            assembler: *AssemblerT,
             output: *Io.Writer,
         ) Io.Writer.Error!void {
             // Sort the symbols before writing them so that inside the .sym file,
@@ -611,7 +613,7 @@ pub fn Assembler(comptime lim: scan.Limits) type {
             }
         }
 
-        pub fn issueDiagnostic(assembler: *@This(), err: anyerror, output: *Io.Writer) !void {
+        pub fn issueDiagnostic(assembler: *AssemblerT, err: anyerror, output: *Io.Writer) !void {
             const default_input = assembler.default_input_filename orelse "<input>";
 
             const error_str = switch (err) {

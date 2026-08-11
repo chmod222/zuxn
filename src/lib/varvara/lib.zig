@@ -18,7 +18,10 @@ pub const datetime = @import("devices/datetime.zig");
 
 pub const pages = 4;
 
-pub const VarvaraDefault = struct {
+// Back-compat from when this was all generic.
+pub const VarvaraDefault = Varvara;
+
+pub const Varvara = struct {
     allocator: std.mem.Allocator,
     io: Io,
     page_table: ?[][uxn.Cpu.page_size]u8 = null,
@@ -39,10 +42,10 @@ pub const VarvaraDefault = struct {
         env: *std.process.Environ.Map,
         stdout: *Io.Writer,
         stderr: *Io.Writer,
-    ) !@This() {
+    ) !Varvara {
         const page_table = try allocator.alloc([uxn.Cpu.page_size]u8, pages);
 
-        var sys: @This() = .{
+        var sys: Varvara = .{
             .allocator = allocator,
             .io = io,
             .page_table = page_table,
@@ -71,7 +74,7 @@ pub const VarvaraDefault = struct {
         return sys;
     }
 
-    pub fn deinit(sys: *@This()) void {
+    pub fn deinit(sys: *Varvara) void {
         sys.screen_device.cleanupGraphics();
 
         for (&sys.file_devices) |*f|
@@ -87,7 +90,7 @@ pub const VarvaraDefault = struct {
         var buffer_path: [std.c.PATH_MAX]u8 = undefined;
         var buffer_self: [std.c.PATH_MAX]u8 = undefined;
 
-        const ptr: *const @This() = @ptrCast(@alignCast(data));
+        const ptr: *const Varvara = @ptrCast(@alignCast(data));
 
         const file_path = ptr.sandbox_base.?.realPathFile(ptr.io, path, &buffer_path) catch |e| {
             logger.warn("Failed to realpath(\"{s}\"): {t}", .{ path, e });
@@ -110,7 +113,7 @@ pub const VarvaraDefault = struct {
         }
     }
 
-    pub fn sandboxFiles(sys: *@This(), base_dir: Io.Dir) bool {
+    pub fn sandboxFiles(sys: *Varvara, base_dir: Io.Dir) bool {
         if (!@hasDecl(file.File, "setAccessFilter")) {
             return false;
         }
@@ -125,7 +128,7 @@ pub const VarvaraDefault = struct {
     }
 
     pub fn intercept(
-        sys: *@This(),
+        sys: *Varvara,
         cpu: *uxn.Cpu,
         addr: u8,
         kind: uxn.Cpu.InterceptKind,

@@ -18,7 +18,7 @@ texture: *c.SDL_Texture = undefined,
 
 audio: c.SDL_AudioDeviceID = undefined,
 
-pub fn init(cpu: *uxn.Cpu, sys: *varvara.VarvaraDefault) Sdl2Impl {
+pub fn init(cpu: *uxn.Cpu, sys: *varvara.Varvara) Sdl2Impl {
     return .{ .generic = .init(cpu, sys) };
 }
 

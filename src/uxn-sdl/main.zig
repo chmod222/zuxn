@@ -45,7 +45,7 @@ fn mainGraphical(
     Impl: type,
     io: Io,
     cpu: *uxn.Cpu,
-    system: *varvara.VarvaraDefault,
+    system: *varvara.Varvara,
     scale: u8,
     fps_limit: ?usize,
     args: [][]const u8,
@@ -321,7 +321,7 @@ pub fn main(init: std.process.Init) !u8 {
     defer env.deinit();
 
     // Initialize system devices
-    var system = try varvara.VarvaraDefault.init(
+    var system = try varvara.Varvara.init(
         init.gpa,
         init.io,
         init.environ_map,

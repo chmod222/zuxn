@@ -2,6 +2,8 @@ const audio = @import("../audio.zig");
 const AdsrFlags = audio.AdsrFlags;
 const std = @import("std");
 
+const Envelope = @This();
+
 const step = 1.0 / 15.0;
 const sample_rate = audio.sample_rate;
 
@@ -12,13 +14,13 @@ r: f32,
 
 age: f32,
 
-pub fn init(adsr: AdsrFlags) @This() {
+pub fn init(adsr: AdsrFlags) Envelope {
     const attack = @as(f32, @floatFromInt(adsr.attack)) * step;
     const decay = @as(f32, @floatFromInt(adsr.decay)) * step;
     const sustain = @as(f32, @floatFromInt(adsr.sustain)) * step;
     const release = @as(f32, @floatFromInt(adsr.release)) * step;
 
-    return @This(){
+    return Envelope{
         .a = attack,
         .d = attack + decay,
         .s = attack + decay + sustain,
@@ -27,7 +29,7 @@ pub fn init(adsr: AdsrFlags) @This() {
     };
 }
 
-pub fn volume(env: *const @This()) f32 {
+pub fn volume(env: *const Envelope) f32 {
     return if (env.a == 0.0 and
         env.d == 0.0 and
         env.s == 0.0 and
@@ -45,14 +47,14 @@ pub fn volume(env: *const @This()) f32 {
         0.0;
 }
 
-pub fn isFinished(env: *const @This()) bool {
+pub fn isFinished(env: *const Envelope) bool {
     return env.age >= env.r;
 }
 
-pub fn off(env: *@This()) void {
+pub fn off(env: *Envelope) void {
     env.age = env.r;
 }
 
-pub fn advance(env: *@This()) void {
+pub fn advance(env: *Envelope) void {
     env.age += 1.0 / @as(f32, @floatFromInt(sample_rate));
 }

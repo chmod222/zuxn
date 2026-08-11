@@ -19,7 +19,7 @@ texture: *c.SDL_Texture = undefined,
 
 audio: ?*c.SDL_AudioStream = undefined,
 
-pub fn init(cpu: *uxn.Cpu, sys: *varvara.VarvaraDefault) Sdl3Impl {
+pub fn init(cpu: *uxn.Cpu, sys: *varvara.Varvara) Sdl3Impl {
     return .{ .generic = .init(cpu, sys) };
 }
 pub fn initSdl(_: *Sdl3Impl) !void {

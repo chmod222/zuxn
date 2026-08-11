@@ -38,7 +38,7 @@ fn intercept(
     kind: uxn.Cpu.InterceptKind,
     data: ?*anyopaque,
 ) !void {
-    const varvara_sys: ?*varvara.VarvaraDefault = @ptrCast(@alignCast(data));
+    const varvara_sys: ?*varvara.Varvara = @ptrCast(@alignCast(data));
 
     if (varvara_sys) |sys|
         try sys.intercept(cpu, addr, kind);
@@ -102,7 +102,7 @@ pub fn main(init: std.process.Init) !u8 {
 
     defer env.deinit();
 
-    var system = try varvara.VarvaraDefault.init(
+    var system = try varvara.Varvara.init(
         init.gpa,
         init.io,
         init.environ_map,

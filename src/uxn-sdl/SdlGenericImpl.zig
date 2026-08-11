@@ -1,3 +1,5 @@
+const SdlGenericImpl = @This();
+
 const std = @import("std");
 const uxn = @import("uxn-core");
 const varvara = @import("uxn-varvara");
@@ -13,14 +15,14 @@ const InputType = union(enum) {
 };
 
 cpu: *uxn.Cpu,
-sys: *varvara.VarvaraDefault,
+sys: *varvara.Varvara,
 
 stdin_event_id: u32 = undefined,
 
 const c = @import("sdl-sys");
 pub const sdl2 = @import("root").sdl2;
 
-pub fn init(cpu: *uxn.Cpu, sys: *varvara.VarvaraDefault) @This() {
+pub fn init(cpu: *uxn.Cpu, sys: *varvara.Varvara) SdlGenericImpl {
     cpu.device_intercept = &intercept;
     cpu.callback_data = sys;
 
@@ -34,7 +36,7 @@ pub fn init(cpu: *uxn.Cpu, sys: *varvara.VarvaraDefault) @This() {
 }
 
 pub fn renderSprite(
-    sys: *varvara.VarvaraDefault,
+    sys: *varvara.Varvara,
     w: usize,
     h: usize,
     data: []const u2,
@@ -81,7 +83,7 @@ pub fn freeSurface(surf: *c.SDL_Surface) void {
         c.SDL_DestroySurface(surf);
 }
 
-pub fn renderAudio(impl: *@This(), samples: []i16) void {
+pub fn renderAudio(impl: *SdlGenericImpl, samples: []i16) void {
     // TODO: 0x00 should ideally be SDL_AudioSpec.silence here
     @memset(samples, 0x0000);
 
@@ -143,7 +145,7 @@ pub fn intercept(
     kind: uxn.Cpu.InterceptKind,
     data: ?*anyopaque,
 ) !void {
-    const varvara_sys: ?*varvara.VarvaraDefault = @ptrCast(@alignCast(data));
+    const varvara_sys: ?*varvara.Varvara = @ptrCast(@alignCast(data));
 
     if (varvara_sys) |sys| {
         try sys.intercept(cpu, addr, kind);
@@ -151,7 +153,7 @@ pub fn intercept(
 }
 
 pub fn drawScreen(
-    impl: *@This(),
+    impl: *SdlGenericImpl,
     texture: *c.SDL_Texture,
     renderer: *c.SDL_Renderer,
 ) void {

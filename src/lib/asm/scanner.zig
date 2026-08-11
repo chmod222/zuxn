@@ -46,6 +46,8 @@ pub const Error = error{
 
 pub fn Scanner(comptime lim: Limits) type {
     return struct {
+        const ScannerT = @This();
+
         pub const limits = lim;
 
         pub const Literal = union(enum) {
@@ -123,11 +125,11 @@ pub fn Scanner(comptime lim: Limits) type {
             token: Token,
         };
 
-        pub fn init() @This() {
+        pub fn init() ScannerT {
             return .{};
         }
 
-        fn readByteOrEof(scanner: *@This(), input: *Io.Reader) error{ReadFailed}!?u8 {
+        fn readByteOrEof(scanner: *ScannerT, input: *Io.Reader) error{ReadFailed}!?u8 {
             const b = input.takeByte() catch |e| {
                 return switch (e) {
                     error.EndOfStream => null,
@@ -145,11 +147,11 @@ pub fn Scanner(comptime lim: Limits) type {
             return b;
         }
 
-        fn readHexDigit(scanner: *@This(), input: *Io.Reader) Error!?u4 {
+        fn readHexDigit(scanner: *ScannerT, input: *Io.Reader) Error!?u4 {
             return try parseHexDigit(try scanner.readByteOrEof(input) orelse return null);
         }
 
-        fn readLiteral(scanner: *@This(), input: *Io.Reader) Error!Literal {
+        fn readLiteral(scanner: *ScannerT, input: *Io.Reader) Error!Literal {
             const h0n: u8 = try scanner.readHexDigit(input) orelse return error.PrematureEof;
             const l0n: u8 = try scanner.readHexDigit(input) orelse return error.PrematureEof;
 
@@ -172,7 +174,7 @@ pub fn Scanner(comptime lim: Limits) type {
         }
 
         fn readWhitespaceDelimited(
-            scanner: *@This(),
+            scanner: *ScannerT,
             comptime maxlen: usize,
             input: *Io.Reader,
         ) Error![maxlen:0]u8 {
@@ -193,7 +195,7 @@ pub fn Scanner(comptime lim: Limits) type {
             return output;
         }
 
-        fn readLabel(scanner: *@This(), input: *Io.Reader) Error!Label {
+        fn readLabel(scanner: *ScannerT, input: *Io.Reader) Error!Label {
             const label = try scanner.readWhitespaceDelimited(limits.identifier_length, input);
 
             for (label) |oct| {
@@ -204,7 +206,7 @@ pub fn Scanner(comptime lim: Limits) type {
             return label;
         }
 
-        fn readPath(scanner: *@This(), input: *Io.Reader) Error![256:0]u8 {
+        fn readPath(scanner: *ScannerT, input: *Io.Reader) Error![256:0]u8 {
             return scanner.readWhitespaceDelimited(256, input) catch |e| {
                 return switch (e) {
                     error.TokenTooLong => error.PathTooLong,
@@ -225,13 +227,13 @@ pub fn Scanner(comptime lim: Limits) type {
             }
         }
 
-        fn registerMacro(scanner: *@This(), ident: Label) void {
+        fn registerMacro(scanner: *ScannerT, ident: Label) void {
             // TODO
             scanner.macro_names[scanner.macro_count] = ident;
             scanner.macro_count += 1;
         }
 
-        fn recallMacro(scanner: *@This(), ident: Label) bool {
+        fn recallMacro(scanner: *const ScannerT, ident: Label) bool {
             for (scanner.macro_names) |n| {
                 if (mem.eql(u8, &n, &ident))
                     return true;
@@ -240,7 +242,7 @@ pub fn Scanner(comptime lim: Limits) type {
             return false;
         }
 
-        pub fn readToken(scanner: *@This(), input: *Io.Reader) Error!?SourceToken {
+        pub fn readToken(scanner: *ScannerT, input: *Io.Reader) Error!?SourceToken {
             var comment_depth: usize = 0;
 
             while (try scanner.readByteOrEof(input)) |b| {
