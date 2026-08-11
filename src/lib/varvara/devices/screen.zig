@@ -9,13 +9,6 @@ const Allocator = std.mem.Allocator;
 const default_window_width = 512;
 const default_window_height = 320;
 
-pub const Rect = struct {
-    x0: usize,
-    y0: usize,
-    x1: usize,
-    y1: usize,
-};
-
 pub const AutoFlags = packed struct(u8) {
     x: bool,
     y: bool,
@@ -62,6 +55,13 @@ fn Vec2(T: type) type {
     };
 }
 
+fn Rect(T: type) type {
+    return struct {
+        top_left: Vec2(T),
+        bottom_right: Vec2(T),
+    };
+}
+
 pub const ports = struct {
     pub const vector = 0x0;
     pub const width = 0x2;
@@ -81,7 +81,7 @@ pub const Screen = struct {
     width: u16 = default_window_width,
     height: u16 = default_window_height,
 
-    dirty_region: ?Rect = null,
+    dirty_region: ?Rect(u16) = null,
 
     foreground: []u2 = undefined,
     background: []u2 = undefined,
@@ -97,13 +97,13 @@ pub const Screen = struct {
     }
 
     fn normalizeRegion(
-        scr: *@This(),
-        region: *Rect,
+        scr: *Screen,
+        region: *Rect(u16),
     ) void {
-        var x0: u16 = @truncate(region.x0);
-        var y0: u16 = @truncate(region.y0);
-        const x1: u16 = @truncate(region.x1);
-        const y1: u16 = @truncate(region.y1);
+        var x0: u16 = @truncate(region.top_left.x);
+        var y0: u16 = @truncate(region.top_left.y);
+        const x1: u16 = @truncate(region.bottom_right.x);
+        const y1: u16 = @truncate(region.bottom_right.y);
 
         if (x0 > x1) x0 = 0;
         if (y0 > y1) y0 = 0;
@@ -116,10 +116,7 @@ pub const Screen = struct {
 
     fn updateDirtyRegion(
         scr: *Screen,
-        x0: usize,
-        y0: usize,
-        x1: usize,
-        y1: usize,
+        region: Rect(u16),
     ) void {
         //if (dev.dirty_region) |*region| {
         //    if (x0 < region.x0) region.x0 = x0;
@@ -141,10 +138,7 @@ pub const Screen = struct {
         //    dev.dirty_region = region;
         //}
 
-        _ = x0;
-        _ = y0;
-        _ = x1;
-        _ = y1;
+        _ = region;
 
         scr.forceRedraw();
     }
@@ -191,7 +185,10 @@ pub const Screen = struct {
                         if (x0 > x1) std.mem.swap(u16, &x0, &x1);
                         if (y0 > y1) std.mem.swap(u16, &y0, &y1);
 
-                        scr.fillRegion(layer, x0, y0, x1, y1, flags);
+                        scr.fillRegion(layer, .{
+                            .top_left = .init(x0, y0),
+                            .bottom_right = .init(x1, y1),
+                        }, flags);
                     } else {
                         x1 = x0 +% 1;
                         y1 = y0 +% 1;
@@ -203,7 +200,10 @@ pub const Screen = struct {
                         if (auto.y) scr.device.storePort(u16, cpu, ports.y, y1);
                     }
 
-                    scr.updateDirtyRegion(x0, y0, x1, y1);
+                    scr.updateDirtyRegion(.{
+                        .top_left = .init(x0, y0),
+                        .bottom_right = .init(x1, y1),
+                    });
                 },
 
                 ports.sprite => {
@@ -245,10 +245,13 @@ pub const Screen = struct {
                     }
 
                     scr.updateDirtyRegion(
-                        @as(u16, @bitCast(x)),
-                        @as(u16, @bitCast(y)),
-                        @as(u16, @truncate(@as(usize, @bitCast(@as(isize, x) +% (dy * fx * l) +% 8)))),
-                        @as(u16, @truncate(@as(usize, @bitCast(@as(isize, y) +% (dx * fy * l) +% 8)))),
+                        .{
+                            .top_left = .init(@bitCast(x), @bitCast(y)),
+                            .bottom_right = .init(
+                                @truncate(@as(usize, @bitCast(@as(isize, x) +% (dy * fx * l) +% 8))),
+                                @truncate(@as(usize, @bitCast(@as(isize, y) +% (dx * fy * l) +% 8))),
+                            ),
+                        },
                     );
 
                     if (auto.x) scr.device.storePort(i16, cpu, ports.x, x +% dx * fx);
@@ -349,18 +352,15 @@ pub const Screen = struct {
     fn fillRegion(
         scr: *Screen,
         layer: []u2,
-        x0: u16,
-        y0: u16,
-        x1: u16,
-        y1: u16,
+        region: Rect(u16),
         flags: PixelFlags,
     ) void {
-        var y = y0;
+        var y = region.top_left.y;
 
-        while (y < y1) : (y += 1) {
-            var x = x0;
+        while (y < region.bottom_right.y) : (y += 1) {
+            var x = region.bottom_right.x;
 
-            while (x < x1) : (x += 1) {
+            while (x < region.bottom_right.x) : (x += 1) {
                 layer[@as(usize, y) * scr.width + x] = flags.color;
             }
         }
@@ -368,10 +368,8 @@ pub const Screen = struct {
 
     pub fn forceRedraw(scr: *Screen) void {
         scr.dirty_region = .{
-            .x0 = 0,
-            .y0 = 0,
-            .x1 = scr.width,
-            .y1 = scr.height,
+            .top_left = .init(0, 0),
+            .bottom_right = .init(scr.width, scr.height),
         };
     }
 

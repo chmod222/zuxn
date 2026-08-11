@@ -172,8 +172,8 @@ pub fn drawScreen(
 
         defer c.SDL_UnlockTexture(texture);
 
-        for (region.y0..region.y1) |y| {
-            for (region.x0..region.x1) |x| {
+        for (region.top_left.y..region.bottom_right.y) |y| {
+            for (region.top_left.x..region.bottom_right.x) |x| {
                 const idx = y * screen_device.width + x;
                 const pal = (@as(u4, screen_device.foreground[idx]) << 2) | screen_device.background[idx];
 
