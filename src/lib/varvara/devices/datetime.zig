@@ -54,7 +54,7 @@ pub const Datetime = struct {
     }
 
     pub fn intercept(
-        clk: @This(),
+        clk: *Datetime,
         cpu: *Cpu,
         port: u4,
         kind: Cpu.InterceptKind,

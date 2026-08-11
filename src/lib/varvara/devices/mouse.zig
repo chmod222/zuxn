@@ -30,7 +30,7 @@ pub const Mouse = struct {
     }
 
     pub fn intercept(
-        mouse: @This(),
+        mouse: *Mouse,
         cpu: *Cpu,
         port: u4,
         kind: Cpu.InterceptKind,

@@ -132,7 +132,7 @@ pub const System = struct {
     }
 
     pub fn intercept(
-        sys: *@This(),
+        sys: *System,
         cpu: *Cpu,
         port: u4,
         kind: Cpu.InterceptKind,

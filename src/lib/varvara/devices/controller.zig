@@ -34,7 +34,7 @@ pub const Controller = struct {
     }
 
     pub fn intercept(
-        ctrl: *@This(),
+        ctrl: *Controller,
         cpu: *Cpu,
         port: u4,
         kind: Cpu.InterceptKind,
