@@ -145,7 +145,7 @@ pub const Screen = struct {
         cpu: *Cpu,
         port: u4,
         kind: Cpu.InterceptKind,
-    ) !void {
+    ) void {
         if (kind == .input) {
             switch (port) {
                 ports.width, ports.width + 1 => {

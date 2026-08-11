@@ -148,7 +148,7 @@ pub const VarvaraDefault = struct {
 
         switch (addr >> 4) {
             0x0 => {
-                try sys.system_device.intercept(cpu, port, kind);
+                sys.system_device.intercept(cpu, port, kind);
 
                 if (addr & 0xf >= system.ports.red and
                     addr & 0xf < system.ports.debug)
@@ -157,16 +157,16 @@ pub const VarvaraDefault = struct {
                 }
             },
             0x1 => try sys.console_device.intercept(cpu, port, kind),
-            0x2 => try sys.screen_device.intercept(cpu, port, kind),
-            0x3 => try sys.audio_devices[0].intercept(cpu, port, kind),
-            0x4 => try sys.audio_devices[1].intercept(cpu, port, kind),
-            0x5 => try sys.audio_devices[2].intercept(cpu, port, kind),
-            0x6 => try sys.audio_devices[3].intercept(cpu, port, kind),
-            0x8 => try sys.controller_device.intercept(cpu, port, kind),
-            0x9 => try sys.mouse_device.intercept(cpu, port, kind),
+            0x2 => sys.screen_device.intercept(cpu, port, kind),
+            0x3 => sys.audio_devices[0].intercept(cpu, port, kind),
+            0x4 => sys.audio_devices[1].intercept(cpu, port, kind),
+            0x5 => sys.audio_devices[2].intercept(cpu, port, kind),
+            0x6 => sys.audio_devices[3].intercept(cpu, port, kind),
+            0x8 => sys.controller_device.intercept(cpu, port, kind),
+            0x9 => sys.mouse_device.intercept(cpu, port, kind),
             0xa => try sys.file_devices[0].intercept(cpu, port, kind),
             0xb => try sys.file_devices[1].intercept(cpu, port, kind),
-            0xc => try sys.datetime_device.intercept(cpu, port, kind),
+            0xc => sys.datetime_device.intercept(cpu, port, kind),
 
             else => {},
         }

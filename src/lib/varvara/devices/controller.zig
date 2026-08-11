@@ -32,7 +32,7 @@ pub const Controller = struct {
         cpu: *Cpu,
         port: u4,
         kind: Cpu.InterceptKind,
-    ) !void {
+    ) void {
         _ = ctrl;
         _ = cpu;
         _ = port;

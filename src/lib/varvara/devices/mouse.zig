@@ -28,7 +28,7 @@ pub const Mouse = struct {
         cpu: *Cpu,
         port: u4,
         kind: Cpu.InterceptKind,
-    ) !void {
+    ) void {
         _ = mouse;
         _ = cpu;
         _ = port;

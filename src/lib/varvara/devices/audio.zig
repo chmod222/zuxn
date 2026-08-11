@@ -244,7 +244,7 @@ pub const Audio = struct {
         cpu: *Cpu,
         port: u4,
         kind: Cpu.InterceptKind,
-    ) !void {
+    ) void {
         if (kind == .input) {
             if (port == ports.output) {
                 aud.device.storePort(u8, cpu, ports.output, aud.getOutputVU());

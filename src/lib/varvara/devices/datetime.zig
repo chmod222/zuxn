@@ -52,7 +52,7 @@ pub const Datetime = struct {
         cpu: *Cpu,
         port: u4,
         kind: Cpu.InterceptKind,
-    ) !void {
+    ) void {
         if (kind != .input)
             return;
 

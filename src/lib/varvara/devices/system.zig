@@ -128,7 +128,7 @@ pub const System = struct {
         cpu: *Cpu,
         port: u4,
         kind: Cpu.InterceptKind,
-    ) !void {
+    ) void {
         if (kind == .input) {
             switch (port) {
                 ports.wsp => sys.device.storePort(u8, cpu, ports.wsp, cpu.wst.sp),
