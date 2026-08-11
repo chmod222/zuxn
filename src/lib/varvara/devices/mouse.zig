@@ -42,9 +42,7 @@ pub const Mouse = struct {
     }
 
     fn invokeVector(mouse: *@This(), cpu: *Cpu) !void {
-        const vector = mouse.device.loadPort(u16, cpu, ports.vector);
-
-        if (vector > 0)
+        if (mouse.device.loadVector(cpu, ports.vector)) |vector|
             try cpu.evaluateVector(vector);
     }
 

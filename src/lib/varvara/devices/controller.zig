@@ -46,9 +46,7 @@ pub const Controller = struct {
     }
 
     fn invokeVector(ctrl: *@This(), cpu: *Cpu) !void {
-        const vector = ctrl.device.loadPort(u16, cpu, ports.vector);
-
-        if (vector > 0)
+        if (ctrl.device.loadVector(cpu, ports.vector)) |vector|
             try cpu.evaluateVector(vector);
     }
 

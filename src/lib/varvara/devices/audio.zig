@@ -192,12 +192,10 @@ pub const Audio = struct {
     }
 
     pub fn evaluateFinishVector(aud: *Audio, cpu: *Cpu) !void {
-        const vector = aud.device.loadPort(u16, cpu, ports.vector);
         defer aud.active_sample = null;
 
-        if (vector != 0x0000) {
-            return cpu.evaluateVector(vector);
-        }
+        if (aud.device.loadVector(cpu, ports.vector)) |vector|
+            try cpu.evaluateVector(vector);
     }
 
     const crossfade_samples = 100;

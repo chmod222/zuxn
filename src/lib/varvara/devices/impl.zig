@@ -20,6 +20,16 @@ pub const DeviceMixin = struct {
         return cpu.loadDeviceMem(T, dev.portAddress(port));
     }
 
+    pub inline fn loadVector(
+        dev: *const DeviceMixin,
+        cpu: *const Cpu,
+        port: u4,
+    ) ?u16 {
+        const vector = dev.loadPort(u16, cpu, port);
+
+        return if (vector > 0) vector else null;
+    }
+
     pub inline fn storePort(
         dev: *const DeviceMixin,
         comptime T: type,

@@ -277,18 +277,22 @@ pub const Console = struct {
         cpu: *Cpu,
         args: [][]const u8,
     ) !void {
+        const vector = con.device.loadVector(cpu, ports.vector);
+
         for (0.., args) |i, arg| {
             for (arg) |oct| {
                 con.device.storePort(u8, cpu, ports.typ, 0x2);
                 con.device.storePort(u8, cpu, ports.read, oct);
 
-                try cpu.evaluateVector(con.device.loadPort(u16, cpu, ports.vector));
+                if (vector) |v|
+                    try cpu.evaluateVector(v);
             }
 
             con.device.storePort(u8, cpu, ports.typ, if (i == args.len - 1) 0x4 else 0x3);
             con.device.storePort(u8, cpu, ports.read, 0x10);
 
-            try cpu.evaluateVector(con.device.loadPort(u16, cpu, ports.vector));
+            if (vector) |v|
+                try cpu.evaluateVector(v);
         }
     }
 
@@ -305,12 +309,10 @@ pub const Console = struct {
         cpu: *Cpu,
         byte: u8,
     ) !void {
-        const vector = con.device.loadPort(u16, cpu, ports.vector);
-
         con.device.storePort(u8, cpu, ports.typ, 0x1);
         con.device.storePort(u8, cpu, ports.read, byte);
 
-        if (vector > 0x0000)
+        if (con.device.loadVector(cpu, ports.vector)) |vector|
             try cpu.evaluateVector(vector);
     }
 };

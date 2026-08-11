@@ -398,9 +398,7 @@ pub const Screen = struct {
     }
 
     pub fn evaluateFrame(scr: *@This(), cpu: *Cpu) !void {
-        const vector = scr.device.loadPort(u16, cpu, ports.vector);
-
-        if (vector != 0x0000)
+        if (scr.device.loadVector(cpu, ports.vector)) |vector|
             return cpu.evaluateVector(vector);
     }
 };
