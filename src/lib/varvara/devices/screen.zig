@@ -57,8 +57,26 @@ fn Vec2(T: type) type {
 
 fn Rect(T: type) type {
     return struct {
+        const RectT = @This();
+
         top_left: Vec2(T),
         bottom_right: Vec2(T),
+
+        fn extend(rect: *const RectT, other: RectT) RectT {
+            // This assumes that top_left is always actually the top
+            // left corner of each rectangle. Violating this
+            // assumption will cause fun.
+            return .{
+                .top_left = .init(
+                    @min(rect.top_left.x, other.top_left.x),
+                    @min(rect.top_left.y, other.top_left.y),
+                ),
+                .bottom_right = .init(
+                    @max(rect.bottom_right.x, other.bottom_right.x),
+                    @max(rect.bottom_right.y, other.bottom_right.y),
+                ),
+            };
+        }
     };
 }
 
@@ -96,51 +114,14 @@ pub const Screen = struct {
         };
     }
 
-    fn normalizeRegion(
-        scr: *Screen,
-        region: *Rect(u16),
-    ) void {
-        var x0: u16 = @truncate(region.top_left.x);
-        var y0: u16 = @truncate(region.top_left.y);
-        const x1: u16 = @truncate(region.bottom_right.x);
-        const y1: u16 = @truncate(region.bottom_right.y);
-
-        if (x0 > x1) x0 = 0;
-        if (y0 > y1) y0 = 0;
-
-        region.x0 = @min(scr.width, x0);
-        region.y0 = @min(scr.height, y0);
-        region.x1 = @min(scr.width, x1);
-        region.y1 = @min(scr.height, y1);
-    }
-
     fn updateDirtyRegion(
         scr: *Screen,
         region: Rect(u16),
     ) void {
-        //if (dev.dirty_region) |*region| {
-        //    if (x0 < region.x0) region.x0 = x0;
-        //    if (y0 < region.y0) region.y0 = y0;
-        //    if (x1 > region.x1) region.x1 = x1;
-        //    if (y1 > region.y1) region.y1 = y1;
-        //
-        //    dev.normalize_region(region);
-        //} else {
-        //    var region: Rect = .{
-        //        .x0 = x0,
-        //        .y0 = y0,
-        //        .x1 = x1,
-        //        .y1 = y1,
-        //    };
-        //
-        //    dev.normalize_region(&region);
-        //
-        //    dev.dirty_region = region;
-        //}
-
-        _ = region;
-
-        scr.forceRedraw();
+        if (scr.dirty_region) |*r|
+            r.* = r.extend(region)
+        else
+            scr.dirty_region = region;
     }
 
     pub fn intercept(
@@ -246,10 +227,13 @@ pub const Screen = struct {
 
                     scr.updateDirtyRegion(
                         .{
-                            .top_left = .init(@bitCast(x), @bitCast(y)),
+                            .top_left = .init(
+                                @max(0, x),
+                                @max(0, y),
+                            ),
                             .bottom_right = .init(
-                                @truncate(@as(usize, @bitCast(@as(isize, x) +% (dy * fx * l) +% 8))),
-                                @truncate(@as(usize, @bitCast(@as(isize, y) +% (dx * fy * l) +% 8))),
+                                @min(scr.width, @as(usize, @bitCast(@as(isize, x) +% (dy * fx * l) +% 8))),
+                                @min(scr.height, @as(usize, @bitCast(@as(isize, y) +% (dx * fy * l) +% 8))),
                             ),
                         },
                     );
