@@ -94,7 +94,7 @@ inline fn load(
             @panic("Cannot read arbitrary struct types"),
 
         .int => if (@as(usize, addr) + @sizeOf(T) <= boundary)
-            std.mem.readInt(T, @as(*const [@sizeOf(T)]u8, @ptrCast(@field(cpu, field)[addr..addr +| @sizeOf(T)])), .big)
+            std.mem.readInt(T, @ptrCast(@field(cpu, field)[addr..addr +| @sizeOf(T)]), .big)
         else r: {
             var b: T = undefined;
 
@@ -129,7 +129,7 @@ inline fn store(
         .int => if (@as(usize, addr) + @sizeOf(T) <= boundary) {
             std.mem.writeInt(
                 T,
-                @as(*[@sizeOf(T)]u8, @ptrCast(@field(cpu, field)[addr..addr +| @sizeOf(T)])),
+                @ptrCast(@field(cpu, field)[addr..addr +| @sizeOf(T)]),
                 val,
                 .big,
             );
@@ -311,15 +311,15 @@ pub fn run(cpu: *Cpu, step_limit: ?usize) !?u16 {
             step += 1;
         }
 
-        logger.debug("PC {x:0>4}: Start execute {s}", .{
+        logger.debug("PC {x:0>4}: Start execute {t}", .{
             cpu.pc,
-            @tagName(@as(Opcode, @enumFromInt(cpu.mem[cpu.pc]))),
+            @as(Opcode, @enumFromInt(cpu.mem[cpu.pc])),
         });
 
         errdefer |err| {
-            logger.debug("PC {x:0>4}: {s}: Faulting with {}", .{
+            logger.debug("PC {x:0>4}: {t}: Faulting with {}", .{
                 cpu.pc,
-                @tagName(@as(Opcode, @enumFromInt(cpu.mem[cpu.pc]))),
+                @as(Opcode, @enumFromInt(cpu.mem[cpu.pc])),
                 err,
             });
         }
