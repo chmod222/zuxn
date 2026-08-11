@@ -47,7 +47,7 @@ const NoopBackend = struct {
 const LibcBackend = struct {
     const localtime = true;
 
-    const c = if (builtin.link_libc) @import("sys") else unreachable;
+    const c = @import("sys");
 
     fn now() Timestamp {
         const timestamp = c.time(null);

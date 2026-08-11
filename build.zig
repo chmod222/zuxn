@@ -1,21 +1,37 @@
 const std = @import("std");
 
-const link_libc = true;
-
-// Although this function looks imperative, note that its job is to
-// declaratively construct a build graph that will be executed by an external
-// runner.
 pub fn build(b: *std.Build) void {
-    // Standard target options allows the person running `zig build` to choose
-    // what target to build for. Here we do not override the defaults, which
-    // means any target is allowed, and the default is native. Other options
-    // for restricting supported target set are available.
     const target = b.standardTargetOptions(.{});
-
-    // Standard optimization options allow the person running `zig build` to select
-    // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall. Here we do not
-    // set a preferred release mode, allowing the user to decide how to optimize.
     const optimize = b.standardOptimizeOption(.{});
+
+    // Build Options
+    const enable_jit_assembly = b.option(
+        bool,
+        "enable_jit_assembly",
+        \\Enable just in time assembly of Uxntal (increases program size)
+        ,
+    ) orelse false;
+
+    const sdl_version = b.option(
+        u8,
+        "sdl_version",
+        \\Which SDL version to link against
+        ,
+    ) orelse 3;
+
+    const link_libc = b.option(
+        bool,
+        "link_libc",
+        \\Link against system libc (for Varavara device functionality)
+        ,
+    ) orelse true;
+
+    if (sdl_version != 2 and sdl_version != 3) {
+        @panic("Only SDL2 and SDL3 are supported");
+    }
+
+    const build_options = b.addOptions();
+    build_options.addOption(bool, "enable_jit_assembly", enable_jit_assembly);
 
     const dep_clap = b.dependency("clap", .{
         .target = target,
@@ -35,94 +51,45 @@ pub fn build(b: *std.Build) void {
     });
 
     // Core library modules
-    const core_mod = b.addModule(
-        "uxn-core",
-        .{
-            .root_source_file = b.path("src/lib/uxn/lib.zig"),
-        },
-    );
+    const core_mod = b.addModule("uxn-core", .{
+        .root_source_file = b.path("src/lib/uxn/lib.zig"),
+    });
 
-    const varvara_mod = b.addModule(
-        "uxn-varvara",
-        .{
-            .root_source_file = b.path("src/lib/varvara/lib.zig"),
-        },
-    );
+    const varvara_mod = b.addModule("uxn-varvara", .{
+        .root_source_file = b.path("src/lib/varvara/lib.zig"),
+    });
 
     varvara_mod.addImport("uxn-core", core_mod);
 
     if (link_libc) {
-        const ctime_header = files.add(
-            "sys.h",
-
-            \\#include <time.h>
-            ,
-        );
-
-        const ctime_module = b.addTranslateC(.{
+        varvara_mod.addImport("sys", b.addTranslateC(.{
             .optimize = optimize,
             .target = target,
-            .root_source_file = ctime_header,
-        });
-
-        varvara_mod.addImport("sys", ctime_module.createModule());
+            .root_source_file = files.add("sys.h",
+                \\#include <time.h>
+            ),
+        }).createModule());
     }
 
-    const asm_mod = b.addModule(
-        "uxn-asm",
-        .{
-            .root_source_file = b.path("src/lib/asm/lib.zig"),
-            .imports = &.{.{
-                .name = "uxn-core",
-                .module = core_mod,
-            }},
-        },
-    );
+    const asm_mod = b.addModule("uxn-asm", .{
+        .root_source_file = b.path("src/lib/asm/lib.zig"),
+        .imports = &.{.{
+            .name = "uxn-core",
+            .module = core_mod,
+        }},
+    });
 
     // Utility programs based on core libraries
-    const build_options = b.addOptions();
-    const enable_jit_assembly = b.option(
-        bool,
-        "enable_jit_assembly",
-        \\Enable just in time assembly of Uxntal (increases program size)
-        ,
-    ) orelse false;
-
-    const sdl_version = b.option(u8, "sdl_version",
-        \\Which SDL version to link against
-    ) orelse 3;
-
-    if (sdl_version != 2 and sdl_version != 3) {
-        @panic("Only SDL2 and SDL3 are supported");
-    }
-
-    build_options.addOption(
-        bool,
-        "enable_jit_assembly",
-        enable_jit_assembly,
-    );
-
     const build_options_mod = build_options.createModule();
 
-    const shared_mod = b.addModule(
-        "uxn-shared",
-        .{
-            .root_source_file = b.path("src/shared.zig"),
-            .imports = &.{ .{
-                .name = "uxn-core",
-                .module = core_mod,
-            }, .{
-                .name = "uxn-asm",
-                .module = asm_mod,
-            }, .{
-                .name = "clap",
-                .module = dep_clap.module("clap"),
-            }, .{
-                .name = "build_options",
-                .module = build_options_mod,
-            } },
-        },
-    );
+    const shared_mod = b.addModule("uxn-shared", .{
+        .root_source_file = b.path("src/shared.zig"),
+    });
+
+    shared_mod.addImport("uxn-core", core_mod);
+    shared_mod.addImport("uxn-asm", asm_mod);
+    shared_mod.addImport("clap", dep_clap.module("clap"));
+    shared_mod.addImport("build_options", build_options_mod);
 
     uxn_cli.root_module.addImport("uxn-shared", shared_mod);
     uxn_cli.root_module.addImport("uxn-core", core_mod);
@@ -144,21 +111,15 @@ pub fn build(b: *std.Build) void {
             }),
         });
 
-        const sdl_header = files.add(
-            "sdl-sys.h",
-
-            if (sdl_version == 2)
+        const c_module = b.addTranslateC(.{
+            .optimize = optimize,
+            .target = target,
+            .root_source_file = files.add("sdl-sys.h", if (sdl_version == 2)
                 \\#include <SDL2/SDL.h>
             else
                 \\#define SDL_DISABLE_OLD_NAMES 1
                 \\#include <SDL3/SDL.h>
-            ,
-        );
-
-        const c_module = b.addTranslateC(.{
-            .optimize = optimize,
-            .target = target,
-            .root_source_file = sdl_header,
+            ),
         });
 
         // Not sure if there’s a better way for this.
