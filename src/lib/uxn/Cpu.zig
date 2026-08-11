@@ -1,6 +1,7 @@
 const Cpu = @This();
 
-pub const Stack = @import("cpu/Stack.zig");
+pub const Stack = @import("Stack.zig");
+const isa = @import("isa.zig");
 
 const std = @import("std");
 const logger = std.log.scoped(.uxn_cpu);
@@ -8,7 +9,6 @@ const logger = std.log.scoped(.uxn_cpu);
 pub const page_size = 0x10000;
 pub const device_page_size = 0x100;
 
-const isa = @import("cpu/isa.zig");
 
 pub const Opcode = isa.Opcode;
 
