@@ -54,8 +54,8 @@ pub fn init(memory: *[page_size]u8) Cpu {
     return Cpu{
         .pc = 0x0100,
 
-        .wst = Stack.init(),
-        .rst = Stack.init(),
+        .wst = .init(),
+        .rst = .init(),
 
         .mem = memory,
         .device_mem = [1]u8{0x00} ** 0x100,
