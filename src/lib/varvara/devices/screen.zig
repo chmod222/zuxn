@@ -342,7 +342,7 @@ pub const Screen = struct {
         var y = region.top_left.y;
 
         while (y < region.bottom_right.y) : (y += 1) {
-            var x = region.bottom_right.x;
+            var x = region.top_left.x;
 
             while (x < region.bottom_right.x) : (x += 1) {
                 layer[@as(usize, y) * scr.width + x] = flags.color;
