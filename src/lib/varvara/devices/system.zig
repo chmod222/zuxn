@@ -71,6 +71,8 @@ pub const MetadataIterator = struct {
         const ident = iter.cpu.loadMem(u8, iter.ptr);
         const value = iter.cpu.loadMem(u16, iter.ptr + 1);
 
+        iter.ptr += 3;
+
         return MetadataElement{
             .identifier = ident,
             .value = value,
