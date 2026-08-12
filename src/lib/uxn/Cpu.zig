@@ -9,17 +9,11 @@ const logger = std.log.scoped(.uxn_cpu);
 pub const page_size = 0x10000;
 pub const device_page_size = 0x100;
 
-
 pub const Opcode = isa.Opcode;
 
 pub const InterceptKind = enum {
     input,
     output,
-};
-
-const StackSet = struct {
-    primary: *Stack,
-    secondary: *Stack,
 };
 
 pc: u16,
