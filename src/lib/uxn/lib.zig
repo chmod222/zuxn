@@ -6,23 +6,38 @@ const Io = std.Io;
 
 const Allocator = std.mem.Allocator;
 
-pub fn loadRom(alloc: Allocator, reader: *Io.Reader) !*[Cpu.page_size]u8 {
-    const ram = try alloc.create([Cpu.page_size]u8);
+pub fn loadRom(alloc: Allocator, reader: *Io.Reader, min_pages: usize) ![]u8 {
+    var writer = Io.Writer.Allocating.init(alloc);
+    errdefer writer.deinit();
 
-    var writer = Io.Writer.fixed(ram);
+    // Fill the zero page
+    _ = writer.writer.splatByte(0x00, 0x100) catch {
+        return error.OutOfMemory;
+    };
 
-    // Fill zero page
-    _ = try writer.splatByte(0x00, 0x100);
-
-    // Read ROM data until EOF or full
-    _ = reader.streamRemaining(&writer) catch |e| {
-        if (e != error.WriteFailed) {
+    _ = reader.streamRemaining(&writer.writer) catch |e| {
+        if (e == error.WriteFailed) {
+            return error.OutOfMemory;
+        } else {
+            // Reader failed, pass on the information.
             return e;
         }
     };
 
-    // Clear remaining ROM data
-    _ = writer.splatByte(0x00, writer.unusedCapacityLen()) catch {};
+    // How much data was written so far and how much is needed to reach the next page boundary.
+    const n = writer.written().len;
+    const remain = Cpu.page_size - (n % Cpu.page_size);
 
-    return ram;
+    // How many pages there are after padding and how many are still needed to reach minimum
+    const ps = (n + remain) / Cpu.page_size;
+    const ps_remain = min_pages -| ps;
+
+    // Total number of bytes to allocate
+    const extra = (ps_remain * Cpu.page_size) + remain;
+
+    _ = writer.writer.splatByte(0x00, extra) catch {
+        return error.OutOfMemory;
+    };
+
+    return try writer.toOwnedSlice();
 }

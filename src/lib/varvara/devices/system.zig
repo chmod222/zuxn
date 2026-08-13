@@ -4,6 +4,21 @@ const std = @import("std");
 const impl = @import("impl.zig");
 const logger = std.log.scoped(.uxn_varvara_system);
 
+/// Determine how a read or write across a page boundary should be treated.
+const PageSplit = enum {
+    /// Do not split the memory, truncate the operation instead.
+    truncate,
+
+    /// Wrap the memory access back around on the same page, starting back from 0
+    /// inside the page’s zero area.
+    wrap,
+
+    /// Treat the pages as the contiguous slice of memory that they are internally.
+    contiguous,
+};
+
+const cross_boundary_behaviour = PageSplit.contiguous;
+
 pub const Color = struct {
     r: u8,
     g: u8,
@@ -85,6 +100,155 @@ pub const Metadata = struct {
     text: []const u8,
 };
 
+/// The result of a page boundary crossing memory slicing.
+const PageSlice = union(enum) {
+    /// A single contiguous slice that either:
+    ///   a. does not cross the boundary, or
+    ///   b. was truncated, or
+    ///   c. did cross a page boundary but the underlying memory is in fact
+    ///      contiguous and can represent this.
+    contiguous: []u8,
+
+    /// A split slice consisting of the uppermost part of the origin page, and
+    /// depending on mode:
+    ///   a. the lowermost part of that same page (PageSplit.wrap)
+    ///   b. the lowermost part of the next page (PageSplit.contiguous) if the
+    ///      underlying memory representation cannot be treated as one contiguous
+    ///      blob of memory.
+    disjoint: struct { []u8, []u8 },
+
+    const CopyDirection = enum { left_to_right, right_to_left };
+
+    fn fill(slice: PageSlice, value: u8) void {
+        switch (slice) {
+            .contiguous => |c| {
+                @memset(c, value);
+            },
+
+            .disjoint => |d| {
+                @memset(d.@"0", value);
+                @memset(d.@"1", value);
+            },
+        }
+    }
+
+    fn copyDisjoint(
+        src0: []const u8,
+        src1: []const u8,
+        dst0: []u8,
+        dst1: []u8,
+        comptime dir: CopyDirection,
+    ) void {
+        // Use manual looping instead of @memcpy and @memmove builtins with safety
+        // disabled.
+        const safe_copy = comptime false;
+
+        if (!safe_copy) {
+            // Reject safety, embrace undefined behaviour.
+            @setRuntimeSafety(false);
+        }
+
+        const src_parts: [2][]const u8 = .{ src0, src1 };
+        const dst_parts: [2][]u8 = .{ dst0, dst1 };
+
+        if (dir == .left_to_right) {
+            var si: usize = 0;
+            var di: usize = 0;
+            var so: usize = 0;
+            var doff: usize = 0;
+
+            while (si < src_parts.len and di < dst_parts.len) {
+                const src = src_parts[si][so..];
+                const dst = dst_parts[di][doff..];
+                const n = @min(src.len, dst.len);
+
+                if (safe_copy) {
+                    for (0..n) |i| {
+                        dst[i] = src[i];
+                    }
+                } else {
+                    @memmove(dst[0..n], src[0..n]);
+                }
+
+                so += n;
+                doff += n;
+
+                if (so == src_parts[si].len) {
+                    si += 1;
+                    so = 0;
+                }
+                if (doff == dst_parts[di].len) {
+                    di += 1;
+                    doff = 0;
+                }
+            }
+        } else {
+            var si: usize = src_parts.len - 1;
+            var di: usize = dst_parts.len - 1;
+
+            var so: usize = src_parts[si].len;
+            var doff: usize = dst_parts[di].len;
+
+            while (true) {
+                const n = @min(so, doff);
+                const src = src_parts[si][so - n .. so];
+                const dst = dst_parts[di][doff - n .. doff];
+
+                if (safe_copy) {
+                    for (0..n) |i| {
+                        dst[n - i - 1] = src[n - i - 1];
+                    }
+                } else {
+                    @memmove(dst, src);
+                }
+
+                so -= n;
+                doff -= n;
+
+                if (so == 0) {
+                    if (si == 0)
+                        break;
+
+                    si -= 1;
+                    so = src_parts[si].len;
+                }
+                if (doff == 0) {
+                    if (di == 0)
+                        break;
+
+                    di -= 1;
+                    doff = dst_parts[di].len;
+                }
+            }
+        }
+    }
+
+    fn copyFrom(dst: PageSlice, src: PageSlice, comptime dir: CopyDirection) void {
+        switch (src) {
+            .contiguous => |src0| {
+                switch (dst) {
+                    .contiguous => |dst0| {
+                        copyDisjoint(src0, &.{}, dst0, &.{}, dir);
+                    },
+                    .disjoint => |dstD| {
+                        copyDisjoint(src0, &.{}, dstD.@"0", dstD.@"1", dir);
+                    },
+                }
+            },
+            .disjoint => |srcD| {
+                switch (dst) {
+                    .contiguous => |dst0| {
+                        copyDisjoint(srcD.@"0", srcD.@"1", dst0, &.{}, dir);
+                    },
+                    .disjoint => |dstD| {
+                        copyDisjoint(srcD.@"0", srcD.@"1", dstD.@"0", dstD.@"1", dir);
+                    },
+                }
+            },
+        }
+    }
+};
+
 pub const ports = struct {
     pub const catch_vector = 0x00;
     pub const expansion = 0x02;
@@ -103,7 +267,6 @@ pub const System = struct {
 
     debug_callback: ?*const fn (cpu: *Cpu, data: ?*anyopaque) void = null,
     callback_data: ?*anyopaque = null,
-    additional_pages: ?[][Cpu.page_size]u8 = null,
 
     exit_code: ?u8 = null,
     colors: [4]Color = .{
@@ -125,11 +288,10 @@ pub const System = struct {
         };
     }
 
-    pub fn init(addr: u4, env: *std.process.Environ.Map, pages: ?[][Cpu.page_size]u8) System {
+    pub fn init(addr: u4, env: *std.process.Environ.Map) System {
         return System{
             .device = .init(addr),
             .env = env,
-            .additional_pages = pages,
         };
     }
 
@@ -216,24 +378,58 @@ pub const System = struct {
         };
     }
 
-    fn selectMemoryPage(sys: *System, cpu: *Cpu, page: u16) ?*[Cpu.page_size]u8 {
-        if (page == 0x0000) {
-            return cpu.mem;
-        } else if (sys.additional_pages) |page_table| {
-            if (page_table.len < page) {
-                return &page_table[page];
-            }
+    fn selectMemoryPage(cpu: *Cpu, page: u16) ?*[Cpu.page_size]u8 {
+        if (page >= cpu.pages.len) {
+            return null;
         }
 
-        return null;
+        return &cpu.pages[page];
     }
 
-    fn getPagedSlice(sys: *System, cpu: *Cpu, page: u16, offset: u16, len: u16) ?[]u8 {
-        const src = sys.selectMemoryPage(cpu, page) orelse {
+    fn crossesBoundary(offset: u16, len: u16) bool {
+        return @as(usize, offset) + len >= Cpu.page_size;
+    }
+
+    fn getPageSlice(cpu: *Cpu, page: u16, offset: u16, len: u16) ?PageSlice {
+        const src = selectMemoryPage(cpu, page) orelse {
             return null;
         };
 
-        return src[offset..offset +| len];
+        if (!crossesBoundary(offset, len)) {
+            @branchHint(.likely);
+            return PageSlice{
+                .contiguous = src[offset .. offset + len],
+            };
+        } else if (cross_boundary_behaviour == .truncate) {
+            return PageSlice{
+                .contiguous = src[offset..],
+            };
+        } else if (cross_boundary_behaviour == .wrap) {
+            return PageSlice{
+                .disjoint = .{
+                    src[offset..Cpu.page_size],
+                    src[0 .. (@as(usize, offset) + len) - Cpu.page_size],
+                },
+            };
+        } else if (cross_boundary_behaviour == .contiguous) {
+            const src_next = selectMemoryPage(cpu, page + 1) orelse {
+                return null;
+            };
+
+            // Shortcut if the pages are just artificially split
+            if (src.ptr + Cpu.page_size == src_next.ptr) {
+                return PageSlice{
+                    .contiguous = src.ptr[offset .. @as(usize, offset) + len],
+                };
+            } else {
+                return PageSlice{
+                    .disjoint = .{
+                        src[offset..],
+                        src_next[0 .. (@as(usize, offset) + len) - Cpu.page_size],
+                    },
+                };
+            }
+        }
     }
 
     fn handleExpansion(sys: *System, cpu: *Cpu, operation: u16) void {
@@ -245,22 +441,20 @@ pub const System = struct {
                 const offset = cpu.loadMem(u16, operation + 5);
                 const value = cpu.loadMem(u8, operation + 7);
 
-                logger.debug("Expansion: Request fill off #{x} bytes (#{x:0>2}) from {x:0>4}:{x:0>4} to {x:0>4}:{x:0>4}", .{
+                logger.debug("Expansion: Request fill of #{x} bytes (#{x:0>2}) at {x:0>4}:{x:0>4}", .{
                     len,
                     value,
                     page,
                     offset,
-                    page,
-                    offset + len,
                 });
 
-                const dst = sys.getPagedSlice(cpu, page, offset, len) orelse {
-                    logger.warn("Expansion: Invalid source page {x:0>4}:{x:0>4}", .{ page, offset });
+                const dst = getPageSlice(cpu, page, offset, len) orelse {
+                    logger.debug("Expansion: Invalid source page {x:0>4}:{x:0>4}", .{ page, offset });
 
                     return;
                 };
 
-                @memset(dst, value);
+                dst.fill(value);
             },
 
             0x01, 0x02 => {
@@ -282,44 +476,24 @@ pub const System = struct {
                     dst_offset,
                 });
 
-                const src = sys.getPagedSlice(cpu, src_page, src_offset, len) orelse {
-                    logger.warn("Expansion: Invalid source page {x:0>4}:{x:0>4}", .{ src_page, src_offset });
+                const src = getPageSlice(cpu, src_page, src_offset, len) orelse {
+                    logger.debug("Expansion: Invalid source page {x:0>4}:{x:0>4}", .{ src_page, src_offset });
 
                     return;
                 };
 
-                const dst = sys.getPagedSlice(cpu, dst_page, dst_offset, len) orelse {
-                    logger.warn("Expansion: Invalid destination page {x:0>4}:{x:0>4}", .{ dst_page, dst_offset });
+                const dst = getPageSlice(cpu, dst_page, dst_offset, len) orelse {
+                    logger.debug("Expansion: Invalid destination page {x:0>4}:{x:0>4}", .{ dst_page, dst_offset });
 
                     return;
                 };
-
-                // N.B. this is impossible because all pages are equally sized
-                //      for now, but who knows what the future holds.
-                if (src.len != dst.len) {
-                    logger.warn("Expansion: Source and destination lengths do not match due to " ++
-                        "page boundary: {x:0>4}:{x:0>4} -> {x:0>4}:{x:0>4} ({} -> {})", .{
-                        src_page, src_offset,
-                        dst_page, dst_offset,
-                        src.len,  dst.len,
-                    });
-
-                    return;
-                }
 
                 if (cpu.mem[operation] == 0x01) {
-                    // Copy left to right
-                    for (dst[0..len], src) |*d, s| {
-                        d.* = s;
-                    }
+                    // memcpy
+                    dst.copyFrom(src, .left_to_right);
                 } else {
-                    // Copy right to left
-                    var i = src.len;
-
-                    while (i > 0) {
-                        i -= 1;
-                        dst[i] = src[i];
-                    }
+                    // memmove
+                    dst.copyFrom(src, .right_to_left);
                 }
             },
 

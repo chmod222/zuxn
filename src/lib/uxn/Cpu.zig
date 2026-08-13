@@ -29,6 +29,7 @@ rst_sp: ?u8 = null,
 primary_stack: *Stack = undefined,
 secondary_stack: *Stack = undefined,
 
+pages: [][page_size]u8,
 mem: *[page_size]u8,
 device_mem: [device_page_size]u8,
 
@@ -44,14 +45,21 @@ device_intercept: ?*const fn (
     data: ?*anyopaque,
 ) anyerror!void = null,
 
-pub fn init(memory: *[page_size]u8) Cpu {
+pub fn init(memory: []u8) Cpu {
+    // Assert that:
+    //  1. there is an entire page (the main program page)
+    //  2. if there is more memory, it divides into exact pages.
+    std.debug.assert((memory.len >= page_size) and (memory.len % page_size == 0));
+
     return Cpu{
         .pc = 0x0100,
 
         .wst = .init(),
         .rst = .init(),
 
-        .mem = memory,
+        // Treat the first page, the one we run in, as an array to avoid bound checks.
+        .mem = @ptrCast(memory),
+        .pages = @ptrCast(memory),
         .device_mem = [1]u8{0x00} ** 0x100,
     };
 }

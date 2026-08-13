@@ -16,15 +16,12 @@ pub const mouse = @import("devices/mouse.zig");
 pub const file = @import("devices/file.zig");
 pub const datetime = @import("devices/datetime.zig");
 
-pub const pages = 4;
-
 // Back-compat from when this was all generic.
 pub const VarvaraDefault = Varvara;
 
 pub const Varvara = struct {
     allocator: std.mem.Allocator,
     io: Io,
-    page_table: ?[][uxn.Cpu.page_size]u8 = null,
     sandbox_base: ?Io.Dir = null,
 
     system_device: system.System,
@@ -43,14 +40,11 @@ pub const Varvara = struct {
         stdout: *Io.Writer,
         stderr: *Io.Writer,
     ) !Varvara {
-        const page_table = try allocator.alloc([uxn.Cpu.page_size]u8, pages);
-
         var sys: Varvara = .{
             .allocator = allocator,
             .io = io,
-            .page_table = page_table,
 
-            .system_device = .init(0x0, env, page_table),
+            .system_device = .init(0x0, env),
             .console_device = .init(0x1, io, stderr, stdout),
             .screen_device = .init(0x2, allocator),
 
@@ -79,9 +73,6 @@ pub const Varvara = struct {
 
         for (&sys.file_devices) |*f|
             f.cleanup();
-
-        if (sys.system_device.additional_pages) |page_table|
-            sys.allocator.free(page_table);
     }
 
     fn filterFileAccess(dev: *file.File, data: ?*anyopaque, path: []const u8, mode: file.Mode) bool {

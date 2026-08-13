@@ -343,6 +343,8 @@ pub fn main(init: std.process.Init) !u8 {
     // Setup CPU and intercepts
     var cpu = uxn.Cpu.init(env.rom);
 
+    logger.debug("Initialized Uxn with {} pages of {} bytes each", .{ cpu.pages.len, uxn.Cpu.page_size });
+
     // Run main
     return mainGraphical(
         if (sdl2)

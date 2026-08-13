@@ -28,11 +28,11 @@ pub const jit_assembly_args =
 pub const LoadResult = struct {
     alloc: std.mem.Allocator,
 
-    rom: *[uxn.Cpu.page_size]u8,
+    rom: []u8,
     debug_symbols: ?Debug,
 
     pub fn deinit(res: *LoadResult) void {
-        res.alloc.destroy(res.rom);
+        res.alloc.free(res.rom);
 
         if (res.debug_symbols) |*debug|
             debug.unload();
@@ -110,14 +110,16 @@ pub fn loadOrAssembleRom(
     var buffer: [1024]u8 = undefined;
     var file_reader = input_file.reader(io, &buffer);
 
+    const min_pages = 0x10;
+
     if (build_options.enable_jit_assembly and
         std.ascii.endsWithIgnoreCase(input_source, ".tal"))
     {
         var assembler = try createAssembler(io, args, alloc);
         defer assembler.deinit();
 
-        var rom_data = try alloc.create([uxn.Cpu.page_size]u8);
-        errdefer alloc.destroy(rom_data);
+        var rom_data = try alloc.alloc(u8, min_pages * uxn.Cpu.page_size);
+        errdefer alloc.free(rom_data);
 
         @memset(rom_data[0..], 0x00);
 
@@ -151,10 +153,12 @@ pub fn loadOrAssembleRom(
             } else null,
         };
     } else {
+        const ram = try uxn.loadRom(alloc, &file_reader.interface, min_pages);
+
         return .{
             .alloc = alloc,
 
-            .rom = try uxn.loadRom(alloc, &file_reader.interface),
+            .rom = ram,
 
             .debug_symbols = if (debug_source) |debug_symbols| r: {
                 const symbols_file = try cwd.openFile(io, debug_symbols, .{});
