@@ -48,7 +48,7 @@ fn mainGraphical(
     system: *varvara.Varvara,
     scale: u8,
     fps_limit: ?usize,
-    args: [][]const u8,
+    args: []const []const u8,
 ) !u8 {
     var impl = Impl.init(cpu, system);
 
@@ -267,8 +267,6 @@ fn copyAvailable(reader: *Io.Reader, writer: *Io.Writer) (Io.Reader.StreamError 
 }
 
 pub fn main(init: std.process.Init) !u8 {
-    const alloc = init.gpa;
-
     const params = comptime clap.parseParamsComptime(
         \\-h, --help                 Display this help and exit.
         \\-s, --scale <INT>          Display scale factor
@@ -289,33 +287,25 @@ pub fn main(init: std.process.Init) !u8 {
         \\<ARG>...                   Command line arguments for the module
     );
 
-    var diag = clap.Diagnostic{};
-
     var stdout = Io.File.stdout().writer(init.io, &.{});
     var stderr = Io.File.stderr().writer(init.io, &.{});
 
-    var res = clap.parse(clap.Help, &params, shared.parsers, init.minimal.args, .{
-        .diagnostic = &diag,
-        .allocator = alloc,
-    }) catch |err| {
-        // Report useful error and exit
-        diag.report(&stderr.interface, err) catch {};
-
-        return err;
-    };
+    const res = shared.handleCommonArgs(
+        &params,
+        init.gpa,
+        init.minimal.args,
+        &stderr.interface,
+    ) orelse return 0;
 
     defer res.deinit();
 
-    if (shared.handleCommonArgs(init.io, res, params)) |exit| {
-        return exit;
-    }
-
     var env = try shared.loadOrAssembleRom(
-        alloc,
+        init.gpa,
         init.io,
         res,
         res.positionals[0].?,
         res.args.symbols,
+        &stderr.interface,
     );
 
     defer env.deinit();
@@ -356,6 +346,6 @@ pub fn main(init: std.process.Init) !u8 {
         &system,
         @truncate(res.args.scale orelse 1),
         res.args.r,
-        @constCast(res.positionals[1]),
+        res.positionals[1],
     );
 }

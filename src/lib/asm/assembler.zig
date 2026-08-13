@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const std = @import("std");
 const mem = std.mem;
 
@@ -34,6 +35,25 @@ pub const AssemblerError = error{
     NotAllowed,
     CannotOpenFile,
 } || scan.Error || Io.Writer.Error || Io.File.Reader.Error;
+
+pub const InitOptions = struct {
+    pub const RelativeIncludeResolution = enum {
+        /// Relative paths will always be relative to the current working directory.
+        relative_to_working_dir,
+
+        /// Relative paths will always be relative to the current file.
+        relative_to_file,
+    };
+
+    /// The (initial) directory where includes are searched for.
+    working_dir: Io.Dir = Io.Dir.cwd(),
+
+    /// Determine how relative includes will be processed.
+    relative_include_resolution: RelativeIncludeResolution = .relative_to_working_dir,
+
+    /// Input filename to be used in diagnostic messages.
+    input_filename: ?[]const u8 = null,
+};
 
 pub fn Assembler(comptime lim: scan.Limits) type {
     return struct {
@@ -99,11 +119,25 @@ pub fn Assembler(comptime lim: scan.Limits) type {
         lambdas: std.ArrayListUnmanaged(usize) = .empty,
         lambda_counter: usize = 0,
 
-        pub fn init(alloc: mem.Allocator, io: Io, include_base: ?Io.Dir) AssemblerT {
+        pub fn init(alloc: mem.Allocator, io: Io, options: InitOptions) !AssemblerT {
+            var include_base = options.working_dir;
+
+            // When resolving includes relative to the current file, determine the working
+            // directory for the top level file if at all possible.
+            if (options.relative_include_resolution == .relative_to_file) {
+                if (options.input_filename) |fname| {
+                    if (std.fs.path.dirname(fname)) |dirname| {
+                        include_base = try include_base.openDir(io, dirname, .{});
+                    }
+                }
+            }
+
             return .{
                 .allocator = alloc,
                 .io = io,
-                .include_base = include_base,
+                .include_base = options.working_dir,
+                .include_follow = options.relative_include_resolution == .relative_to_file,
+                .default_input_filename = options.input_filename,
             };
         }
 
@@ -472,8 +506,6 @@ pub fn Assembler(comptime lim: scan.Limits) type {
             var full_path_buffer: [fs.max_path_bytes]u8 = undefined;
 
             // Determine canonical path to included file
-            const builtin = @import("builtin");
-
             const full_path = if (builtin.target.cpu.arch != .wasm32)
                 full_path_buffer[0 .. dir.realPathFile(assembler.io, path, &full_path_buffer) catch return error.IncludeNotFound]
             else

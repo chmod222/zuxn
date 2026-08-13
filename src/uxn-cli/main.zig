@@ -45,8 +45,6 @@ fn intercept(
 }
 
 pub fn main(init: std.process.Init) !u8 {
-    const alloc = init.gpa;
-
     var stdin_buffer: [1024]u8 = undefined;
     var stdin = Io.File.stdin().reader(init.io, &stdin_buffer);
 
@@ -72,32 +70,22 @@ pub fn main(init: std.process.Init) !u8 {
         \\<ARG>...                   Command line arguments for the module
     );
 
-    var diag = clap.Diagnostic{};
-
-    const clap_args = clap.ParseOptions{
-        .diagnostic = &diag,
-        .allocator = alloc,
-    };
-
-    const res = clap.parse(clap.Help, &params, shared.parsers, init.minimal.args, clap_args) catch |err| {
-        // Report useful error and exit
-        diag.report(&stderr.interface, err) catch {};
-
-        return err;
-    };
+    const res = shared.handleCommonArgs(
+        &params,
+        init.gpa,
+        init.minimal.args,
+        &stderr.interface,
+    ) orelse return 0;
 
     defer res.deinit();
 
-    if (shared.handleCommonArgs(init.io, res, params)) |exit| {
-        return exit;
-    }
-
     var env = try shared.loadOrAssembleRom(
-        alloc,
+        init.arena.allocator(),
         init.io,
         res,
         res.positionals[0].?,
         res.args.symbols,
+        &stderr.interface,
     );
 
     defer env.deinit();
@@ -109,6 +97,7 @@ pub fn main(init: std.process.Init) !u8 {
         &stdout.interface,
         &stderr.interface,
     );
+
     defer system.deinit();
 
     if (!system.sandboxFiles(Io.Dir.cwd())) {
@@ -132,12 +121,10 @@ pub fn main(init: std.process.Init) !u8 {
     cpu.input_intercepts = varvara.headless_intercepts.input;
 
     // Run initialization vector and push arguments
-    const args: [][]const u8 = @constCast(res.positionals[1]);
-
-    system.console_device.setArgc(&cpu, args);
+    system.console_device.setArgc(&cpu, res.positionals[1]);
 
     try cpu.evaluateVector(0x0100);
-    try system.console_device.pushArguments(&cpu, args);
+    try system.console_device.pushArguments(&cpu, res.positionals[1]);
 
     if (system.system_device.exit_code) |c|
         return c;

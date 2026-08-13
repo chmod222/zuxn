@@ -275,7 +275,7 @@ pub const Console = struct {
     pub fn pushArguments(
         con: Console,
         cpu: *Cpu,
-        args: [][]const u8,
+        args: []const []const u8,
     ) !void {
         const vector = con.device.loadVector(cpu, ports.vector);
 
@@ -299,7 +299,7 @@ pub const Console = struct {
     pub fn setArgc(
         con: Console,
         cpu: *Cpu,
-        args: [][]const u8,
+        args: []const []const u8,
     ) void {
         con.device.storePort(u8, cpu, ports.typ, @intFromBool(args.len > 0));
     }
