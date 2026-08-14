@@ -57,12 +57,23 @@ fn Vec2(T: type) type {
 
 fn Rect(T: type) type {
     return struct {
-        const RectT = @This();
-
         top_left: Vec2(T),
         bottom_right: Vec2(T),
 
-        fn extend(rect: *const RectT, other: RectT) RectT {
+        fn init(a: Vec2(T), b: Vec2(T)) Rect(T) {
+            return Rect(T){
+                .top_left = .init(
+                    @min(a.x, b.x),
+                    @min(a.y, b.y),
+                ),
+                .bottom_right = .init(
+                    @max(a.x, b.x),
+                    @max(a.y, b.y),
+                ),
+            };
+        }
+
+        fn extend(rect: *const Rect(T), other: Rect(T)) Rect(T) {
             // This assumes that top_left is always actually the top
             // left corner of each rectangle. Violating this
             // assumption will cause fun.
@@ -226,16 +237,16 @@ pub const Screen = struct {
                     }
 
                     scr.updateDirtyRegion(
-                        .{
-                            .top_left = .init(
-                                @max(0, x),
-                                @max(0, y),
+                        .init(
+                            .init(
+                                @min(scr.width, @max(0, x)),
+                                @min(scr.height, @max(0, y)),
                             ),
-                            .bottom_right = .init(
-                                @min(scr.width, @as(usize, @bitCast(@as(isize, x) +% (dy * fx * l) +% 8))),
-                                @min(scr.height, @as(usize, @bitCast(@as(isize, y) +% (dx * fy * l) +% 8))),
+                            .init(
+                                @min(scr.width, @max(0, @as(usize, @bitCast(@as(isize, x) +% (dy * fx * l) +% 8)))),
+                                @min(scr.height, @max(0, @as(usize, @bitCast(@as(isize, y) +% (dx * fy * l) +% 8)))),
                             ),
-                        },
+                        ),
                     );
 
                     if (auto.x) scr.device.storePort(i16, cpu, ports.x, x +% dx * fx);
