@@ -117,6 +117,7 @@ pub fn build(b: *std.Build) void {
             .target = target,
             .root_source_file = files.add("sdl-sys.h", switch (sdl_version) {
                 .sdl2 =>
+                \\#define SDL_DISABLE_ARM_NEON_H 1
                 \\#include <SDL2/SDL.h>
                 ,
                 .sdl3 =>
