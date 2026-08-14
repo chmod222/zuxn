@@ -130,6 +130,9 @@ pub fn build(b: *std.Build) void {
             "sdl-sys.h",
 
             if (sdl_version == 2)
+                // SDL_cpuinfo.h pulls in <arm_neon.h>, which translate-c cannot
+                // parse. None of the intrinsics are used here.
+                \\#define SDL_DISABLE_ARM_NEON_H 1
                 \\#include <SDL2/SDL.h>
             else
                 \\#define SDL_DISABLE_OLD_NAMES 1
@@ -143,14 +146,11 @@ pub fn build(b: *std.Build) void {
             .root_source_file = header,
         });
 
-        // Not sure if there’s a better way for this.
-        c_module.addIncludePath(.{
-            .cwd_relative = b.fmt("/usr/include/{t}-{t}-{t}", .{
-                target.result.cpu.arch,
-                target.result.os.tag,
-                target.result.abi,
-            }),
-        });
+        const sdl_lib = if (sdl_version == 2) "SDL2" else "SDL3";
+
+        // translate-c does not inherit the include paths that linking SDL on
+        // the executable below resolves, so ask pkg-config for them here too.
+        c_module.linkSystemLibrary(sdl_lib, .{});
 
         uxn_sdl.root_module.addImport("sdl-sys", c_module.createModule());
         uxn_sdl.root_module.addImport("uxn-shared", shared_mod);
@@ -159,11 +159,7 @@ pub fn build(b: *std.Build) void {
         uxn_sdl.root_module.addImport("clap", dep_clap.module("clap"));
         uxn_sdl.root_module.addImport("build_options", build_options_mod);
 
-        if (sdl_version == 2) {
-            uxn_sdl.root_module.linkSystemLibrary("SDL2", .{});
-        } else {
-            uxn_sdl.root_module.linkSystemLibrary("SDL3", .{});
-        }
+        uxn_sdl.root_module.linkSystemLibrary(sdl_lib, .{});
 
         if (enable_jit_assembly)
             uxn_sdl.root_module.addImport("uxn-asm", asm_mod);
