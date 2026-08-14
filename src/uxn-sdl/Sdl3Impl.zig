@@ -197,8 +197,8 @@ pub fn pollEvents(impl: *Sdl3Impl) !bool {
             c.SDL_EVENT_MOUSE_MOTION => {
                 try system.mouse_device.updatePosition(
                     cpu,
-                    @truncate(@as(c_uint, @intFromFloat(ev.motion.x))),
-                    @truncate(@as(c_uint, @intFromFloat(ev.motion.y))),
+                    @truncate(@as(c_uint, @intFromFloat(@max(0, ev.motion.x)))),
+                    @truncate(@as(c_uint, @intFromFloat(@max(0, ev.motion.y)))),
                 );
             },
 
