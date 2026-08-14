@@ -61,7 +61,7 @@ pub fn build(b: *std.Build) void {
 
     const sdl_version = b.option(u8, "sdl_version",
         \\Which SDL version to link against
-    ) orelse 2;
+    ) orelse 3;
 
     if (sdl_version != 2 and sdl_version != 3) {
         @panic("Only SDL2 and SDL3 are supported");
