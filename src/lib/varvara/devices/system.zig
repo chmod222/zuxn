@@ -6,7 +6,8 @@ const logger = std.log.scoped(.uxn_varvara_system);
 
 /// Determine how a read or write across a page boundary should be treated.
 const PageSplit = enum {
-    /// Do not split the memory, truncate the operation instead.
+    /// Do not split the memory, truncate the operation instead. This is the default
+    /// strategy specified by Varvara.
     truncate,
 
     /// Wrap the memory access back around on the same page, starting back from 0
@@ -17,7 +18,7 @@ const PageSplit = enum {
     contiguous,
 };
 
-const cross_boundary_behaviour = PageSplit.contiguous;
+const cross_boundary_behaviour = PageSplit.truncate;
 
 pub const Color = struct {
     r: u8,
@@ -100,8 +101,14 @@ pub const Metadata = struct {
     text: []const u8,
 };
 
-/// The result of a page boundary crossing memory slicing.
-const PageSlice = union(enum) {
+const CopyDirection = enum { left_to_right, right_to_left };
+
+// Use manual looping instead of @memcpy and @memmove builtins with safety
+// disabled.
+const safe_copy = false;
+
+/// The result of a page boundary crossing memory slicing when the possibily of splitting exists.
+const SplitPageSlice = union(enum) {
     /// A single contiguous slice that either:
     ///   a. does not cross the boundary, or
     ///   b. was truncated, or
@@ -117,9 +124,15 @@ const PageSlice = union(enum) {
     ///      blob of memory.
     disjoint: struct { []u8, []u8 },
 
-    const CopyDirection = enum { left_to_right, right_to_left };
+    fn initContiguous(slice: []u8) SplitPageSlice {
+        return SplitPageSlice{ .contiguous = slice };
+    }
 
-    fn fill(slice: PageSlice, value: u8) void {
+    fn initDisjoint(slice0: []u8, slice1: []u8) SplitPageSlice {
+        return SplitPageSlice{ .disjoint = .{ slice0, slice1 } };
+    }
+
+    fn fill(slice: SplitPageSlice, value: u8) void {
         switch (slice) {
             .contiguous => |c| {
                 @memset(c, value);
@@ -139,15 +152,6 @@ const PageSlice = union(enum) {
         dst1: []u8,
         comptime dir: CopyDirection,
     ) void {
-        // Use manual looping instead of @memcpy and @memmove builtins with safety
-        // disabled.
-        const safe_copy = comptime false;
-
-        if (!safe_copy) {
-            // Reject safety, embrace undefined behaviour.
-            @setRuntimeSafety(false);
-        }
-
         const src_parts: [2][]const u8 = .{ src0, src1 };
         const dst_parts: [2][]u8 = .{ dst0, dst1 };
 
@@ -167,7 +171,8 @@ const PageSlice = union(enum) {
                         dst[i] = src[i];
                     }
                 } else {
-                    @memmove(dst[0..n], src[0..n]);
+                    @setRuntimeSafety(false);
+                    @memcpy(dst[0..n], src[0..n]);
                 }
 
                 so += n;
@@ -199,6 +204,7 @@ const PageSlice = union(enum) {
                         dst[n - i - 1] = src[n - i - 1];
                     }
                 } else {
+                    @setRuntimeSafety(false);
                     @memmove(dst, src);
                 }
 
@@ -223,7 +229,7 @@ const PageSlice = union(enum) {
         }
     }
 
-    fn copyFrom(dst: PageSlice, src: PageSlice, comptime dir: CopyDirection) void {
+    fn copyFrom(dst: SplitPageSlice, src: SplitPageSlice, comptime dir: CopyDirection) void {
         switch (src) {
             .contiguous => |src0| {
                 switch (dst) {
@@ -248,6 +254,46 @@ const PageSlice = union(enum) {
         }
     }
 };
+
+const SimplePageSlice = struct {
+    slice: []u8,
+
+    inline fn initContiguous(slice: []u8) SimplePageSlice {
+        return SimplePageSlice{ .slice = slice };
+    }
+
+    inline fn fill(dst: SimplePageSlice, value: u8) void {
+        @memset(dst.slice, value);
+    }
+
+    inline fn copyFrom(dst: SimplePageSlice, src: SimplePageSlice, comptime dir: CopyDirection) void {
+        const n = @min(src.slice.len, dst.slice.len);
+
+        if (dir == .right_to_left) {
+            if (safe_copy) {
+                for (src.slice[0..n], &dst.slice[0..n]) |srcp, dstp| {
+                    dstp.* = srcp;
+                }
+            } else {
+                @setRuntimeSafety(false);
+                @memcpy(dst.slice[0..n], src.slice[0..n]);
+            }
+        } else {
+            if (safe_copy) {
+                for (0..n) |i| {
+                    dst.slice[n - i - 1] = src.slice[n - i - 1];
+                }
+            } else {
+                @setRuntimeSafety(false);
+                @memmove(dst.slice[0..n], src.slice[0..n]);
+            }
+        }
+    }
+};
+
+// If we can get away with it based on the strategy, comptime-select the simple page slice
+// for the least amount of overhead.
+const PageSlice = if (cross_boundary_behaviour == .truncate) SimplePageSlice else SplitPageSlice;
 
 pub const ports = struct {
     pub const catch_vector = 0x00;
@@ -397,20 +443,11 @@ pub const System = struct {
 
         if (!crossesBoundary(offset, len)) {
             @branchHint(.likely);
-            return PageSlice{
-                .contiguous = src[offset .. offset + len],
-            };
+            return .initContiguous(src[offset .. offset + len]);
         } else if (cross_boundary_behaviour == .truncate) {
-            return PageSlice{
-                .contiguous = src[offset..],
-            };
+            return .initContiguous(src[offset..]);
         } else if (cross_boundary_behaviour == .wrap) {
-            return PageSlice{
-                .disjoint = .{
-                    src[offset..Cpu.page_size],
-                    src[0 .. (@as(usize, offset) + len) - Cpu.page_size],
-                },
-            };
+            return .initDisjoint(src[offset..Cpu.page_size], src[0 .. (@as(usize, offset) + len) - Cpu.page_size]);
         } else if (cross_boundary_behaviour == .contiguous) {
             const src_next = selectMemoryPage(cpu, page + 1) orelse {
                 return null;
@@ -418,16 +455,9 @@ pub const System = struct {
 
             // Shortcut if the pages are just artificially split
             if (src.ptr + Cpu.page_size == src_next.ptr) {
-                return PageSlice{
-                    .contiguous = src.ptr[offset .. @as(usize, offset) + len],
-                };
+                return .initContiguous(src.ptr[offset .. @as(usize, offset) + len]);
             } else {
-                return PageSlice{
-                    .disjoint = .{
-                        src[offset..],
-                        src_next[0 .. (@as(usize, offset) + len) - Cpu.page_size],
-                    },
-                };
+                return .initDisjoint(src[offset..], src_next[0 .. (@as(usize, offset) + len) - Cpu.page_size]);
             }
         }
     }
