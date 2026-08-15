@@ -172,7 +172,7 @@ const SplitPageSlice = union(enum) {
                     }
                 } else {
                     @setRuntimeSafety(false);
-                    @memcpy(dst[0..n], src[0..n]);
+                    @memmove(dst[0..n], src[0..n]);
                 }
 
                 so += n;
@@ -269,14 +269,14 @@ const SimplePageSlice = struct {
     inline fn copyFrom(dst: SimplePageSlice, src: SimplePageSlice, comptime dir: CopyDirection) void {
         const n = @min(src.slice.len, dst.slice.len);
 
-        if (dir == .right_to_left) {
+        if (dir == .left_to_right) {
             if (safe_copy) {
-                for (src.slice[0..n], &dst.slice[0..n]) |srcp, dstp| {
-                    dstp.* = srcp;
+                for (0..n) |i| {
+                    dst.slice[i] = src.slice[i];
                 }
             } else {
                 @setRuntimeSafety(false);
-                @memcpy(dst.slice[0..n], src.slice[0..n]);
+                @memmove(dst.slice[0..n], src.slice[0..n]);
             }
         } else {
             if (safe_copy) {
