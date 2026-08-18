@@ -41,16 +41,29 @@ const blending: [4][16]u2 = .{
     .{ 2, 3, 1, 2, 2, 3, 1, 2, 2, 3, 1, 2, 2, 3, 1, 2 },
 };
 
+fn defaultBlend(color: u2, mode: u4) u2 {
+    return blending[color][mode];
+}
+
 fn Vec2(T: type) type {
     return struct {
         x: T, // or: width
         y: T, // or: height
 
-        pub fn init(x: T, y: T) @This() {
+        pub const zero = Vec2(T).init(0, 0);
+
+        pub fn init(x: T, y: T) Vec2(T) {
             return .{
                 .x = x,
                 .y = y,
             };
+        }
+
+        fn clampTo(vec: *const Vec2(T), min: Vec2(T), max: Vec2(T)) Vec2(T) {
+            return .init(
+                @max(@min(vec.x, max.x), min.x),
+                @max(@min(vec.y, max.y), min.y),
+            );
         }
     };
 }
@@ -90,6 +103,71 @@ fn Rect(T: type) type {
         }
     };
 }
+
+pub const Sprite = struct {
+    lo: []const u8,
+    hi: ?[]const u8,
+
+    pub fn init(buf: []const u8) Sprite {
+        return if (buf.len == 8)
+            .initIcn(buf)
+        else if (buf.len == 16)
+            .initChr(buf)
+        else
+            // Bug in caller.
+            unreachable;
+    }
+
+    pub fn initIcn(buf: []const u8) Sprite {
+        std.debug.assert(buf.len == 8);
+
+        return Sprite{
+            .lo = buf,
+            .hi = null,
+        };
+    }
+
+    pub fn initChr(buf: []const u8) Sprite {
+        std.debug.assert(buf.len == 16);
+
+        return Sprite{
+            .lo = buf[0..8],
+            .hi = buf[8..],
+        };
+    }
+
+    pub fn renderTo(
+        spr: Sprite,
+        layer: []u2,
+        layer_size: Vec2(u16),
+        pos: Vec2(u16),
+        blending_mode: u4,
+        flip_x: bool,
+        flip_y: bool,
+    ) void {
+        var y: u16 = 0;
+
+        while (y < 8) : (y += 1) {
+            const c1 = spr.lo[y];
+            const c2 = if (spr.hi) |d| d[y] else 0;
+
+            var x: u16 = 0;
+
+            while (x < 8) : (x += 1) {
+                const ch: u2 = @truncate(((c1 >> @truncate(x)) & 1) | (((c2 >> @truncate(x)) << 1) & 2));
+
+                const yr = pos.y +% (if (flip_y) @as(u16, @intCast(7 - y)) else y);
+                const xr = pos.x +% (if (flip_x) x else @as(u16, @intCast(7 - x)));
+
+                if (blending_mode % 5 != 0 or ch != 0x0000) {
+                    if (xr < layer_size.x and yr < layer_size.y)
+                        layer[@as(usize, yr) * layer_size.x + xr] =
+                            defaultBlend(ch, blending_mode);
+                }
+            }
+        }
+    }
+};
 
 pub const ports = struct {
     pub const vector = 0x0;
@@ -162,54 +240,54 @@ pub const Screen = struct {
                     const flags = scr.device.loadPort(PixelFlags, cpu, ports.pixel);
                     const auto = scr.device.loadPort(AutoFlags, cpu, ports.auto);
 
-                    var x0 = scr.device.loadPort(u16, cpu, ports.x);
-                    var y0 = scr.device.loadPort(u16, cpu, ports.y);
-
-                    var x1: u16 = undefined;
-                    var y1: u16 = undefined;
-
                     const layer = if (flags.layer == 0x00) scr.background else scr.foreground;
 
+                    var p0: Vec2(u16) = .init(
+                        scr.device.loadPort(u16, cpu, ports.x),
+                        scr.device.loadPort(u16, cpu, ports.y),
+                    );
+
+                    var p1: Vec2(u16) = undefined;
+
                     if (flags.fill) {
-                        x1 = if (flags.flip_x) 0 else scr.width;
-                        y1 = if (flags.flip_y) 0 else scr.height;
+                        // Fill to the corner specified by flip_x and flip_y.
+                        p1 = .init(
+                            if (flags.flip_x) 0 else scr.width,
+                            if (flags.flip_y) 0 else scr.height,
+                        );
 
-                        if (x0 > x1) std.mem.swap(u16, &x0, &x1);
-                        if (y0 > y1) std.mem.swap(u16, &y0, &y1);
+                        // Ensure p0 is top-left to p1
+                        if (p0.x > p1.x) std.mem.swap(u16, &p0.x, &p1.x);
+                        if (p0.y > p1.y) std.mem.swap(u16, &p0.y, &p1.y);
 
-                        scr.fillRegion(layer, .{
-                            .top_left = .init(x0, y0),
-                            .bottom_right = .init(x1, y1),
-                        }, flags);
+                        scr.fillRegion(layer, .init(p0, p1), flags);
                     } else {
-                        x1 = x0 +% 1;
-                        y1 = y0 +% 1;
+                        p1 = .init(p0.x +% 1, p0.y +% 1);
 
-                        if (x0 < scr.width and y0 < scr.height)
-                            layer[@as(usize, y0) * scr.width + x0] = flags.color;
+                        if (p0.x < scr.width and p0.y < scr.height)
+                            layer[p0.y * scr.width + p0.x] = flags.color;
 
-                        if (auto.x) scr.device.storePort(u16, cpu, ports.x, x1);
-                        if (auto.y) scr.device.storePort(u16, cpu, ports.y, y1);
+                        if (auto.x) scr.device.storePort(u16, cpu, ports.x, p1.x);
+                        if (auto.y) scr.device.storePort(u16, cpu, ports.y, p1.y);
                     }
 
-                    scr.updateDirtyRegion(.{
-                        .top_left = .init(x0, y0),
-                        .bottom_right = .init(x1, y1),
-                    });
+                    scr.updateDirtyRegion(.init(
+                        scr.clampToScreen(p0),
+                        scr.clampToScreen(p1),
+                    ));
                 },
 
                 ports.sprite => {
                     const flags = scr.device.loadPort(SpriteFlags, cpu, ports.sprite);
                     const auto = scr.device.loadPort(AutoFlags, cpu, ports.auto);
 
-                    const x = scr.device.loadPort(i16, cpu, ports.x);
-                    const y = scr.device.loadPort(i16, cpu, ports.y);
+                    const p: Vec2(i16) = .init(
+                        scr.device.loadPort(i16, cpu, ports.x),
+                        scr.device.loadPort(i16, cpu, ports.y),
+                    );
 
-                    const dx: i16 = if (auto.x) 8 else 0;
-                    const dy: i16 = if (auto.y) 8 else 0;
-
-                    const fx: i16 = if (flags.flip_x) -1 else 1;
-                    const fy: i16 = if (flags.flip_y) -1 else 1;
+                    const d: Vec2(i16) = .init(if (auto.x) 8 else 0, if (auto.y) 8 else 0);
+                    const f: Vec2(i16) = .init(if (flags.flip_x) -1 else 1, if (flags.flip_y) -1 else 1);
 
                     const da: u16 = if (auto.addr) if (flags.two_bpp) 16 else 8 else 0;
                     const l: u8 = @as(u8, auto.add_length) + 1;
@@ -220,17 +298,19 @@ pub const Screen = struct {
 
                     for (0..l) |i| {
                         const ic: i16 = @intCast(i);
+                        const sprite: Sprite = .init(cpu.mem[addr .. addr + @as(u16, if (flags.two_bpp) 16 else 8)]);
 
-                        // dy and dx flipped in original implementation
-                        scr.renderSpriteToScreen(
-                            cpu,
+                        sprite.renderTo(
                             layer,
-                            flags,
+                            scr.screen(),
                             .init(
-                                @bitCast(x +% (dy * fx * ic)),
-                                @bitCast(y +% (dx * fy * ic)),
+                                // dy and dx flipped in original implementation
+                                @bitCast(p.x +% (d.y * f.x * ic)),
+                                @bitCast(p.y +% (d.x * f.y * ic)),
                             ),
-                            addr,
+                            flags.blending,
+                            flags.flip_x,
+                            flags.flip_y,
                         );
 
                         addr +%= da;
@@ -239,18 +319,18 @@ pub const Screen = struct {
                     scr.updateDirtyRegion(
                         .init(
                             .init(
-                                @min(scr.width, @max(0, x)),
-                                @min(scr.height, @max(0, y)),
+                                @min(scr.width, @max(0, p.x)),
+                                @min(scr.height, @max(0, p.y)),
                             ),
                             .init(
-                                @min(scr.width, @max(0, @as(usize, @bitCast(@as(isize, x) +% (dy * fx * l) +% 8)))),
-                                @min(scr.height, @max(0, @as(usize, @bitCast(@as(isize, y) +% (dx * fy * l) +% 8)))),
+                                @min(scr.width, @max(0, @as(usize, @bitCast(@as(isize, p.x) +% (d.y * f.x * l) +% 8)))),
+                                @min(scr.height, @max(0, @as(usize, @bitCast(@as(isize, p.y) +% (d.x * f.y * l) +% 8)))),
                             ),
                         ),
                     );
 
-                    if (auto.x) scr.device.storePort(i16, cpu, ports.x, x +% dx * fx);
-                    if (auto.y) scr.device.storePort(i16, cpu, ports.y, y +% dy * fy);
+                    if (auto.x) scr.device.storePort(i16, cpu, ports.x, p.x +% d.x * f.x);
+                    if (auto.y) scr.device.storePort(i16, cpu, ports.y, p.y +% d.y * f.y);
                     if (auto.addr) scr.device.storePort(u16, cpu, ports.addr, addr);
                 },
 
@@ -266,25 +346,12 @@ pub const Screen = struct {
         }
     }
 
-    fn renderSpriteToScreen(
-        scr: *Screen,
-        cpu: *Cpu,
-        layer: []u2,
-        flags: SpriteFlags,
-        pos: Vec2(u16),
-        addr: u16,
-    ) void {
-        return renderSprite(
-            .init(scr.width, scr.height),
-            pos,
-            layer,
-            flags,
-            cpu.mem[addr .. addr + @as(usize, if (flags.two_bpp) 16 else 8)],
-        );
+    fn screen(scr: *const Screen) Vec2(u16) {
+        return .init(scr.width, scr.height);
     }
 
-    fn defaultBlend(color: u2, mode: u4) u2 {
-        return blending[color][mode];
+    fn clampToScreen(scr: *const Screen, vec: Vec2(u16)) Vec2(u16) {
+        return vec.clampTo(.zero, scr.screen());
     }
 
     pub fn renderTiledSprite(
@@ -295,51 +362,23 @@ pub const Screen = struct {
         flags: SpriteFlags,
         data: []const u8,
     ) void {
+        const stride: u16 = if (flags.two_bpp) 16 else 8;
+
         for (0..tile_size.y) |y| {
             for (0..tile_size.x) |x| {
-                renderSprite(
+                const sprite: Sprite = .initChr(data[x * stride + y * tile_size.x * stride ..][0..stride]);
+
+                sprite.renderTo(
+                    target,
                     target_size,
                     .init(
                         target_pos.x + 8 * @as(u16, @truncate(x)),
                         target_pos.y + 8 * @as(u16, @truncate(y)),
                     ),
-                    target,
-                    flags,
-                    data[x * 16 + y * 48 ..],
+                    flags.blending,
+                    flags.flip_x,
+                    flags.flip_y,
                 );
-            }
-        }
-    }
-
-    pub fn renderSprite(
-        target_size: Vec2(u16),
-        target_pos: Vec2(u16),
-        target: []u2,
-        flags: SpriteFlags,
-        data: []const u8,
-    ) void {
-        const size = Vec2(u16).init(8, 8);
-        const opaq = flags.blending % 5 != 0;
-
-        var y: u16 = 0;
-
-        while (y < size.y) : (y += 1) {
-            const c1 = data[y];
-            const c2 = if (flags.two_bpp) data[y +% size.x] else 0;
-
-            var x: u16 = 0;
-
-            while (x < size.x) : (x += 1) {
-                const ch: u2 = @truncate(((c1 >> @truncate(x)) & 1) | (((c2 >> @truncate(x)) << 1) & 2));
-
-                const yr = target_pos.y +% (if (flags.flip_y) @as(u16, @intCast(size.y - 1 - y)) else y);
-                const xr = target_pos.x +% (if (flags.flip_x) x else @as(u16, @intCast(size.x - 1 - x)));
-
-                if (opaq or ch != 0x0000) {
-                    if (xr < target_size.x and yr < target_size.y)
-                        target[@as(usize, yr) * target_size.x + xr] =
-                            defaultBlend(ch, flags.blending);
-                }
             }
         }
     }
@@ -352,10 +391,10 @@ pub const Screen = struct {
     ) void {
         var y = region.top_left.y;
 
-        while (y < region.bottom_right.y) : (y += 1) {
+        while (y < @min(scr.height, region.bottom_right.y)) : (y += 1) {
             var x = region.top_left.x;
 
-            while (x < region.bottom_right.x) : (x += 1) {
+            while (x < @min(scr.width, region.bottom_right.x)) : (x += 1) {
                 layer[@as(usize, y) * scr.width + x] = flags.color;
             }
         }
@@ -363,8 +402,8 @@ pub const Screen = struct {
 
     pub fn forceRedraw(scr: *Screen) void {
         scr.dirty_region = .{
-            .top_left = .init(0, 0),
-            .bottom_right = .init(scr.width, scr.height),
+            .top_left = .zero,
+            .bottom_right = scr.screen(),
         };
     }
 
