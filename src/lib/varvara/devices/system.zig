@@ -357,9 +357,18 @@ pub const System = struct {
         } else {
             switch (port) {
                 ports.state => {
-                    sys.exit_code = sys.device.loadPort(u8, cpu, ports.state) & 0x7f;
+                    sys.exit_code = switch (sys.device.loadPort(u8, cpu, ports.state)) {
+                        0 => null,
+                        else => |c| c & 0x7f,
+                    };
 
-                    logger.debug("System exit requested (code = {?})", .{sys.exit_code});
+                    if (std.log.logEnabled(.debug, .uxn_varvara_system)) {
+                        if (sys.exit_code) |c| {
+                            logger.debug("System exit requested (code = {}; {s})", .{ c, if (c > 0) "error" else "success" });
+                        } else {
+                            logger.debug("System reverted exit code", .{});
+                        }
+                    }
                 },
 
                 ports.wsp => cpu.wst.sp = sys.device.loadPort(u8, cpu, ports.wsp),
