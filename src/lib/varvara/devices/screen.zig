@@ -6,8 +6,7 @@ const logger = std.log.scoped(.uxn_varvara_screen);
 
 const Allocator = std.mem.Allocator;
 
-const default_window_width = 512;
-const default_window_height = 320;
+const default_window_size: u16x2 = .{ 512, 320 };
 
 pub const AutoFlags = packed struct(u8) {
     x: bool,
@@ -145,13 +144,13 @@ pub const Screen = struct {
     // Public
     device: impl.DeviceMixin,
 
-    size: u16x2 = .{ default_window_width, default_window_height },
-    real_size: u16x2 = .{ default_window_width + 16, default_window_height + 16 },
+    size: u16x2 = default_window_size,
+    real_size: u16x2 = default_window_size + Sprite.size * @as(u16x2, @splat(2)),
 
     dirty_region: ?struct { u16x2, u16x2 } = null,
 
-    foreground: []u2 = undefined,
-    background: []u2 = undefined,
+    foreground: []u2 = &.{},
+    background: []u2 = &.{},
 
     // "Private"
     alloc: Allocator,
@@ -201,9 +200,6 @@ pub const Screen = struct {
             }
         } else {
             switch (port) {
-                ports.width + 1 => scr.size[0] = scr.device.loadPort(u16, cpu, ports.width),
-                ports.height + 1 => scr.size[1] = scr.device.loadPort(u16, cpu, ports.height),
-
                 ports.pixel => {
                     const flags = scr.pixelFlags(cpu);
                     const auto = scr.autoFlags(cpu);
@@ -305,14 +301,20 @@ pub const Screen = struct {
                         scr.device.storePort(u16, cpu, ports.addr, addr);
                 },
 
+                ports.width + 1, ports.height + 1 => {
+                    const new_size = if (port == ports.width + 1)
+                        u16x2{ scr.device.loadPort(u16, cpu, ports.width), scr.size[1] }
+                    else
+                        u16x2{ scr.size[0], scr.device.loadPort(u16, cpu, ports.height) };
+
+                    if (@reduce(.Or, scr.size != new_size)) {
+                        scr.resize(new_size) catch unreachable;
+                    }
+                },
+
                 else => {
                     return;
                 },
-            }
-
-            if (port == ports.width + 1 or port == ports.height + 1) {
-                scr.cleanupGraphics();
-                scr.initializeGraphics() catch unreachable;
             }
         }
     }
@@ -385,23 +387,28 @@ pub const Screen = struct {
         };
     }
 
-    pub fn initializeGraphics(scr: *Screen) !void {
-        logger.debug("Initialize framebuffers ({}x{})", .{ scr.size[0], scr.size[1] });
+    fn resize(scr: *Screen, new: u16x2) !void {
+        logger.info("Resize framebuffers ({}x{})", .{ new[0], new[1] });
 
-        const real_size = scr.size + Sprite.size * @as(u16x2, @splat(2));
+        const real_size = new + Sprite.size * @as(u16x2, @splat(2));
         const real_len = @as(usize, real_size[0]) * real_size[1];
 
-        scr.foreground = try scr.alloc.alloc(u2, real_len);
+        scr.foreground = try scr.alloc.realloc(scr.foreground, real_len);
         errdefer scr.alloc.free(scr.foreground);
 
-        scr.background = try scr.alloc.alloc(u2, real_len);
+        scr.background = try scr.alloc.realloc(scr.background, real_len);
         errdefer scr.alloc.free(scr.background);
 
         @memset(scr.foreground, 0x00);
         @memset(scr.background, 0x00);
 
+        scr.size = new;
         scr.real_size = real_size;
         scr.forceRedraw();
+    }
+
+    pub fn initializeGraphics(scr: *Screen) !void {
+        try scr.resize(default_window_size);
     }
 
     pub fn cleanupGraphics(scr: *Screen) void {
