@@ -388,7 +388,7 @@ pub const Screen = struct {
     }
 
     fn resize(scr: *Screen, new: u16x2) !void {
-        logger.info("Resize framebuffers ({}x{})", .{ new[0], new[1] });
+        logger.debug("Resize framebuffers ({}x{})", .{ new[0], new[1] });
 
         const real_size = new + Sprite.size * @as(u16x2, @splat(2));
         const real_len = @as(usize, real_size[0]) * real_size[1];
