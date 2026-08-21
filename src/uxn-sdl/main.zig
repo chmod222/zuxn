@@ -91,9 +91,9 @@ fn mainGraphical(
                     var icon: [24 * 24]u2 = @splat(0);
 
                     varvara.screen.Screen.renderTiledSprite(
-                        .init(24, 24),
-                        .init(0, 0),
-                        .init(3, 3),
+                        @splat(24),
+                        @splat(0),
+                        @splat(3),
                         &icon,
                         .{
                             .blending = 1,

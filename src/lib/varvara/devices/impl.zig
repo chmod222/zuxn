@@ -20,6 +20,19 @@ pub const DeviceMixin = struct {
         return cpu.loadDeviceMem(T, dev.portAddress(port));
     }
 
+    pub inline fn loadSimdVector2(
+        dev: *const DeviceMixin,
+        comptime T: type,
+        cpu: *const Cpu,
+        xport: u4,
+        yport: u4,
+    ) @Vector(2, T) {
+        return .{
+            dev.loadPort(T, cpu, xport),
+            dev.loadPort(T, cpu, yport),
+        };
+    }
+
     pub inline fn loadVector(
         dev: *const DeviceMixin,
         cpu: *const Cpu,
