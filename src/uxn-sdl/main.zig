@@ -117,9 +117,7 @@ fn mainGraphical(
 
     const target_frametime = 1.0 / @as(f32, @floatFromInt(fps_limit orelse 60));
 
-    var window_width = system.screen_device.width;
-    var window_height = system.screen_device.height;
-
+    var window_width, var window_height = system.screen_device.size;
     var stdin_buffer: [1024]u8 = undefined;
     var uxn_stdin_buffer: [128]u8 = undefined;
 
@@ -141,9 +139,9 @@ fn mainGraphical(
 
         try system.screen_device.evaluateFrame(cpu);
 
-        if (system.screen_device.width != window_width or system.screen_device.height != window_height) {
-            window_height = system.screen_device.height;
-            window_width = system.screen_device.width;
+        if (system.screen_device.size[0] != window_width or system.screen_device.size[1] != window_height) {
+            window_width = system.screen_device.size[0];
+            window_height = system.screen_device.size[1];
 
             try impl.resizeScreen(scale);
         }

@@ -49,7 +49,7 @@ const bool1x2 = @Vector(2, bool);
 const u16x2 = @Vector(2, u16);
 const u16x4 = @Vector(4, u16);
 
-inline fn indexOf(dims: u16x2, pos: u16x2) usize {
+pub inline fn indexOf(dims: u16x2, pos: u16x2) usize {
     return (@as(usize, pos[1]) * dims[0]) + pos[0];
 }
 
@@ -120,11 +120,9 @@ pub const Sprite = struct {
                 const yr: u16 = @truncate(pos[1] +% y);
                 const ch = if (flip_x) row[x] else row[7 - x];
 
-                // TODO: don’t bounds check for every pixel.
                 if (blending_mode % 5 != 0 or ch != 0x0000) {
-                    if (xr < layer_size[0] and yr < layer_size[1])
-                        layer[indexOf(layer_size, u16x2{ xr, yr })] =
-                            defaultBlend(ch, blending_mode);
+                    layer[indexOf(layer_size, u16x2{ xr, yr })] =
+                        defaultBlend(ch, blending_mode);
                 }
             }
         }
@@ -147,8 +145,8 @@ pub const Screen = struct {
     // Public
     device: impl.DeviceMixin,
 
-    width: u16 = default_window_width,
-    height: u16 = default_window_height,
+    size: u16x2 = .{ default_window_width, default_window_height },
+    real_size: u16x2 = .{ default_window_width + 16, default_window_height + 16 },
 
     dirty_region: ?struct { u16x2, u16x2 } = null,
 
@@ -192,45 +190,44 @@ pub const Screen = struct {
         if (kind == .input) {
             switch (port) {
                 ports.width, ports.width + 1 => {
-                    scr.device.storePort(u16, cpu, ports.width, scr.width);
+                    scr.device.storePort(u16, cpu, ports.width, scr.size[0]);
                 },
 
                 ports.height, ports.height + 1 => {
-                    scr.device.storePort(u16, cpu, ports.height, scr.height);
+                    scr.device.storePort(u16, cpu, ports.height, scr.size[1]);
                 },
 
                 else => {},
             }
         } else {
             switch (port) {
-                ports.width + 1 => scr.width = scr.device.loadPort(u16, cpu, ports.width),
-                ports.height + 1 => scr.height = scr.device.loadPort(u16, cpu, ports.height),
+                ports.width + 1 => scr.size[0] = scr.device.loadPort(u16, cpu, ports.width),
+                ports.height + 1 => scr.size[1] = scr.device.loadPort(u16, cpu, ports.height),
 
                 ports.pixel => {
                     const flags = scr.pixelFlags(cpu);
                     const auto = scr.autoFlags(cpu);
-                    const screen = u16x2{ scr.width, scr.height };
 
                     const layer = if (flags.layer == 0x00) scr.background else scr.foreground;
 
                     // Make sure to constrain p0 to the actual screen area.
-                    const p0 = @min(screen, scr.device.loadSimdVector2(u16, cpu, ports.x, ports.y));
+                    const p0 = @min(scr.size, scr.device.loadSimdVector2(u16, cpu, ports.x, ports.y));
 
                     var p1: u16x2 = undefined;
 
                     if (flags.fill) {
                         // Fill to the corner specified by flip_x and flip_y.
                         p1 = .{
-                            if (flags.flip_x) 0 else screen[0],
-                            if (flags.flip_y) 0 else screen[1],
+                            if (flags.flip_x) 0 else scr.size[0],
+                            if (flags.flip_y) 0 else scr.size[1],
                         };
 
                         scr.fillRegion(layer, @min(p0, p1), @max(p0, p1), flags);
                     } else {
                         // Unless the screen itself is 64k x 64k, this cannot overflow.
-                        p1 = @min(screen, p0 + u16x2{ 1, 1 });
+                        p1 = @min(scr.size, p0 + u16x2{ 1, 1 });
 
-                        if (@reduce(.And, p0 < screen))
+                        if (@reduce(.And, p0 < scr.size))
                             layer[scr.index(p0)] = flags.color;
 
                         if (auto.x) scr.device.storePort(u16, cpu, ports.x, p1[0]);
@@ -256,35 +253,42 @@ pub const Screen = struct {
                     const dt2 = @intFromBool(bool1x2{ auto.y, auto.x }) * Sprite.size;
 
                     const layer = if (flags.layer == 0x00) scr.background else scr.foreground;
-                    const screen = u16x2{ scr.width, scr.height };
 
                     var addr = scr.device.loadPort(u16, cpu, ports.addr);
 
                     for (0..@as(u8, auto.add_length) + 1) |_| {
                         const sprite: Sprite = .init(cpu.mem[addr .. addr + @as(u16, if (flags.two_bpp) 16 else 8)]);
+                        const logical_p = p +% Sprite.size;
 
-                        sprite.renderTo(
-                            layer,
-                            screen,
-                            p,
-                            flags.blending,
-                            flags.flip_x,
-                            flags.flip_y,
-                        );
+                        // Skip draws for sprites that will be off-screen
+                        if (@reduce(.And, logical_p < scr.real_size - Sprite.size)) {
+                            sprite.renderTo(
+                                layer,
+                                scr.real_size,
+                                logical_p,
+                                flags.blending,
+                                flags.flip_x,
+                                flags.flip_y,
+                            );
+
+                            // Treat coords that wrapped into unsigned (>= 0x8000) to be zero, for the purpose of the dirty
+                            // area.
+                            scr.updateDirtyRegion(
+                                @min(scr.size, @select(u16, p > @as(u16x2, @splat(0x7fff)), zero, p)),
+                                @min(scr.size, logical_p),
+                            );
+                        }
 
                         if (auto.addr)
                             addr +%= if (flags.two_bpp) 16 else 8;
-
-                        scr.updateDirtyRegion(
-                            @min(screen, @select(u16, p > @as(u16x2, @splat(0x8000)), zero, p)),
-                            @min(screen, @select(u16, p > @as(u16x2, @splat(0x8000)), zero, p +% Sprite.size)),
-                        );
 
                         // Update the position by adding or subtracting (depending on flip) the draw-delta
                         // (depending on auto).
                         p +%= @select(u16, flip, zero, dt2);
                         p -%= @select(u16, flip, dt2, zero);
                     }
+
+                    scr.forceRedraw();
 
                     if (auto.x or auto.y) {
                         var next = p0;
@@ -325,8 +329,12 @@ pub const Screen = struct {
         return scr.device.loadPort(PixelFlags, cpu, ports.pixel);
     }
 
+    pub inline fn rawIndex(scr: *const Screen, pos: u16x2) usize {
+        return indexOf(scr.real_size, pos);
+    }
+
     pub inline fn index(scr: *const Screen, pos: u16x2) usize {
-        return indexOf(u16x2{ scr.width, 0 }, pos);
+        return scr.rawIndex(pos +% Sprite.size);
     }
 
     pub fn renderTiledSprite(
@@ -373,22 +381,26 @@ pub const Screen = struct {
     pub fn forceRedraw(scr: *Screen) void {
         scr.dirty_region = .{
             u16x2{ 0, 0 },
-            u16x2{ scr.width, scr.height },
+            scr.size,
         };
     }
 
     pub fn initializeGraphics(scr: *Screen) !void {
-        logger.debug("Initialize framebuffers ({}x{})", .{ scr.width, scr.height });
+        logger.debug("Initialize framebuffers ({}x{})", .{ scr.size[0], scr.size[1] });
 
-        scr.foreground = try scr.alloc.alloc(u2, @as(usize, scr.width) * scr.height);
+        const real_size = scr.size + Sprite.size * @as(u16x2, @splat(2));
+        const real_len = @as(usize, real_size[0]) * real_size[1];
+
+        scr.foreground = try scr.alloc.alloc(u2, real_len);
         errdefer scr.alloc.free(scr.foreground);
 
-        scr.background = try scr.alloc.alloc(u2, @as(usize, scr.width) * scr.height);
+        scr.background = try scr.alloc.alloc(u2, real_len);
         errdefer scr.alloc.free(scr.background);
 
         @memset(scr.foreground, 0x00);
         @memset(scr.background, 0x00);
 
+        scr.real_size = real_size;
         scr.forceRedraw();
     }
 

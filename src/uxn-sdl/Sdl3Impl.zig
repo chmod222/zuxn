@@ -38,8 +38,7 @@ pub fn initSdl(_: *Sdl3Impl) !void {
 }
 
 pub fn initScreen(impl: *Sdl3Impl, scale: u8) !void {
-    const width = impl.generic.sys.screen_device.width;
-    const height = impl.generic.sys.screen_device.height;
+    const width, const height = impl.generic.sys.screen_device.size;
 
     impl.window = c.SDL_CreateWindow(
         "zuxn",
@@ -79,8 +78,7 @@ pub fn initScreen(impl: *Sdl3Impl, scale: u8) !void {
 }
 
 pub fn resizeScreen(impl: *Sdl3Impl, scale: u8) !void {
-    const height = impl.generic.sys.screen_device.height;
-    const width = impl.generic.sys.screen_device.width;
+    const width, const height = impl.generic.sys.screen_device.size;
 
     if (!c.SDL_SetWindowSize(impl.window, width * scale, height * scale)) {
         return error.CouldNotResize;

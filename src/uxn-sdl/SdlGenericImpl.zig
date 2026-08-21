@@ -178,8 +178,10 @@ pub fn drawScreen(
 
         for (tl[1]..br[1]) |y| {
             for (tl[0]..br[0]) |x| {
-                const idx = y * screen_device.width + x;
-                const pal = (@as(u4, screen_device.foreground[idx]) << 2) | screen_device.background[idx];
+                const coords = @Vector(2, u16){ @truncate(x), @truncate(y) };
+                const idx = varvara.screen.indexOf(screen_device.size, coords);
+                const scr_idx = screen_device.index(coords);
+                const pal = (@as(u4, screen_device.foreground[scr_idx]) << 2) | screen_device.background[scr_idx];
 
                 const color = &system_device.colors[if ((pal >> 2) > 0) (pal >> 2) else (pal & 0x3)];
 
