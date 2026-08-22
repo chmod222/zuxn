@@ -322,7 +322,7 @@ pub const System = struct {
         .{ .r = 0, .g = 0, .b = 0 },
     },
 
-    env: *std.process.Environ.Map,
+    env: ?*std.process.Environ.Map,
 
     fn splitRgb(r: u16, g: u16, b: u16, c: u2) Color {
         const sw = @as(u4, 3 - c) * 4;
@@ -334,7 +334,7 @@ pub const System = struct {
         };
     }
 
-    pub fn init(addr: u4, env: *std.process.Environ.Map) System {
+    pub fn init(addr: u4, env: ?*std.process.Environ.Map) System {
         return System{
             .device = .init(addr),
             .env = env,
@@ -539,6 +539,11 @@ pub const System = struct {
             // Let's use >0x80 for our own things until the reference implementation assigns them values
             0x80 => {
                 // Retrieve environment variable
+                const env_map = sys.env orelse {
+                    logger.debug("Expansion: no environment available", .{});
+
+                    return;
+                };
 
                 // [ operation:u8 | name:u16 | dest:u16 | len:u16]
                 // Retrieve the environment variable with the 0-terminated name referenced by "name" and store
@@ -553,7 +558,7 @@ pub const System = struct {
 
                 logger.debug("Expansion: Fetch environment variable \"{s}\" (dest len = {})", .{ env_name, dest_len });
 
-                const env = sys.env.get(env_name) orelse "";
+                const env = env_map.get(env_name) orelse "";
                 const cpy_len = @min(env.len, dest.len);
 
                 if (cpy_len > 0) {
