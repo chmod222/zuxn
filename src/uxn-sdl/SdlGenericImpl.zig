@@ -88,7 +88,7 @@ pub fn renderAudio(impl: *SdlGenericImpl, samples: []i16) void {
     @memset(samples, 0x0000);
 
     for (&impl.sys.audio_devices) |*poly| {
-        poly.renderAudio(@ptrCast(samples));
+        poly.renderAudio(samples);
 
         if (poly.active_sample) |s| {
             if (s.envelope.isFinished()) {
