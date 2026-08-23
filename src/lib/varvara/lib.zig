@@ -7,6 +7,8 @@ const uxn = @import("uxn-core");
 
 const logger = std.log.scoped(.uxn_varvara);
 
+pub const Sandbox = @import("Sandbox.zig");
+
 pub const system = @import("devices/system.zig");
 pub const console = @import("devices/console.zig");
 pub const screen = @import("devices/screen.zig");
@@ -20,9 +22,6 @@ pub const datetime = @import("devices/datetime.zig");
 pub const VarvaraDefault = Varvara;
 
 pub const Varvara = struct {
-    io: Io,
-    sandbox_base: ?Io.Dir = null,
-
     system_device: system.System,
     console_device: console.Console,
     screen_device: screen.Screen,
@@ -71,49 +70,6 @@ pub const Varvara = struct {
 
         for (&sys.file_devices) |*f|
             f.cleanup();
-    }
-
-    fn filterFileAccess(dev: *file.File, data: ?*anyopaque, path: []const u8, mode: file.Mode) bool {
-        _ = dev;
-
-        var buffer_path: [std.c.PATH_MAX]u8 = undefined;
-        var buffer_self: [std.c.PATH_MAX]u8 = undefined;
-
-        const ptr: *const Varvara = @ptrCast(@alignCast(data));
-
-        const file_path = ptr.sandbox_base.?.realPathFile(ptr.io, path, &buffer_path) catch |e| {
-            logger.warn("Failed to realpath(\"{s}\"): {t}", .{ path, e });
-
-            return false;
-        };
-
-        const self_path = ptr.sandbox_base.?.realPathFile(ptr.io, ".", &buffer_self) catch |e| {
-            logger.warn("Failed to realpath(\".\"): {t}", .{e});
-
-            return false;
-        };
-
-        if (!mem.startsWith(u8, buffer_path[0..file_path], buffer_self[0..self_path])) {
-            logger.warn("Preventing out-of-sandbox {s} access to {s}", .{ @tagName(mode), buffer_path[0..file_path] });
-
-            return false;
-        } else {
-            return true;
-        }
-    }
-
-    pub fn sandboxFiles(sys: *Varvara, base_dir: Io.Dir) bool {
-        if (!@hasDecl(file.File, "setAccessFilter")) {
-            return false;
-        }
-
-        sys.sandbox_base = base_dir;
-
-        for (&sys.file_devices) |*fd| {
-            fd.setAccessFilter(sys, filterFileAccess);
-        }
-
-        return true;
     }
 
     pub fn intercept(

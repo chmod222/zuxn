@@ -100,8 +100,12 @@ pub fn main(init: std.process.Init) !u8 {
 
     defer system.deinit();
 
-    if (!system.sandboxFiles(Io.Dir.cwd())) {
-        logger.debug("File implementation does not support sandboxing", .{});
+    const sandbox = varvara.Sandbox.init(init.io, Io.Dir.cwd());
+
+    for (0.., &system.file_devices) |i, *dev| {
+        sandbox.install(dev) catch |e| {
+            logger.warn("Failed to setup sandbox on File#{}: {t}", .{ i, e });
+        };
     }
 
     if (env.debug_symbols) |*d| {
