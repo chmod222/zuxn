@@ -272,11 +272,7 @@ pub const Console = struct {
             f.close(con.io);
     }
 
-    pub fn pushArguments(
-        con: Console,
-        cpu: *Cpu,
-        args: []const []const u8,
-    ) !void {
+    pub fn pushArguments(con: Console, cpu: *Cpu, args: []const []const u8) !void {
         const vector = con.device.loadVector(cpu, ports.vector);
 
         for (0.., args) |i, arg| {
@@ -296,19 +292,13 @@ pub const Console = struct {
         }
     }
 
-    pub fn setArgc(
-        con: Console,
-        cpu: *Cpu,
-        args: []const []const u8,
-    ) void {
-        con.device.storePort(u8, cpu, ports.typ, @intFromBool(args.len > 0));
+    pub fn setArgc(con: Console, cpu: *Cpu, argc: usize) void {
+        // If the ROM should expect one or more arguments, set Console/type to 1 (argument
+        // start), else set it to 0 (stdin)
+        con.device.storePort(u8, cpu, ports.typ, @intFromBool(argc > 0));
     }
 
-    pub fn pushStdinByte(
-        con: Console,
-        cpu: *Cpu,
-        byte: u8,
-    ) !void {
+    pub fn pushStdinByte(con: Console, cpu: *Cpu, byte: u8) !void {
         con.device.storePort(u8, cpu, ports.typ, 0x1);
         con.device.storePort(u8, cpu, ports.read, byte);
 

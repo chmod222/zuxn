@@ -121,7 +121,7 @@ pub fn main(init: std.process.Init) !u8 {
     cpu.input_intercepts = varvara.headless_intercepts.input;
 
     // Run initialization vector and push arguments
-    system.console_device.setArgc(&cpu, res.positionals[1]);
+    system.console_device.setArgc(&cpu, res.positionals[1].len);
 
     try cpu.evaluateVector(0x0100);
     try system.console_device.pushArguments(&cpu, res.positionals[1]);

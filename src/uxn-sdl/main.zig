@@ -58,7 +58,7 @@ fn mainGraphical(
     impl.initAudio();
     impl.initJoystick();
 
-    system.console_device.setArgc(cpu, args);
+    system.console_device.setArgc(cpu, args.len);
 
     try cpu.evaluateVector(0x0100);
     try system.console_device.pushArguments(cpu, args);
