@@ -248,11 +248,7 @@ fn mainGraphical(
         }
     }
 
-    if (system.system_device.exit_code == null) {
-        system.system_device.exit_code = 0;
-    }
-
-    return system.system_device.exit_code.?;
+    return system.system_device.exit_code orelse 0;
 }
 
 fn fillBuffer(reader: *Io.File.Reader) (Io.File.Reader.Error || Io.Reader.Error)!void {
