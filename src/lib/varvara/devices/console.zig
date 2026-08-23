@@ -273,23 +273,27 @@ pub const Console = struct {
     }
 
     pub fn pushArguments(con: Console, cpu: *Cpu, args: []const []const u8) !void {
+        for (0.., args) |i, arg| {
+            try con.pushArgument(cpu, arg, i == args.len - 1);
+        }
+    }
+
+    pub fn pushArgument(con: Console, cpu: *Cpu, arg: []const u8, is_last: bool) !void {
         const vector = con.device.loadVector(cpu, ports.vector);
 
-        for (0.., args) |i, arg| {
-            for (arg) |oct| {
-                con.device.storePort(u8, cpu, ports.typ, 0x2);
-                con.device.storePort(u8, cpu, ports.read, oct);
-
-                if (vector) |v|
-                    try cpu.evaluateVector(v);
-            }
-
-            con.device.storePort(u8, cpu, ports.typ, if (i == args.len - 1) 0x4 else 0x3);
-            con.device.storePort(u8, cpu, ports.read, 0x10);
+        for (arg) |oct| {
+            con.device.storePort(u8, cpu, ports.typ, 0x2);
+            con.device.storePort(u8, cpu, ports.read, oct);
 
             if (vector) |v|
                 try cpu.evaluateVector(v);
         }
+
+        con.device.storePort(u8, cpu, ports.typ, if (is_last) 0x4 else 0x3);
+        con.device.storePort(u8, cpu, ports.read, 0x10);
+
+        if (vector) |v|
+            try cpu.evaluateVector(v);
     }
 
     pub fn setArgc(con: Console, cpu: *Cpu, argc: usize) void {
