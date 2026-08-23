@@ -34,7 +34,7 @@ pub const Varvara = struct {
     pub fn init(
         allocator: std.mem.Allocator,
         io: Io,
-        env: *std.process.Environ.Map,
+        env: ?*std.process.Environ.Map,
         stdout: *Io.Writer,
         stderr: *Io.Writer,
     ) !Varvara {
