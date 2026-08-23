@@ -20,7 +20,6 @@ pub const datetime = @import("devices/datetime.zig");
 pub const VarvaraDefault = Varvara;
 
 pub const Varvara = struct {
-    allocator: std.mem.Allocator,
     io: Io,
     sandbox_base: ?Io.Dir = null,
 
@@ -41,7 +40,6 @@ pub const Varvara = struct {
         stderr: *Io.Writer,
     ) !Varvara {
         var sys: Varvara = .{
-            .allocator = allocator,
             .io = io,
 
             .system_device = .init(0x0, env),

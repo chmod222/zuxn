@@ -107,19 +107,23 @@ pub fn resizeScreen(impl: *Sdl3Impl, scale: u8) !void {
     _ = c.SDL_SetTextureScaleMode(impl.texture, c.SDL_SCALEMODE_NEAREST);
 }
 
-fn audioCallback(u: ?*anyopaque, stream: ?*c.SDL_AudioStream, additional: c_int, total: c_int) callconv(.c) void {
+var audio_buffer: []i16 = &.{};
+
+fn audioCallback(u: ?*anyopaque, stream: ?*c.SDL_AudioStream, additional: c_int, _: c_int) callconv(.c) void {
     const impl: *Sdl3Impl = @ptrCast(@alignCast(u));
 
-    _ = total; // autofix
+    // This is hacky
+    const alloc = std.heap.c_allocator;
 
     if (additional > 0) {
-        // TODO: don’t realloc this all the time.
-        const samples = impl.generic.sys.allocator.alloc(i16, @intCast(additional >> 1)) catch return;
-        defer impl.generic.sys.allocator.free(samples);
+        const n: usize = @intCast(additional >> 1);
 
-        impl.generic.renderAudio(samples);
+        if (audio_buffer.len < n) {
+            audio_buffer = alloc.realloc(audio_buffer, n) catch unreachable;
+        }
 
-        _ = c.SDL_PutAudioStreamData(stream, samples.ptr, additional);
+        impl.generic.renderAudio(audio_buffer[0..n]);
+        _ = c.SDL_PutAudioStreamData(stream, audio_buffer.ptr, additional);
     }
 }
 

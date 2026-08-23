@@ -3,6 +3,7 @@ const build_options = @import("build_options");
 const std = @import("std");
 const posix = std.posix;
 const Io = std.Io;
+const Allocator = std.mem.Allocator;
 
 const clap = @import("clap");
 
@@ -43,6 +44,7 @@ const Event = union(enum) {
 
 fn mainGraphical(
     Impl: type,
+    alloc: Allocator,
     io: Io,
     cpu: *uxn.Cpu,
     system: *varvara.Varvara,
@@ -78,8 +80,8 @@ fn mainGraphical(
         else
             meta.@"0".text;
 
-        const title = try system.allocator.dupeSentinel(u8, first_line, 0x00);
-        defer system.allocator.free(title);
+        const title = try alloc.dupeSentinel(u8, first_line, 0x00);
+        defer alloc.free(title);
 
         _ = c.SDL_SetWindowTitle(impl.window, title);
 
@@ -339,6 +341,7 @@ pub fn main(init: std.process.Init) !u8 {
             @import("Sdl2Impl.zig")
         else
             @import("Sdl3Impl.zig"),
+        init.gpa,
         init.io,
         &cpu,
         &system,
