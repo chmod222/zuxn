@@ -39,8 +39,6 @@ pub const Varvara = struct {
         stderr: *Io.Writer,
     ) !Varvara {
         var sys: Varvara = .{
-            .io = io,
-
             .system_device = .init(0x0, env),
             .console_device = .init(0x1, io, stderr, stdout),
             .screen_device = .init(0x2, allocator),
