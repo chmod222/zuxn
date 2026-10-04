@@ -130,7 +130,7 @@ inline fn store(
         @field(cpu, field)[addr] = val
     else switch (@typeInfo(T)) {
         .@"struct" => |s| if (s.backing_integer) |U|
-            cpu.store(U, field, addr, val, boundary)
+            cpu.store(U, field, addr, @bitCast(val), boundary)
         else
             @panic("Cannot store arbitrary struct types"),
 
