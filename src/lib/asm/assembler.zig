@@ -250,7 +250,7 @@ pub fn Assembler(comptime lim: scan.Limits) type {
         }
 
         fn generateLambdaLabel(id: usize) Scanner.TypedLabel {
-            var lambda_label = [1:0]u8{0x00} ** Scanner.limits.identifier_length;
+            var lambda_label: Scanner.Label = @splat(0x00);
             var stream = Io.Writer.fixed(&lambda_label);
 
             stream.print("lambda/{x:0>3}", .{id}) catch unreachable;
@@ -281,7 +281,7 @@ pub fn Assembler(comptime lim: scan.Limits) type {
                     const parent_local = mem.sliceTo(parent, '/');
                     const child = mem.sliceTo(&s, 0);
 
-                    var full: Scanner.Label = [1:0]u8{0x00} ** Scanner.limits.identifier_length;
+                    var full: Scanner.Label = @splat(0x00);
 
                     @memcpy(full[0..parent_local.len], parent_local);
                     @memcpy(full[parent_local.len + 1 .. parent_local.len + 1 + child.len], child);

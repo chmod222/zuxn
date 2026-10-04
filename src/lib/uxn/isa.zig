@@ -167,11 +167,11 @@ pub const Opcode = enum(u8) {
     // zig fmt: on
 
     pub inline fn fromByte(raw: u8) Opcode {
-        return @enumFromInt(raw);
+        return @fromBackingInt(@intCast(raw));
     }
 
     pub inline fn asByte(opcode: Opcode) u8 {
-        return @intFromEnum(opcode);
+        return @backingInt(opcode);
     }
 
     pub fn mnemonic(opcode: Opcode) []const u8 {
@@ -179,11 +179,11 @@ pub const Opcode = enum(u8) {
     }
 
     pub inline fn baseOpcode(opcode: Opcode) BaseOpcode {
-        return @enumFromInt(@intFromEnum(opcode) & 0x1f);
+        return @fromBackingInt(@intCast(@backingInt(opcode) & 0x1f));
     }
 
     pub inline fn shortMode(opcode: Opcode) bool {
-        return (@intFromEnum(opcode) & 0x20) > 0;
+        return (@backingInt(opcode) & 0x20) > 0;
     }
 
     pub inline fn nativeOperandType(opcode: Opcode) type {
@@ -191,11 +191,11 @@ pub const Opcode = enum(u8) {
     }
 
     pub inline fn returnMode(opcode: Opcode) bool {
-        return (@intFromEnum(opcode) & 0x40) > 0;
+        return (@backingInt(opcode) & 0x40) > 0;
     }
 
     pub inline fn keepMode(opcode: Opcode) bool {
-        return (@intFromEnum(opcode) & 0x80) > 0;
+        return (@backingInt(opcode) & 0x80) > 0;
     }
 };
 
@@ -341,7 +341,7 @@ fn generateEffects() [0x100]StackEffects {
     // This is comparatively expensive, but only run during compilation of course.
     @setEvalBranchQuota(8192);
 
-    var effects_r = [1]StackEffects{undefined} ** 0x100;
+    var effects_r: StackEffects[0x100] = @splat(undefined);
 
     // Skip BRK
     var raw_instruction: u8 = 0x00;

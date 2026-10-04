@@ -129,9 +129,7 @@ pub fn build(b: *std.Build) void {
 
             run_cli_cmd.step.dependOn(b.getInstallStep());
             run_cli_step.dependOn(&run_cli_cmd.step);
-
-            if (b.args) |args|
-                run_cli_cmd.addArgs(args);
+            run_cli_cmd.addPassthruArgs();
         }
 
         if (build_sdl and link_libc) {
@@ -190,10 +188,7 @@ pub fn build(b: *std.Build) void {
 
             run_sdl_cmd.step.dependOn(b.getInstallStep());
             run_sdl_step.dependOn(&run_sdl_cmd.step);
-
-            if (b.args) |args| {
-                run_sdl_cmd.addArgs(args);
-            }
+            run_sdl_cmd.addPassthruArgs();
         }
 
         if (build_asm) {
@@ -218,10 +213,7 @@ pub fn build(b: *std.Build) void {
 
             run_asm_cmd.step.dependOn(b.getInstallStep());
             run_asm_step.dependOn(&run_asm_cmd.step);
-
-            if (b.args) |args| {
-                run_asm_cmd.addArgs(args);
-            }
+            run_asm_cmd.addPassthruArgs();
         }
     } else {
         const uxn_vm = b.addExecutable(.{

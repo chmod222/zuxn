@@ -10,7 +10,7 @@ const clap = @import("clap");
 const Assembler = uxn_asm.Assembler(.{});
 
 fn changeExtension(file: []const u8, ext: []const u8) [256:0]u8 {
-    var out: [256:0]u8 = [1:0]u8{0x00} ** 256;
+    var out: [256:0]u8 = @splat(0x00);
 
     const len = std.mem.lastIndexOfScalar(u8, file, '.') orelse file.len;
 
@@ -47,7 +47,7 @@ pub fn main(init: std.process.Init) !void {
 
     const input_file_name = res.positionals[0].?;
 
-    var output_rom: [0x10000]u8 = [1]u8{0x00} ** 0x10000;
+    var output_rom: [0x10000]u8 = @splat(0x00);
 
     const cwd = if (res.args.C) |c|
         try Io.Dir.cwd().openDir(init.io, c, .{})

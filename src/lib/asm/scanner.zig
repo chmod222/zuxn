@@ -178,7 +178,7 @@ pub fn Scanner(comptime lim: Limits) type {
             comptime maxlen: usize,
             input: *Io.Reader,
         ) Error![maxlen:0]u8 {
-            var output = [1:0]u8{0x00} ** maxlen;
+            var output: [maxlen:0]u8 = @splat(0x00);
             var writer = Io.Writer.fixed(&output);
 
             while (true) {
@@ -378,7 +378,7 @@ pub fn Scanner(comptime lim: Limits) type {
                     },
 
                     '"' => b: {
-                        var word = [1:0]u8{0x00} ** 64;
+                        var word: [64:0]u8 = @splat(0x00);
                         var i: usize = 0;
 
                         while (try scanner.readByteOrEof(input)) |oct| : (i += 1) {
@@ -394,7 +394,7 @@ pub fn Scanner(comptime lim: Limits) type {
                     },
 
                     else => b: {
-                        var needle = [1:0]u8{b} ++ [1:0]u8{0x00} ** (limits.identifier_length - 1);
+                        var needle = [1:0]u8{b} ++ @as([limits.identifier_length - 1:0]u8, @splat(0x00));
                         var remain = try scanner.readWhitespaceDelimited(limits.identifier_length, input);
 
                         end = Location{ start[0], start[1] + 1 + mem.sliceTo(&remain, 0).len };
@@ -406,7 +406,7 @@ pub fn Scanner(comptime lim: Limits) type {
                             break :b .{
                                 .instruction = .{
                                     .mnemonic = @tagName(opcode),
-                                    .encoded = @intFromEnum(opcode),
+                                    .encoded = @backingInt(opcode),
                                 },
                             };
                         } else {

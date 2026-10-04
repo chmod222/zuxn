@@ -7,7 +7,7 @@ sp: u8,
 
 pub fn init() Stack {
     return .{
-        .data = [1]u8{0x00} ** 0x100,
+        .data = @splat(0x00),
         .sp = 0,
     };
 }

@@ -33,8 +33,8 @@ pages: [][page_size]u8,
 mem: *[page_size]u8,
 device_mem: [device_page_size]u8,
 
-input_intercepts: [0x10]u16 = [1]u16{0x0000} ** 0x10,
-output_intercepts: [0x10]u16 = [1]u16{0x0000} ** 0x10,
+input_intercepts: [0x10]u16 = @splat(0x0000),
+output_intercepts: [0x10]u16 = @splat(0x0000),
 
 callback_data: ?*anyopaque = null,
 
@@ -60,7 +60,7 @@ pub fn init(memory: []u8) Cpu {
         // Treat the first page, the one we run in, as an array to avoid bound checks.
         .mem = @ptrCast(memory),
         .pages = @ptrCast(memory),
-        .device_mem = [1]u8{0x00} ** 0x100,
+        .device_mem = @splat(0x00),
     };
 }
 
@@ -73,8 +73,8 @@ pub fn evaluateVectorLimited(cpu: *Cpu, vector: u16, step_limit: ?usize) !void {
 
     logger.debug("Vector {x:0>4}: Start evaluation", .{vector});
 
-    errdefer |err| {
-        logger.debug("Vector {x:0>4}: Faulted with {}", .{ vector, err });
+    errdefer {
+        logger.debug("Vector {x:0>4}: Faulted!", .{vector});
     }
 
     if (try cpu.run(step_limit)) |_| {
@@ -321,14 +321,13 @@ pub fn run(cpu: *Cpu, step_limit: ?usize) !?u16 {
 
         logger.debug("PC {x:0>4}: Start execute {t}", .{
             cpu.pc,
-            @as(Opcode, @enumFromInt(cpu.mem[cpu.pc])),
+            @as(Opcode, @fromBackingInt(@intCast(cpu.mem[cpu.pc]))),
         });
 
-        errdefer |err| {
-            logger.debug("PC {x:0>4}: {t}: Faulting with {}", .{
+        errdefer {
+            logger.debug("PC {x:0>4}: {t}: Faulted!", .{
                 cpu.pc,
-                @as(Opcode, @enumFromInt(cpu.mem[cpu.pc])),
-                err,
+                @as(Opcode, @fromBackingInt(@intCast(cpu.mem[cpu.pc]))),
             });
         }
 
