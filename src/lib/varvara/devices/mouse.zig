@@ -46,26 +46,24 @@ pub const Mouse = struct {
             try cpu.evaluateVector(vector);
     }
 
-    pub fn pressButtons(mouse: *Mouse, cpu: *Cpu, buttons: ButtonFlags) !void {
-        const old_state = mouse.device.loadPort(u8, cpu, ports.state);
-        const new_state = old_state | @as(u8, @bitCast(buttons));
+    pub fn setButtons(mouse: *Mouse, cpu: *Cpu, buttons: ButtonFlags) !void {
+        logger.debug("Button State: {}", .{buttons});
 
-        logger.debug("Button State: {}", .{@as(ButtonFlags, @bitCast(new_state))});
-
-        mouse.device.storePort(u8, cpu, ports.state, new_state);
+        mouse.device.storePort(ButtonFlags, cpu, ports.state, buttons);
 
         try mouse.invokeVector(cpu);
     }
 
+    pub fn pressButtons(mouse: *Mouse, cpu: *Cpu, buttons: ButtonFlags) !void {
+        const old_state = mouse.device.loadPort(u8, cpu, ports.state);
+
+        try mouse.setButtons(cpu, @bitCast(old_state | @as(u8, @bitCast(buttons))));
+    }
+
     pub fn releaseButtons(mouse: *Mouse, cpu: *Cpu, buttons: ButtonFlags) !void {
         const old_state = mouse.device.loadPort(u8, cpu, ports.state);
-        const new_state = old_state & ~@as(u8, @bitCast(buttons));
 
-        logger.debug("Button State: {}", .{@as(ButtonFlags, @bitCast(new_state))});
-
-        mouse.device.storePort(u8, cpu, ports.state, new_state);
-
-        try mouse.invokeVector(cpu);
+        try mouse.setButtons(cpu, @bitCast(old_state & ~@as(u8, @bitCast(buttons))));
     }
 
     pub fn updatePosition(mouse: *Mouse, cpu: *Cpu, x: u16, y: u16) !void {

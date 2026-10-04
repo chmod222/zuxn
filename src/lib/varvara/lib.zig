@@ -29,7 +29,7 @@ pub const Varvara = struct {
     controller_device: controller.Controller,
     mouse_device: mouse.Mouse,
     file_devices: [2]file.File,
-    datetime_device: datetime.Datetime,
+    datetime_device: datetime.DefaultDatetime,
 
     pub fn init(
         allocator: std.mem.Allocator,

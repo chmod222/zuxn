@@ -16,7 +16,7 @@ pub const ports = struct {
     pub const isdst = 0xa;
 };
 
-const Timestamp = struct {
+pub const Timestamp = struct {
     year: u16,
     month: u8,
     day: u8,
@@ -28,101 +28,99 @@ const Timestamp = struct {
     isdst: bool,
 };
 
-const NoopBackend = struct {
-    fn now() Timestamp {
-        return Timestamp{
-            .year = 1970,
-            .month = 0,
-            .day = 1,
-            .hour = 0,
-            .minute = 0,
-            .second = 0,
-            .dotw = 4,
-            .doty = 1,
-            .isdst = false,
-        };
-    }
-};
+pub fn nowNoop() Timestamp {
+    return Timestamp{
+        .year = 1970,
+        .month = 0,
+        .day = 1,
+        .hour = 0,
+        .minute = 0,
+        .second = 0,
+        .dotw = 4,
+        .doty = 1,
+        .isdst = false,
+    };
+}
 
-const LibcBackend = struct {
-    const localtime = true;
+pub fn nowLibc() Timestamp {
+    const c = comptime @import("sys");
 
-    const c = @import("sys");
+    const localtime = comptime true;
+    const timestamp = c.time(null);
+    const local = if (localtime) c.localtime(&timestamp) else c.gmtime(&timestamp);
 
-    fn now() Timestamp {
-        const timestamp = c.time(null);
-        const local = if (localtime) c.localtime(&timestamp) else c.gmtime(&timestamp);
+    return Timestamp{
+        .year = @intCast(local.*.tm_year + 1900),
+        .month = @intCast(local.*.tm_mon),
+        .day = @intCast(local.*.tm_mday),
+        .hour = @intCast(local.*.tm_hour),
+        .minute = @intCast(local.*.tm_min),
+        .second = @intCast(local.*.tm_sec),
+        .dotw = @intCast(local.*.tm_wday),
+        .doty = @intCast(local.*.tm_yday),
+        .isdst = local.*.tm_isdst != 0,
+    };
+}
 
-        return Timestamp{
-            .year = @intCast(local.*.tm_year + 1900),
-            .month = @intCast(local.*.tm_mon),
-            .day = @intCast(local.*.tm_mday),
-            .hour = @intCast(local.*.tm_hour),
-            .minute = @intCast(local.*.tm_min),
-            .second = @intCast(local.*.tm_sec),
-            .dotw = @intCast(local.*.tm_wday),
-            .doty = @intCast(local.*.tm_yday),
-            .isdst = local.*.tm_isdst != 0,
-        };
-    }
-};
+pub const DefaultDatetime = Datetime(if (builtin.link_libc)
+    nowLibc
+else
+    nowNoop);
 
-pub const Datetime = struct {
-    device: impl.DeviceMixin,
-    localtime: bool = true,
+pub fn Datetime(now: fn () Timestamp) type {
+    return struct {
+        const DatetimeDevice = @This();
 
-    const Backend = if (builtin.link_libc)
-        LibcBackend
-    else
-        NoopBackend;
+        device: impl.DeviceMixin,
 
-    pub fn init(addr: u4) Datetime {
-        return Datetime{
-            .device = .init(addr),
-        };
-    }
-
-    pub fn intercept(
-        clk: *Datetime,
-        cpu: *Cpu,
-        port: u4,
-        kind: Cpu.InterceptKind,
-    ) void {
-        if (kind != .input)
-            return;
-
-        const t = Backend.now();
-
-        switch (port) {
-            ports.year, ports.year + 1 => {
-                clk.device.storePort(u16, cpu, ports.year, t.year);
-            },
-            ports.month => {
-                clk.device.storePort(u8, cpu, ports.month, t.month);
-            },
-            ports.day => {
-                clk.device.storePort(u8, cpu, ports.day, t.day);
-            },
-            ports.hour => {
-                clk.device.storePort(u8, cpu, ports.hour, t.hour);
-            },
-            ports.minute => {
-                clk.device.storePort(u8, cpu, ports.minute, t.minute);
-            },
-            ports.second => {
-                clk.device.storePort(u8, cpu, ports.second, t.second);
-            },
-            ports.dotw => {
-                clk.device.storePort(u8, cpu, ports.dotw, t.dotw);
-            },
-            ports.doty, ports.doty + 1 => {
-                clk.device.storePort(u16, cpu, ports.doty, t.doty);
-            },
-            ports.isdst => {
-                clk.device.storePort(u8, cpu, ports.isdst, @intFromBool(t.isdst));
-            },
-
-            else => {},
+        pub fn init(addr: u4) DatetimeDevice {
+            return DatetimeDevice{
+                .device = .init(addr),
+            };
         }
-    }
-};
+
+        pub fn intercept(
+            clk: *DatetimeDevice,
+            cpu: *Cpu,
+            port: u4,
+            kind: Cpu.InterceptKind,
+        ) void {
+            if (kind != .input)
+                return;
+
+            const t = now();
+
+            switch (port) {
+                ports.year, ports.year + 1 => {
+                    clk.device.storePort(u16, cpu, ports.year, t.year);
+                },
+                ports.month => {
+                    clk.device.storePort(u8, cpu, ports.month, t.month);
+                },
+                ports.day => {
+                    clk.device.storePort(u8, cpu, ports.day, t.day);
+                },
+                ports.hour => {
+                    clk.device.storePort(u8, cpu, ports.hour, t.hour);
+                },
+                ports.minute => {
+                    clk.device.storePort(u8, cpu, ports.minute, t.minute);
+                },
+                ports.second => {
+                    clk.device.storePort(u8, cpu, ports.second, t.second);
+                },
+                ports.dotw => {
+                    clk.device.storePort(u8, cpu, ports.dotw, t.dotw);
+                },
+                ports.doty, ports.doty + 1 => {
+                    clk.device.storePort(u16, cpu, ports.doty, t.doty);
+                },
+                ports.isdst => {
+                    clk.device.storePort(u8, cpu, ports.isdst, @intFromBool(t.isdst));
+                },
+
+                else => {},
+            }
+        }
+    };
+}

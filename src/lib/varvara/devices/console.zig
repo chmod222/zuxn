@@ -2,7 +2,27 @@ const Cpu = @import("uxn-core").Cpu;
 
 const std = @import("std");
 const process = std.process;
-const c = std.c;
+const c = if (@import("builtin").link_libc) std.c else struct {
+    const W = struct {
+        pub const NOHANG = 0;
+
+        pub fn IFEXITED(_: u32) bool {
+            return false;
+        }
+
+        pub fn EXITSTATUS(_: u32) u8 {
+            return 0;
+        }
+    };
+
+    pub fn kill(_: anytype, _: anytype) u32 {
+        return 0;
+    }
+
+    pub fn waitpid(_: anytype, _: anytype, _: anytype) u32 {
+        return 0;
+    }
+};
 const Io = std.Io;
 const impl = @import("impl.zig");
 const logger = std.log.scoped(.uxn_varvara_console);
@@ -72,7 +92,7 @@ fn kill(proc: *process.Child) !void {
 fn status(proc: *const process.Child) !?u8 {
     var raw_status: c_int = 0;
 
-    if (c.waitpid(proc.id orelse return null, &raw_status, std.c.W.NOHANG) >= 0) {
+    if (c.waitpid(proc.id orelse return null, &raw_status, c.W.NOHANG) >= 0) {
         if (c.W.IFEXITED(@intCast(raw_status))) {
             return c.W.EXITSTATUS(@intCast(raw_status));
         } else {
@@ -223,6 +243,7 @@ pub const Console = struct {
 
         return null;
     }
+
     pub fn childStdout(con: *Console, buffer: []u8) ?Io.File.Reader {
         return con.childStream(buffer, "stdout");
     }

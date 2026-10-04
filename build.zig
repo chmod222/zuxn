@@ -6,64 +6,53 @@ const SdlVersion = enum {
 };
 
 pub fn build(b: *std.Build) void {
-    const target = b.standardTargetOptions(.{});
+    var target_query = std.Target.Query{};
+
+    if (target_query.cpu_arch == .wasm32) {
+        target_query.cpu_features_add = std.Target.wasm.featureSet(&.{
+            .atomics,
+            .bulk_memory,
+        });
+    }
+
+    const target = b.standardTargetOptions(.{
+        .default_target = target_query,
+    });
+
     const optimize = b.standardOptimizeOption(.{});
 
     // Build Options
-    const enable_jit_assembly = b.option(
-        bool,
-        "enable_jit_assembly",
-        \\Enable just in time assembly of Uxntal (increases program size)
-        ,
-    ) orelse false;
-
-    const sdl_version = b.option(
-        SdlVersion,
-        "sdl_version",
-        \\Which SDL version to link against
-        ,
-    ) orelse .sdl3;
-
     const link_libc = b.option(
         bool,
         "link_libc",
         \\Link against system libc (for Varavara device functionality)
         ,
-    ) orelse true;
+    ) orelse (target.result.os.tag != .freestanding);
 
-    const build_options = b.addOptions();
-    build_options.addOption(bool, "enable_jit_assembly", enable_jit_assembly);
+    // Core library modules
+    const core = b.addModule("uxn-core", .{
+        .root_source_file = b.path("src/lib/uxn/lib.zig"),
+        // .target = target,
+    });
 
-    const dep_clap = b.dependency("clap", .{
-        .target = target,
-        .optimize = optimize,
+    const varvara = b.addModule("uxn-varvara", .{
+        .root_source_file = b.path("src/lib/varvara/lib.zig"),
+        .imports = &.{
+            .{ .name = "uxn-core", .module = core },
+        },
+    });
+
+    const assembler = b.addModule("uxn-asm", .{
+        .root_source_file = b.path("src/lib/asm/lib.zig"),
+        .imports = &.{
+            .{ .name = "uxn-core", .module = core },
+        },
     });
 
     const files = b.addWriteFiles();
 
-    const uxn_cli = b.addExecutable(.{
-        .name = "uxn-cli",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/uxn-cli/main.zig"),
-            .target = target,
-            .optimize = optimize,
-            .link_libc = link_libc,
-        }),
-    });
-
-    // Core library modules
-    const core_mod = b.addModule("uxn-core", .{
-        .root_source_file = b.path("src/lib/uxn/lib.zig"),
-    });
-
-    const varvara_mod = b.addModule("uxn-varvara", .{
-        .root_source_file = b.path("src/lib/varvara/lib.zig"),
-    });
-
-    varvara_mod.addImport("uxn-core", core_mod);
-
     if (link_libc) {
-        varvara_mod.addImport("sys", b.addTranslateC(.{
+        varvara.addImport("sys", b.addTranslateC(.{
             .optimize = optimize,
             .target = target,
             .root_source_file = files.add("sys.h",
@@ -72,120 +61,190 @@ pub fn build(b: *std.Build) void {
         }).createModule());
     }
 
-    const asm_mod = b.addModule("uxn-asm", .{
-        .root_source_file = b.path("src/lib/asm/lib.zig"),
-        .imports = &.{.{
-            .name = "uxn-core",
-            .module = core_mod,
-        }},
-    });
-
     // Utility programs based on core libraries
-    const build_options_mod = build_options.createModule();
+    if (target.result.cpu.arch != .wasm32) x: {
+        const build_cli = b.option(bool, "build_cli", "Build the standalone CLI emulator") orelse true;
+        const build_sdl = b.option(bool, "build_sdl", "Build the standalone SDL emulator") orelse true;
+        const build_asm = b.option(bool, "build_asm", "Build the standalone assembler") orelse true;
 
-    const shared_mod = b.addModule("uxn-shared", .{
-        .root_source_file = b.path("src/shared.zig"),
-    });
+        if (!build_cli and !build_sdl and !build_asm) {
+            // Skip this entire block if nothing will be built.
+            break :x {};
+        }
 
-    shared_mod.addImport("uxn-core", core_mod);
-    shared_mod.addImport("uxn-asm", asm_mod);
-    shared_mod.addImport("clap", dep_clap.module("clap"));
-    shared_mod.addImport("build_options", build_options_mod);
+        const enable_jit_assembly = b.option(
+            bool,
+            "enable_jit_assembly",
+            \\Enable just in time assembly of Uxntal (increases program size)
+            ,
+        ) orelse false;
 
-    uxn_cli.root_module.addImport("uxn-shared", shared_mod);
-    uxn_cli.root_module.addImport("uxn-core", core_mod);
-    uxn_cli.root_module.addImport("uxn-varvara", varvara_mod);
-    uxn_cli.root_module.addImport("clap", dep_clap.module("clap"));
-    uxn_cli.root_module.addImport("build_options", build_options_mod);
+        const build_options = b.addOptions();
+        build_options.addOption(bool, "enable_jit_assembly", enable_jit_assembly);
 
-    if (enable_jit_assembly)
-        uxn_cli.root_module.addImport("uxn-asm", asm_mod);
+        // Clap needed by all three binaries
+        const clap = b.lazyDependency("clap", .{}) orelse {
+            return;
+        };
 
-    if (target.result.cpu.arch != .wasm32 and link_libc) {
-        const uxn_sdl = b.addExecutable(.{
-            .name = "uxn-sdl",
+        // Shared between CLI and SDL
+        const build_options_mod = build_options.createModule();
+
+        const shared_mod = b.createModule(.{
+            .root_source_file = b.path("src/shared.zig"),
+        });
+
+        shared_mod.addImport("uxn-core", core);
+        shared_mod.addImport("uxn-asm", assembler);
+        shared_mod.addImport("clap", clap.module("clap"));
+        shared_mod.addImport("build_options", build_options_mod);
+
+        if (build_cli) {
+            // Text-only CLI environment
+            const uxn_cli = b.addExecutable(.{
+                .name = "uxn-cli",
+                .root_module = b.createModule(.{
+                    .root_source_file = b.path("src/uxn-cli/main.zig"),
+                    .target = target,
+                    .optimize = optimize,
+                    .link_libc = link_libc,
+                    .imports = &.{
+                        .{ .name = "uxn-shared", .module = shared_mod },
+                        .{ .name = "uxn-core", .module = core },
+                        .{ .name = "uxn-varvara", .module = varvara },
+                        .{ .name = "clap", .module = clap.module("clap") },
+                        .{ .name = "build_options", .module = build_options_mod },
+                    },
+                }),
+            });
+
+            if (enable_jit_assembly) {
+                uxn_cli.root_module.addImport("uxn-asm", assembler);
+            }
+
+            b.installArtifact(uxn_cli);
+
+            const run_cli_cmd = b.addRunArtifact(uxn_cli);
+            const run_cli_step = b.step("run-cli", "Run the CLI evaluator");
+
+            run_cli_cmd.step.dependOn(b.getInstallStep());
+            run_cli_step.dependOn(&run_cli_cmd.step);
+
+            if (b.args) |args|
+                run_cli_cmd.addArgs(args);
+        }
+
+        if (build_sdl and link_libc) {
+            const sdl_version = b.option(
+                SdlVersion,
+                "sdl_version",
+                "Which SDL version to link against",
+            ) orelse .sdl3;
+
+            // Graphical SDL environment
+            const c_module = b.addTranslateC(.{
+                .optimize = optimize,
+                .target = target,
+                .root_source_file = files.add("sdl-sys.h", switch (sdl_version) {
+                    .sdl2 =>
+                    \\#define SDL_DISABLE_ARM_NEON_H 1
+                    \\#include <SDL2/SDL.h>
+                    ,
+                    .sdl3 =>
+                    \\#define SDL_DISABLE_OLD_NAMES 1
+                    \\#include <SDL3/SDL.h>
+                }),
+            });
+
+            c_module.linkSystemLibrary(switch (sdl_version) {
+                .sdl2 => "SDL2",
+                .sdl3 => "SDL3",
+            }, .{});
+
+            const uxn_sdl = b.addExecutable(.{
+                .name = "uxn-sdl",
+                .root_module = b.createModule(.{
+                    .root_source_file = b.path("src/uxn-sdl/main.zig"),
+                    .target = target,
+                    .optimize = optimize,
+                    .link_libc = true,
+                    .imports = &.{
+                        .{ .name = "sdl-sys", .module = c_module.createModule() },
+                        .{ .name = "uxn-shared", .module = shared_mod },
+                        .{ .name = "uxn-core", .module = core },
+                        .{ .name = "uxn-varvara", .module = varvara },
+                        .{ .name = "clap", .module = clap.module("clap") },
+                        .{ .name = "build_options", .module = build_options_mod },
+                    },
+                }),
+            });
+
+            if (enable_jit_assembly) {
+                uxn_sdl.root_module.addImport("uxn-asm", assembler);
+            }
+
+            b.installArtifact(uxn_sdl);
+
+            const run_sdl_cmd = b.addRunArtifact(uxn_sdl);
+            const run_sdl_step = b.step("run-sdl", "Run the SDL evaluator");
+
+            run_sdl_cmd.step.dependOn(b.getInstallStep());
+            run_sdl_step.dependOn(&run_sdl_cmd.step);
+
+            if (b.args) |args| {
+                run_sdl_cmd.addArgs(args);
+            }
+        }
+
+        if (build_asm) {
+            const uxn_asm = b.addExecutable(.{
+                .name = "uxn-asm",
+                .root_module = b.createModule(.{
+                    .root_source_file = b.path("src/uxn-asm/main.zig"),
+                    .target = target,
+                    .optimize = optimize,
+                    .imports = &.{
+                        .{ .name = "uxn-asm", .module = assembler },
+                        .{ .name = "uxn-shared", .module = shared_mod },
+                        .{ .name = "clap", .module = clap.module("clap") },
+                    },
+                }),
+            });
+
+            b.installArtifact(uxn_asm);
+
+            const run_asm_cmd = b.addRunArtifact(uxn_asm);
+            const run_asm_step = b.step("run-asm", "Run the uxn assembler");
+
+            run_asm_cmd.step.dependOn(b.getInstallStep());
+            run_asm_step.dependOn(&run_asm_cmd.step);
+
+            if (b.args) |args| {
+                run_asm_cmd.addArgs(args);
+            }
+        }
+    } else {
+        const uxn_vm = b.addExecutable(.{
+            .name = "uxn-core",
             .root_module = b.createModule(.{
-                .root_source_file = b.path("src/uxn-sdl/main.zig"),
+                .root_source_file = b.path("src/uxn-wasm/root.zig"),
                 .target = target,
                 .optimize = optimize,
-                .link_libc = true,
+
+                .imports = &.{
+                    .{ .name = "uxn-core", .module = core },
+                    .{ .name = "uxn-varvara", .module = varvara },
+                },
             }),
         });
 
-        const c_module = b.addTranslateC(.{
-            .optimize = optimize,
-            .target = target,
-            .root_source_file = files.add("sdl-sys.h", switch (sdl_version) {
-                .sdl2 =>
-                \\#define SDL_DISABLE_ARM_NEON_H 1
-                \\#include <SDL2/SDL.h>
-                ,
-                .sdl3 =>
-                \\#define SDL_DISABLE_OLD_NAMES 1
-                \\#include <SDL3/SDL.h>
-            }),
-        });
+        uxn_vm.entry = .disabled;
+        uxn_vm.rdynamic = true;
+        uxn_vm.import_memory = true;
+        uxn_vm.stack_size = std.wasm.page_size;
 
-        c_module.linkSystemLibrary(switch (sdl_version) {
-            .sdl2 => "SDL2",
-            .sdl3 => "SDL3",
-        }, .{});
-
-        uxn_sdl.root_module.addImport("sdl-sys", c_module.createModule());
-        uxn_sdl.root_module.addImport("uxn-shared", shared_mod);
-        uxn_sdl.root_module.addImport("uxn-core", core_mod);
-        uxn_sdl.root_module.addImport("uxn-varvara", varvara_mod);
-        uxn_sdl.root_module.addImport("clap", dep_clap.module("clap"));
-        uxn_sdl.root_module.addImport("build_options", build_options_mod);
-
-        if (enable_jit_assembly)
-            uxn_sdl.root_module.addImport("uxn-asm", asm_mod);
-
-        b.installArtifact(uxn_sdl);
-
-        const run_sdl_cmd = b.addRunArtifact(uxn_sdl);
-
-        run_sdl_cmd.step.dependOn(b.getInstallStep());
-
-        if (b.args) |args|
-            run_sdl_cmd.addArgs(args);
-
-        const run_sdl_step = b.step("run-sdl", "Run the SDL evaluator");
-        run_sdl_step.dependOn(&run_sdl_cmd.step);
+        b.installArtifact(uxn_vm);
     }
-
-    const uxn_asm = b.addExecutable(.{
-        .name = "uxn-asm",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/uxn-asm/main.zig"),
-            .target = target,
-            .optimize = optimize,
-        }),
-    });
-
-    uxn_asm.root_module.addImport("uxn-asm", asm_mod);
-    uxn_asm.root_module.addImport("uxn-shared", shared_mod);
-    uxn_asm.root_module.addImport("clap", dep_clap.module("clap"));
-
-    b.installArtifact(uxn_cli);
-    b.installArtifact(uxn_asm);
-
-    const run_cli_cmd = b.addRunArtifact(uxn_cli);
-    const run_asm_cmd = b.addRunArtifact(uxn_asm);
-
-    run_cli_cmd.step.dependOn(b.getInstallStep());
-    run_asm_cmd.step.dependOn(b.getInstallStep());
-
-    if (b.args) |args| {
-        run_cli_cmd.addArgs(args);
-        run_asm_cmd.addArgs(args);
-    }
-
-    const run_cli_step = b.step("run-cli", "Run the CLI evaluator");
-    run_cli_step.dependOn(&run_cli_cmd.step);
-
-    const run_asm_step = b.step("run-asm", "Run the uxn assembler");
-    run_asm_step.dependOn(&run_asm_cmd.step);
 
     const unit_tests = b.addTest(.{
         .root_module = b.createModule(.{
