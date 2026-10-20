@@ -242,6 +242,55 @@ pub fn Scanner(comptime lim: Limits) type {
             return false;
         }
 
+        fn tryReadMnemonic(_: *const ScannerT, ident: []const u8) ?uxn.Cpu.Opcode {
+            if (std.mem.eql(u8, std.mem.sliceTo(ident, 0), "BRK")) {
+                // No modifiers for BRK, resolved as different opcodes.
+                return uxn.Cpu.Opcode.BRK;
+            } else if (std.mem.startsWith(u8, ident, "LIT")) {
+                var mods: u8 = 0;
+
+                for (ident[3..]) |mod| {
+                    switch (mod) {
+                        0x00 => break,
+                        '2' => mods |= 0x20,
+                        'r' => mods |= 0x40,
+                        else => {
+                            // Invalid modifiers, not valid for any opcode.
+                            return null;
+                        },
+                    }
+                }
+
+                return @fromBackingInt(mods | 0x80);
+            }
+
+            inline for (0.., @typeInfo(uxn.Cpu.isa.BaseOpcode).@"enum".field_names) |i, field| {
+                if (mem.startsWith(u8, ident, field)) {
+                    if (!std.mem.eql(u8, field, "BRK")) {
+                        // Scan modifiers
+                        var mods: u8 = 0;
+
+                        for (ident[field.len..]) |mod| {
+                            switch (mod) {
+                                0x00 => break,
+                                '2' => mods |= 0x20,
+                                'k' => mods |= 0x80,
+                                'r' => mods |= 0x40,
+                                else => {
+                                    // Invalid modifiers, not valid for any opcode.
+                                    return null;
+                                },
+                            }
+                        }
+
+                        return @fromBackingInt(@typeInfo(uxn.Cpu.isa.BaseOpcode).@"enum".field_values[i] | mods);
+                    }
+                }
+            }
+
+            return null;
+        }
+
         pub fn readToken(scanner: *ScannerT, input: *Io.Reader) Error!?SourceToken {
             var comment_depth: usize = 0;
 
@@ -402,12 +451,12 @@ pub fn Scanner(comptime lim: Limits) type {
                         for (1.., mem.sliceTo(&remain, 0)) |j, oct|
                             needle[j] = oct;
 
-                        if (std.meta.stringToEnum(uxn.Cpu.Opcode, std.mem.sliceTo(&needle, 0))) |opcode| {
                         // If it starts with a bracket, it is considered a bracket.
                         if (std.mem.startsWith(u8, &needle, "[")) {
                             continue;
                         }
 
+                        if (scanner.tryReadMnemonic(needle[0 .. remain.len + 1])) |opcode| {
                             break :b .{
                                 .instruction = .{
                                     .mnemonic = @tagName(opcode),

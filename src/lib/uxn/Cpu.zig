@@ -1,7 +1,7 @@
 const Cpu = @This();
 
 pub const Stack = @import("Stack.zig");
-const isa = @import("isa.zig");
+pub const isa = @import("isa.zig");
 
 const std = @import("std");
 const logger = std.log.scoped(.uxn_cpu);
