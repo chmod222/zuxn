@@ -6,8 +6,6 @@ const Io = std.Io;
 
 const scan = @import("scanner.zig");
 
-const can_include = true;
-
 const fs = std.fs;
 
 pub const AssemblerError = error{
@@ -36,24 +34,32 @@ pub const AssemblerError = error{
     CannotOpenFile,
 } || scan.Error || Io.Writer.Error || Io.File.Reader.Error;
 
-pub const InitOptions = struct {
-    pub const RelativeIncludeResolution = enum {
-        /// Relative paths will always be relative to the current working directory.
-        relative_to_working_dir,
+const support_include = builtin.target.os.tag != .freestanding;
 
-        /// Relative paths will always be relative to the current file.
-        relative_to_file,
+pub const InitOptions = if (!support_include)
+    struct {
+        /// Input filename to be used in diagnostic messages.
+        input_filename: ?[]const u8 = null,
+    }
+else
+    struct {
+        pub const RelativeIncludeResolution = enum {
+            /// Relative paths will always be relative to the current working directory.
+            relative_to_working_dir,
+
+            /// Relative paths will always be relative to the current file.
+            relative_to_file,
+        };
+
+        /// The (initial) directory where includes are searched for.
+        working_dir: Io.Dir = Io.Dir.cwd(),
+
+        /// Determine how relative includes will be processed.
+        relative_include_resolution: RelativeIncludeResolution = .relative_to_working_dir,
+
+        /// Input filename to be used in diagnostic messages.
+        input_filename: ?[]const u8 = null,
     };
-
-    /// The (initial) directory where includes are searched for.
-    working_dir: Io.Dir = Io.Dir.cwd(),
-
-    /// Determine how relative includes will be processed.
-    relative_include_resolution: RelativeIncludeResolution = .relative_to_working_dir,
-
-    /// Input filename to be used in diagnostic messages.
-    input_filename: ?[]const u8 = null,
-};
 
 pub fn Assembler(comptime lim: scan.Limits) type {
     return struct {
@@ -105,9 +111,12 @@ pub fn Assembler(comptime lim: scan.Limits) type {
         rom_length: usize = 0,
 
         default_input_filename: ?[]const u8 = null,
-        include_base: ?Io.Dir,
-        include_follow: bool = true,
-        include_stack: std.ArrayListUnmanaged([]const u8) = .empty,
+
+        include_options: if (support_include) struct {
+            base: ?Io.Dir,
+            follow: bool = true,
+            stack: std.ArrayListUnmanaged([]const u8) = .empty,
+        } else void,
 
         last_root_label: ?Scanner.Label = null,
 
@@ -120,29 +129,35 @@ pub fn Assembler(comptime lim: scan.Limits) type {
         lambda_counter: usize = 0,
 
         pub fn init(alloc: mem.Allocator, io: Io, options: InitOptions) !AssemblerT {
-            var include_base = options.working_dir;
-
-            // When resolving includes relative to the current file, determine the working
-            // directory for the top level file if at all possible.
-            if (options.relative_include_resolution == .relative_to_file) {
-                if (options.input_filename) |fname| {
-                    if (std.fs.path.dirname(fname)) |dirname| {
-                        include_base = try include_base.openDir(io, dirname, .{});
-                    }
-                }
-            }
-
             return .{
                 .allocator = alloc,
                 .io = io,
-                .include_base = options.working_dir,
-                .include_follow = options.relative_include_resolution == .relative_to_file,
                 .default_input_filename = options.input_filename,
+                .include_options = if (support_include) o: {
+                    var include_base = options.working_dir;
+
+                    // When resolving includes relative to the current file, determine the working
+                    // directory for the top level file if at all possible.
+                    if (options.relative_include_resolution == .relative_to_file) {
+                        if (options.input_filename) |fname| {
+                            if (std.fs.path.dirname(fname)) |dirname| {
+                                include_base = try include_base.openDir(io, dirname, .{});
+                            }
+                        }
+                    }
+
+                    break :o .{
+                        .base = options.working_dir,
+                        .follow = options.relative_include_resolution == .relative_to_file,
+                    };
+                } else {},
             };
         }
 
         pub fn deinit(assembler: *AssemblerT) void {
-            for (assembler.include_stack.items) |inc| assembler.allocator.free(inc);
+            if (support_include)
+                for (assembler.include_options.stack.items) |inc| assembler.allocator.free(inc);
+
             for (assembler.macros.items) |*macro| macro.body.deinit(assembler.allocator);
             for (assembler.labels.items) |*label| {
                 if (label.definition) |def|
@@ -157,7 +172,9 @@ pub fn Assembler(comptime lim: scan.Limits) type {
                 label.references.deinit(assembler.allocator);
             }
 
-            assembler.include_stack.deinit(assembler.allocator);
+            if (support_include)
+                assembler.include_options.stack.deinit(assembler.allocator);
+
             assembler.lambdas.deinit(assembler.allocator);
             assembler.macros.deinit(assembler.allocator);
             assembler.labels.deinit(assembler.allocator);
@@ -167,11 +184,20 @@ pub fn Assembler(comptime lim: scan.Limits) type {
                     assembler.allocator.free(f);
         }
 
+        fn getCurrentFilename(assembler: *AssemblerT) ?[]const u8 {
+            if (support_include) {
+                return assembler.include_options.stack.getLastOrNull() orelse
+                    assembler.default_input_filename;
+            } else {
+                return assembler.default_input_filename;
+            }
+        }
+
         fn lexicalInformationFromToken(
             assembler: *AssemblerT,
             token: Scanner.SourceToken,
         ) LexicalInformation {
-            const file = if (assembler.include_stack.getLastOrNull()) |last|
+            const file = if (assembler.getCurrentFilename()) |last|
                 assembler.allocator.dupe(u8, last) catch null
             else
                 null;
@@ -193,10 +219,10 @@ pub fn Assembler(comptime lim: scan.Limits) type {
             assembler: *AssemblerT,
             scanner: *const Scanner,
         ) LexicalInformation {
-            const file = if (assembler.include_stack.getLastOrNull()) |last|
+            const file = if (assembler.getCurrentFilename()) |last|
                 assembler.allocator.dupe(u8, last) catch null
             else
-                null;
+                assembler.default_input_filename;
 
             return .{
                 .file = file,
@@ -376,7 +402,7 @@ pub fn Assembler(comptime lim: scan.Limits) type {
                     .absolute => |offset| output.end = try assembler.lookupOffset(offset),
                     .relative => |offset| output.end += try assembler.lookupOffset(offset),
                 },
-                .include => |path| if (can_include) {
+                .include => |path| if (support_include) {
                     try assembler.includeFile(
                         output,
                         mem.sliceTo(&path, 0),
@@ -477,6 +503,10 @@ pub fn Assembler(comptime lim: scan.Limits) type {
 
             var writer: Io.Writer = .fixed(output);
 
+            errdefer {
+                assembler.rom_length = @truncate(writer.end);
+            }
+
             while (try scanner.readToken(input)) |token| {
                 try assembler.processToken(
                     &scanner,
@@ -500,7 +530,10 @@ pub fn Assembler(comptime lim: scan.Limits) type {
             output: *Io.Writer,
             path: []const u8,
         ) !void {
-            const dir = assembler.include_base orelse
+            if (builtin.target.os.tag == .freestanding)
+                return error.NotAllowed;
+
+            const dir = assembler.include_options.base orelse
                 return error.NotAllowed;
 
             var full_path_buffer: [fs.max_path_bytes]u8 = undefined;
@@ -520,24 +553,24 @@ pub fn Assembler(comptime lim: scan.Limits) type {
             // If we're following relative includes, update our include_base to point
             // to the parent folder of the included file and set it back to our old value
             // once finished with that file.
-            if (assembler.include_follow) {
+            if (assembler.include_options.follow) {
                 const basename = fs.path.dirname(full_path) orelse
                     return error.IncludeNotFound;
 
-                assembler.include_base = dir.openDir(assembler.io, basename, .{}) catch
+                assembler.include_options.base = dir.openDir(assembler.io, basename, .{}) catch
                     return error.IncludeNotFound;
             }
 
-            defer if (assembler.include_follow) {
-                assembler.include_base.?.close(assembler.io);
-                assembler.include_base = dir;
+            defer if (assembler.include_options.follow) {
+                assembler.include_options.base.?.close(assembler.io);
+                assembler.include_options.base = dir;
             };
 
-            try assembler.include_stack.ensureUnusedCapacity(assembler.allocator, 1);
+            try assembler.include_options.stack.ensureUnusedCapacity(assembler.allocator, 1);
 
             const included_path = try assembler.allocator.dupe(u8, full_path);
 
-            assembler.include_stack.appendAssumeCapacity(included_path);
+            assembler.include_options.stack.appendAssumeCapacity(included_path);
 
             // Do assemble
             var buffer: [1024]u8 = undefined;
@@ -565,7 +598,7 @@ pub fn Assembler(comptime lim: scan.Limits) type {
 
             // We don't defer this so our include stack remains valid and pointed
             // at the failing file if the loop fails
-            assembler.allocator.free(assembler.include_stack.pop().?);
+            assembler.allocator.free(assembler.include_options.stack.pop().?);
         }
 
         fn resolveReferences(
@@ -672,7 +705,7 @@ pub fn Assembler(comptime lim: scan.Limits) type {
 
             if (err == error.UndefinedLabel) {
                 try output.print("{s}: undefined labels found:\n", .{
-                    assembler.include_stack.getLastOrNull() orelse default_input,
+                    assembler.getCurrentFilename() orelse default_input,
                 });
 
                 for (assembler.labels.items) |label| {
@@ -680,8 +713,8 @@ pub fn Assembler(comptime lim: scan.Limits) type {
                         const first_ref = label.references.items[0];
 
                         try output.print("{s}:   @{s} (first referenced: {s}:{}:{})\n", .{
-                            assembler.include_stack.getLastOrNull() orelse default_input,
-                            label.label,
+                            assembler.getCurrentFilename() orelse default_input,
+                            std.mem.sliceTo(&label.label, 0),
                             first_ref.definition.?.file orelse default_input,
                             first_ref.definition.?.from.line,
                             first_ref.definition.?.from.column,
@@ -694,7 +727,7 @@ pub fn Assembler(comptime lim: scan.Limits) type {
                 if (token_err.token == .label and err == error.LabelAlreadyDefined) {
                     const first_ref = assembler.retrieveLabel(token_err.token.label) catch {
                         try output.print("{s}:{}:{}: {s}\n", .{
-                            assembler.include_stack.getLastOrNull() orelse default_input,
+                            assembler.getCurrentFilename() orelse default_input,
                             location[0],
                             location[1],
                             error_str,
@@ -704,7 +737,7 @@ pub fn Assembler(comptime lim: scan.Limits) type {
                     };
 
                     try output.print("{s}:{}:{}: {s} (first defined: {s}:{}:{})\n", .{
-                        assembler.include_stack.getLastOrNull() orelse default_input,
+                        assembler.getCurrentFilename() orelse default_input,
                         location[0],
                         location[1],
                         error_str,
@@ -714,7 +747,7 @@ pub fn Assembler(comptime lim: scan.Limits) type {
                     });
                 } else {
                     try output.print("{s}:{}:{}: {s}\n", .{
-                        assembler.include_stack.getLastOrNull() orelse default_input,
+                        assembler.getCurrentFilename() orelse default_input,
                         location[0],
                         location[1],
                         error_str,
@@ -729,7 +762,7 @@ pub fn Assembler(comptime lim: scan.Limits) type {
                 });
             } else {
                 try output.print("{s}: {s}\n", .{
-                    assembler.include_stack.getLastOrNull() orelse default_input,
+                    assembler.getCurrentFilename() orelse default_input,
                     error_str,
                 });
             }
