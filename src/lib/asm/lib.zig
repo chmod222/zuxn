@@ -4,4 +4,5 @@ const io = std.io;
 const asm_mod = @import("assembler.zig");
 
 pub const Assembler = asm_mod.Assembler;
+pub const AssemblerError = asm_mod.AssemblerError;
 pub const InitOptions = asm_mod.InitOptions;

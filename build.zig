@@ -61,6 +61,41 @@ pub fn build(b: *std.Build) void {
         }).createModule());
     }
 
+    if (link_libc or target.result.cpu.arch == .wasm32) {
+        const libuxn_mod = b.addModule("libuxn", .{
+            .root_source_file = b.path("src/libuxn-c/core.zig"),
+            .target = target,
+            .optimize = optimize,
+            .link_libc = link_libc and target.result.cpu.arch != .wasm32,
+            .imports = &.{
+                .{ .name = "uxn-core", .module = core },
+            },
+        });
+
+        const libuxn_asm_mod = b.addModule("libuxn-asm", .{
+            .root_source_file = b.path("src/libuxn-c/asm.zig"),
+            .target = target,
+            .optimize = optimize,
+            .link_libc = link_libc and target.result.cpu.arch != .wasm32,
+            .imports = &.{
+                .{ .name = "uxn-asm", .module = assembler },
+            },
+        });
+
+        const libuxn = b.addLibrary(.{
+            .name = "uxn-c",
+            .root_module = libuxn_mod,
+        });
+
+        const libuxn_asm = b.addLibrary(.{
+            .name = "uxn-asm-c",
+            .root_module = libuxn_asm_mod,
+        });
+
+        b.installArtifact(libuxn);
+        b.installArtifact(libuxn_asm);
+    }
+
     // Utility programs based on core libraries
     if (target.result.cpu.arch != .wasm32) x: {
         const build_cli = b.option(bool, "build_cli", "Build the standalone CLI emulator") orelse true;
