@@ -455,9 +455,26 @@ pub fn Assembler(comptime lim: scan.Limits) type {
                     var body = std.ArrayListUnmanaged(Scanner.SourceToken).empty;
 
                     if (!empty_body) {
+                        var curlies_open: usize = 1;
+
                         while (try scanner.readToken(input)) |tok| {
-                            if (tok.token == .curly_close)
-                                break;
+                            switch (tok.token) {
+                                .curly_close => {
+                                    curlies_open -= 1;
+
+                                    if (curlies_open == 0) {
+                                        break;
+                                    }
+                                },
+
+                                .jci, .jmi, .jsi => |jmp| {
+                                    if (jmp == .root and std.mem.eql(u8, "{", jmp.root[0..1])) {
+                                        curlies_open += 1;
+                                    }
+                                },
+
+                                else => {},
+                            }
 
                             body.append(assembler.allocator, tok) catch return error.MacroBodyTooLong;
                         }
