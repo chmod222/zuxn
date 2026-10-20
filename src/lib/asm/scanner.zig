@@ -271,7 +271,7 @@ pub fn Scanner(comptime lim: Limits) type {
                         continue;
                     },
 
-                    '[', ']', ' ', '\t', '\n', '\r' => continue,
+                    ']', ' ', '\t', '\n', '\r' => continue,
 
                     '@', '&' => b: {
                         // Labels
@@ -403,6 +403,11 @@ pub fn Scanner(comptime lim: Limits) type {
                             needle[j] = oct;
 
                         if (std.meta.stringToEnum(uxn.Cpu.Opcode, std.mem.sliceTo(&needle, 0))) |opcode| {
+                        // If it starts with a bracket, it is considered a bracket.
+                        if (std.mem.startsWith(u8, &needle, "[")) {
+                            continue;
+                        }
+
                             break :b .{
                                 .instruction = .{
                                     .mnemonic = @tagName(opcode),
