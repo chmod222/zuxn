@@ -65,10 +65,10 @@ pub fn init(memory: []u8) Cpu {
 }
 
 pub fn evaluateVector(cpu: *Cpu, vector: u16) !void {
-    try cpu.evaluateVectorLimited(vector, null);
+    try cpu.evaluateVectorLimited(vector, null) orelse unreachable;
 }
 
-pub fn evaluateVectorLimited(cpu: *Cpu, vector: u16, step_limit: ?usize) !void {
+pub fn evaluateVectorLimited(cpu: *Cpu, vector: u16, step_limit: ?usize) !?void {
     cpu.pc = vector;
 
     logger.debug("Vector {x:0>4}: Start evaluation", .{vector});
@@ -78,12 +78,12 @@ pub fn evaluateVectorLimited(cpu: *Cpu, vector: u16, step_limit: ?usize) !void {
     }
 
     if (try cpu.run(step_limit)) |_| {
-        logger.debug("Ran to completion!", .{});
+        logger.debug("Vector {x:0>4}: Ran to completion!", .{vector});
     } else {
-        logger.debug("Ran into step limit!", .{});
-    }
+        logger.debug("Vector {x:0>4}: Ran into step limit!", .{vector});
 
-    logger.debug("Vector {x:0>4}: Finished evaluation", .{vector});
+        return null;
+    }
 }
 
 inline fn load(
