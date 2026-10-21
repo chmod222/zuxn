@@ -729,11 +729,12 @@ pub fn Assembler(comptime lim: scan.Limits) type {
                         return;
                     };
 
-                    try output.print("{s}:{}:{}: {s} (first defined: {s}:{}:{})\n", .{
+                    try output.print("{s}:{}:{}: {s}: {s} (first defined: {s}:{}:{})\n", .{
                         assembler.getCurrentFilename() orelse default_input,
                         location[0],
                         location[1],
                         error_str,
+                        token_err.token.label,
                         first_ref.definition.?.file orelse default_input,
                         first_ref.definition.?.from.line,
                         first_ref.definition.?.from.column,
