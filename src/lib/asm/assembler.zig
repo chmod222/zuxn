@@ -245,8 +245,8 @@ pub fn Assembler(comptime lim: scan.Limits) type {
             return null;
         }
 
-        fn retrieveLabel(assembler: *AssemblerT, label: Scanner.TypedLabel) !*DefinedLabel {
-            const full = try assembler.fullLabel(label);
+        fn retrieveLabel(assembler: *AssemblerT, label: Scanner.Label) !*DefinedLabel {
+            const full = try assembler.expandLabel(label);
 
             if (assembler.lookupLabel(full)) |def| {
                 return def;
@@ -264,7 +264,7 @@ pub fn Assembler(comptime lim: scan.Limits) type {
             return definition;
         }
 
-        fn defineLabel(assembler: *AssemblerT, label: Scanner.TypedLabel, addr: u16) !*DefinedLabel {
+        fn defineLabel(assembler: *AssemblerT, label: Scanner.Label, addr: u16) !*DefinedLabel {
             const definition = try assembler.retrieveLabel(label);
 
             if (definition.addr != null)
@@ -275,54 +275,34 @@ pub fn Assembler(comptime lim: scan.Limits) type {
             return definition;
         }
 
-        fn generateLambdaLabel(id: usize) Scanner.TypedLabel {
+        fn generateLambdaLabel(id: usize) Scanner.Label {
             var lambda_label: Scanner.Label = @splat(0x00);
             var stream = Io.Writer.fixed(&lambda_label);
 
             stream.print("lambda/{x:0>3}", .{id}) catch unreachable;
 
-            return .{ .root = lambda_label };
+            return lambda_label;
         }
 
-        fn fullLabel(assembler: *AssemblerT, label: Scanner.TypedLabel) !Scanner.Label {
-            switch (label) {
-                .root => |l| {
-                    // Special case "smart" lambda labels that get a unique identifier whenever encountered.
-                    if (std.mem.eql(u8, "{", mem.sliceTo(&l, 0))) {
-                        const ll = generateLambdaLabel(assembler.lambda_counter).root;
+        fn expandLabel(assembler: *AssemblerT, label: Scanner.Label) !Scanner.Label {
+            if (std.mem.eql(u8, "{", mem.sliceTo(&label, 0))) {
+                const ll = generateLambdaLabel(assembler.lambda_counter);
 
-                        assembler.lambdas.append(assembler.allocator, assembler.lambda_counter) catch
-                            return error.TooManyNestedLambas;
+                assembler.lambdas.append(assembler.allocator, assembler.lambda_counter) catch
+                    return error.TooManyNestedLambas;
 
-                        assembler.lambda_counter += 1;
+                assembler.lambda_counter += 1;
 
-                        return ll;
-                    } else {
-                        return l;
-                    }
-                },
-
-                .scoped => |s| {
-                    const parent = mem.sliceTo(&(assembler.last_root_label orelse return error.MissingScopeLabel), 0);
-                    const parent_local = mem.sliceTo(parent, '/');
-                    const child = mem.sliceTo(&s, 0);
-
-                    var full: Scanner.Label = @splat(0x00);
-
-                    @memcpy(full[0..parent_local.len], parent_local);
-                    @memcpy(full[parent_local.len + 1 .. parent_local.len + 1 + child.len], child);
-
-                    full[parent_local.len] = '/';
-
-                    return full;
-                },
+                return ll;
+            } else {
+                return label;
             }
         }
 
         fn lookupOffset(assembler: *AssemblerT, offset: Scanner.Offset) !u16 {
             return switch (offset) {
                 .literal => |lit| lit,
-                .label => |lbl| if (assembler.lookupLabel(try assembler.fullLabel(lbl))) |l| l.addr orelse error.UndefinedLabel else error.UndefinedLabel,
+                .label => |lbl| if (assembler.lookupLabel(try assembler.expandLabel(lbl))) |l| l.addr orelse error.UndefinedLabel else error.UndefinedLabel,
             };
         }
 
@@ -379,10 +359,6 @@ pub fn Assembler(comptime lim: scan.Limits) type {
                     var label_def = try assembler.defineLabel(l, @truncate(output.end));
 
                     label_def.definition = assembler.lexicalInformationFromToken(token);
-
-                    if (l == .root) {
-                        assembler.last_root_label = l.root;
-                    }
                 },
                 .address => |addr| {
                     var ref = try assembler.rememberLocation(addr, @truncate(output.end), 0);
@@ -440,14 +416,14 @@ pub fn Assembler(comptime lim: scan.Limits) type {
                         return error.InvalidMacroDefinition;
 
                     // %MACRO { } gets scanned as: <macro_definition> <jsi: '{'> so we expect that here.
-                    if (start.token != .jsi and start.token.jsi != .root) {
+                    if (start.token != .jsi) {
                         return error.InvalidMacroDefinition;
                     }
 
                     // Special case it a bit so that "{}" and "{ }" both work as empty body definitions
-                    const empty_body = if (mem.eql(u8, "{", mem.sliceTo(&start.token.jsi.root, 0)))
+                    const empty_body = if (mem.eql(u8, "{", mem.sliceTo(&start.token.jsi, 0)))
                         false
-                    else if (mem.eql(u8, "{}", mem.sliceTo(&start.token.jsi.root, 0)))
+                    else if (mem.eql(u8, "{}", mem.sliceTo(&start.token.jsi, 0)))
                         true
                     else
                         return error.InvalidMacroDefinition;
@@ -468,7 +444,7 @@ pub fn Assembler(comptime lim: scan.Limits) type {
                                 },
 
                                 .jci, .jmi, .jsi => |jmp| {
-                                    if (jmp == .root and std.mem.eql(u8, "{", jmp.root[0..1])) {
+                                    if (std.mem.eql(u8, "{", jmp[0..1])) {
                                         curlies_open += 1;
                                     }
                                 },

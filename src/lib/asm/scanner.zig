@@ -55,11 +55,6 @@ pub fn Scanner(comptime lim: Limits) type {
             short: u16,
         };
 
-        pub const TypedLabel = union(enum) {
-            root: Label,
-            scoped: Label,
-        };
-
         pub const AddressType = enum {
             zero,
             relative,
@@ -71,7 +66,7 @@ pub fn Scanner(comptime lim: Limits) type {
 
         pub const Address = struct {
             type: AddressType,
-            label: TypedLabel,
+            label: Label,
         };
 
         pub const Instruction = struct {
@@ -81,7 +76,7 @@ pub fn Scanner(comptime lim: Limits) type {
 
         pub const Offset = union(enum) {
             literal: u16,
-            label: TypedLabel,
+            label: Label,
         };
 
         pub const Padding = union(enum) {
@@ -97,7 +92,10 @@ pub fn Scanner(comptime lim: Limits) type {
         pub const Label = [limits.identifier_length:0]u8;
 
         location: Location = .{ 1, 1 },
-        scope: ?Label = null,
+
+        // Just copying what drifblim does here
+        scope: Label = [3]u8{ 'T', 'o', 'p' } ++ @as([limits.identifier_length - 3:0]u8, @splat(0)),
+
         macro_names: [0x100]Label = undefined,
         macro_count: usize = 0,
 
@@ -108,13 +106,13 @@ pub fn Scanner(comptime lim: Limits) type {
 
             literal: Literal,
             raw_literal: Literal,
-            label: TypedLabel,
+            label: Label,
             address: Address,
             padding: Padding,
             instruction: Instruction,
-            jci: TypedLabel,
-            jmi: TypedLabel,
-            jsi: TypedLabel,
+            jci: Label,
+            jmi: Label,
+            jsi: Label,
             word: [limits.word_length:0]u8,
             include: [limits.path_length:0]u8,
         };
@@ -216,15 +214,17 @@ pub fn Scanner(comptime lim: Limits) type {
             };
         }
 
-        fn toTypedLabel(label: Label) TypedLabel {
+        fn absoluteLabel(scanner: *const ScannerT, label: Label) Label {
             if (label[0] == '&' or label[0] == '/') {
-                var cpy = label;
+                var cpy = scanner.scope;
+                const l = std.mem.findScalar(u8, &cpy, 0).?;
 
-                mem.copyForwards(u8, &cpy, cpy[1..]);
+                cpy[l] = '/';
+                @memcpy(cpy[l + 1 ..], label[1 .. cpy.len - l]);
 
-                return .{ .scoped = cpy };
+                return cpy;
             } else {
-                return .{ .root = label };
+                return label;
             }
         }
 
@@ -235,17 +235,7 @@ pub fn Scanner(comptime lim: Limits) type {
         }
 
         fn recallMacro(scanner: *const ScannerT, ident: Label) ?Label {
-            const full_ident = if (ident[0] == '/' and scanner.scope != null) i: {
-                var tmp: Label = @splat(0);
-
-                const s = &scanner.scope.?;
-                const l = std.mem.findScalar(u8, s, 0).?;
-
-                @memcpy(&tmp, s);
-                @memcpy(tmp[l..], ident[0 .. tmp.len - l]);
-
-                break :i tmp;
-            } else ident;
+            const full_ident = scanner.absoluteLabel(ident);
 
             for (scanner.macro_names) |n| {
                 if (mem.eql(u8, &n, &full_ident)) {
@@ -345,23 +335,30 @@ pub fn Scanner(comptime lim: Limits) type {
                         if (b == '@') {
                             var tmp = label;
 
+                            // Update the new label scope by taking everything up to the first ’/’
                             if (std.mem.findScalar(u8, &tmp, '/')) |p| {
                                 @memset(tmp[p..], 0);
                             }
 
                             scanner.scope = tmp;
-                        }
 
-                        break :b if (b == '@')
-                            .{ .label = .{ .root = label } }
-                        else
-                            .{ .label = .{ .scoped = label } };
+                            break :b .{ .label = label };
+                        } else {
+                            var tmp = scanner.scope;
+
+                            const l = std.mem.findScalar(u8, &tmp, 0).?;
+
+                            tmp[l] = '/';
+                            @memcpy(tmp[l + 1 ..], label[0 .. tmp.len - l - 1]);
+
+                            break :b .{ .label = tmp };
+                        }
                     },
 
                     ',', '.', ';', '_', '-', '=', ':' => b: {
                         // Adressing
                         const label = try scanner.readLabel(input);
-                        const typed = toTypedLabel(label);
+                        const typed = scanner.absoluteLabel(label);
 
                         end = Location{ start[0], start[1] + 1 + mem.sliceTo(&label, 0).len };
 
@@ -403,7 +400,7 @@ pub fn Scanner(comptime lim: Limits) type {
                         const offset: Offset = if (parseHexLiteral(u16, mem.sliceTo(&pad, 0), false) catch null) |lit|
                             .{ .literal = lit }
                         else
-                            .{ .label = toTypedLabel(pad) };
+                            .{ .label = scanner.absoluteLabel(pad) };
 
                         break :b if (b == '|')
                             .{ .padding = .{ .absolute = offset } }
@@ -416,7 +413,7 @@ pub fn Scanner(comptime lim: Limits) type {
 
                         end = Location{ start[0], start[1] + 1 + mem.sliceTo(&label, 0).len };
 
-                        break :b .{ .jci = toTypedLabel(label) };
+                        break :b .{ .jci = scanner.absoluteLabel(label) };
                     },
 
                     '!' => b: {
@@ -424,7 +421,7 @@ pub fn Scanner(comptime lim: Limits) type {
 
                         end = Location{ start[0], start[1] + 1 + mem.sliceTo(&label, 0).len };
 
-                        break :b .{ .jmi = toTypedLabel(label) };
+                        break :b .{ .jmi = scanner.absoluteLabel(label) };
                     },
 
                     '~' => b: {
@@ -498,7 +495,7 @@ pub fn Scanner(comptime lim: Limits) type {
                             else if (scanner.recallMacro(needle)) |mac|
                                 .{ .macro_expansion = mac }
                             else
-                                .{ .jsi = toTypedLabel(needle) };
+                                .{ .jsi = scanner.absoluteLabel(needle) };
                         }
                     },
                 };
