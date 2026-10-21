@@ -500,6 +500,9 @@ pub fn Assembler(comptime lim: scan.Limits) type {
                 assembler.rom_length = @truncate(writer.end);
             }
 
+            // Start assembling at 0x0100 by default
+            writer.end = 0x100;
+
             while (try scanner.readToken(input)) |token| {
                 try assembler.processToken(
                     &scanner,
