@@ -97,6 +97,7 @@ pub fn Scanner(comptime lim: Limits) type {
         pub const Label = [limits.identifier_length:0]u8;
 
         location: Location = .{ 1, 1 },
+        scope: ?Label = null,
         macro_names: [0x100]Label = undefined,
         macro_count: usize = 0,
 
@@ -233,13 +234,26 @@ pub fn Scanner(comptime lim: Limits) type {
             scanner.macro_count += 1;
         }
 
-        fn recallMacro(scanner: *const ScannerT, ident: Label) bool {
+        fn recallMacro(scanner: *const ScannerT, ident: Label) ?Label {
+            const full_ident = if (ident[0] == '/' and scanner.scope != null) i: {
+                var tmp: Label = @splat(0);
+
+                const s = &scanner.scope.?;
+                const l = std.mem.findScalar(u8, s, 0).?;
+
+                @memcpy(&tmp, s);
+                @memcpy(tmp[l..], ident[0 .. tmp.len - l]);
+
+                break :i tmp;
+            } else ident;
+
             for (scanner.macro_names) |n| {
-                if (mem.eql(u8, &n, &ident))
-                    return true;
+                if (mem.eql(u8, &n, &full_ident)) {
+                    return full_ident;
+                }
             }
 
-            return false;
+            return null;
         }
 
         fn tryReadMnemonic(_: *const ScannerT, ident: []const u8) ?uxn.Cpu.Opcode {
@@ -328,6 +342,16 @@ pub fn Scanner(comptime lim: Limits) type {
 
                         end = Location{ start[0], start[1] + 1 + mem.sliceTo(&label, 0).len };
 
+                        if (b == '@') {
+                            var tmp = label;
+
+                            if (std.mem.findScalar(u8, &tmp, '/')) |p| {
+                                @memset(tmp[p..], 0);
+                            }
+
+                            scanner.scope = tmp;
+                        }
+
                         break :b if (b == '@')
                             .{ .label = .{ .root = label } }
                         else
@@ -356,6 +380,7 @@ pub fn Scanner(comptime lim: Limits) type {
                             },
                         };
                     },
+
                     '#' => b: {
                         // Literal hex
                         const literal = try scanner.readLiteral(input);
@@ -470,8 +495,8 @@ pub fn Scanner(comptime lim: Limits) type {
                                 .{ .raw_literal = .{ .byte = byte } }
                             else if (parseHexLiteral(u16, slice, true) catch null) |short|
                                 .{ .raw_literal = .{ .short = short } }
-                            else if (scanner.recallMacro(needle))
-                                .{ .macro_expansion = needle }
+                            else if (scanner.recallMacro(needle)) |mac|
+                                .{ .macro_expansion = mac }
                             else
                                 .{ .jsi = toTypedLabel(needle) };
                         }
