@@ -20,7 +20,7 @@ fn changeExtension(file: []const u8, ext: []const u8) [256:0]u8 {
     return out;
 }
 
-pub fn main(init: std.process.Init) !void {
+pub fn main(init: std.process.Init) !u8 {
     var stderr_buffer: [1024]u8 = undefined;
     var stderr = Io.File.stderr().writer(init.io, &stderr_buffer);
     defer stderr.interface.flush() catch {};
@@ -42,7 +42,7 @@ pub fn main(init: std.process.Init) !void {
         init.gpa,
         init.minimal.args,
         &stderr.interface,
-    ) orelse return;
+    ) orelse return 0;
 
     defer res.deinit();
 
@@ -73,7 +73,9 @@ pub fn main(init: std.process.Init) !void {
     defer input_file.close(init.io);
 
     assembler.assemble(&input_file_reader.interface, &output_rom) catch |err| {
-        return assembler.issueDiagnostic(err, &stderr.interface);
+        try assembler.issueDiagnostic(err, &stderr.interface);
+
+        return 1;
     };
 
     const outfile_name = res.args.output orelse
@@ -133,4 +135,6 @@ pub fn main(init: std.process.Init) !void {
     }
 
     try w.interface.flush();
+
+    return 0;
 }
