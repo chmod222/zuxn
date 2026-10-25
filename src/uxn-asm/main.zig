@@ -32,6 +32,7 @@ pub fn main(init: std.process.Init) !void {
         \\-r, --relative-include Consider includes to be relative to currently processed file
         \\-C <DIR>               Use DIR as the current working directory (overridden by `-r`)
         \\-v, --verbose          Output extra information after successful assembly
+        \\-w, --warn             Enable warnings
         \\<FILE>                 Input source file name
         \\
     );
@@ -94,10 +95,10 @@ pub fn main(init: std.process.Init) !void {
         try sym_writer.end();
     }
 
-    if (res.args.verbose != 0) {
-        // Reuse stderr buffer since we no longer need it
-        var w = Io.File.stdout().writer(init.io, &stderr_buffer);
+    // Reuse stderr buffer since we no longer need it
+    var w = Io.File.stdout().writer(init.io, &stderr_buffer);
 
+    if (res.args.verbose != 0) {
         try w.interface.print("ROM Size: {Bi:.2}\n", .{assembler.rom_length});
 
         if (assembler.labels.items.len > 0) {
@@ -114,7 +115,22 @@ pub fn main(init: std.process.Init) !void {
                 }
             }
         }
-
-        try w.interface.flush();
     }
+
+    if (res.args.warn != 0) {
+        for (assembler.labels.items) |label| {
+            if (label.references.items.len == 0) {
+                if (label.definition) |def| {
+                    try w.interface.print("{s}:{d}:{d}: unused label: {s}\n", .{
+                        def.file orelse assembler.default_input_filename orelse "<input>",
+                        def.from.line,
+                        def.from.column,
+                        std.mem.sliceTo(&label.label, 0),
+                    });
+                }
+            }
+        }
+    }
+
+    try w.interface.flush();
 }
