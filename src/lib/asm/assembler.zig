@@ -655,6 +655,10 @@ pub fn Assembler(comptime lim: scan.Limits) type {
             return a.addr.? < b.addr.?;
         }
 
+        pub fn sortSymbols(assembler: *AssemblerT) void {
+            std.mem.sort(DefinedLabel, assembler.labels.items, {}, sortLabel);
+        }
+
         pub fn generateSymbols(
             assembler: *AssemblerT,
             output: *Io.Writer,
@@ -664,7 +668,7 @@ pub fn Assembler(comptime lim: scan.Limits) type {
             // gets away without sorting because label definitions and references
             // are kept in two separate lists, but since reference lookups also end
             // up in .labels here, with a null address, the list can be out of order.
-            std.mem.sort(DefinedLabel, assembler.labels.items, {}, sortLabel);
+            assembler.sortSymbols();
 
             for (assembler.labels.items) |label| {
                 if (label.addr) |addr| {

@@ -99,6 +99,22 @@ pub fn main(init: std.process.Init) !void {
         var w = Io.File.stdout().writer(init.io, &stderr_buffer);
 
         try w.interface.print("ROM Size: {Bi:.2}\n", .{assembler.rom_length});
+
+        if (assembler.labels.items.len > 0) {
+            try w.interface.print("Symbol count: {}\n", .{assembler.labels.items.len});
+
+            assembler.sortSymbols();
+
+            for (assembler.labels.items) |label| {
+                if (label.addr) |addr| {
+                    try w.interface.print("  #{x:0>4}: {s}\n", .{
+                        addr,
+                        std.mem.sliceTo(&label.label, 0),
+                    });
+                }
+            }
+        }
+
         try w.interface.flush();
     }
 }
