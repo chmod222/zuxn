@@ -330,4 +330,12 @@ pub const Console = struct {
         if (con.device.loadVector(cpu, ports.vector)) |vector|
             try cpu.evaluateVector(vector);
     }
+
+    pub fn hasRegisteredVector(con: Console, cpu: *Cpu) bool {
+        return con.device.loadVector(cpu, ports.vector) != null;
+    }
+
+    pub fn hasChild(con: Console) bool {
+        return con.forked_child != null;
+    }
 };

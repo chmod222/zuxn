@@ -130,8 +130,11 @@ pub fn main(init: std.process.Init) !u8 {
     try cpu.evaluateVector(0x0100);
     try system.console_device.pushArguments(&cpu, res.positionals[1]);
 
-    if (system.system_device.exit_code) |c|
+    if (system.system_device.exit_code) |c| {
         return c;
+    } else if (!system.console_device.hasRegisteredVector(&cpu) and !system.console_device.hasChild()) {
+        return 0;
+    }
 
     var uxn_stdin_buffer: [1024]u8 = undefined;
     var uxn_stdin = system.console_device.stdin(&cpu, &uxn_stdin_buffer);
@@ -191,6 +194,10 @@ pub fn main(init: std.process.Init) !u8 {
 
         switch (try select.await()) {
             .stdin_avail => {
+                if (stdin.interface.bufferedLen() == 0 and !system.console_device.hasChild()) {
+                    break;
+                }
+
                 stdin.interface.streamExact(&uxn_stdin.interface, stdin.interface.bufferedLen()) catch |e| {
                     logger.warn("Failed to stream Uxn stdin: {t}", .{e});
                 };
