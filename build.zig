@@ -5,7 +5,7 @@ const SdlVersion = enum {
     sdl3,
 };
 
-pub fn build(b: *std.Build) void {
+pub fn build(b: *std.Build) !void {
     var target_query = std.Target.Query{};
 
     if (target_query.cpu_arch == .wasm32) {
@@ -50,15 +50,18 @@ pub fn build(b: *std.Build) void {
     });
 
     const files = b.addWriteFiles();
+    const translate_c = b.dependency("translate_c", .{});
 
     if (link_libc) {
-        varvara.addImport("sys", b.addTranslateC(.{
-            .optimize = optimize,
-            .target = target,
-            .root_source_file = files.add("sys.h",
+        const translator = @import("translate_c").Translator.init(translate_c, .{
+            .c_source_file = files.add("sys.h",
                 \\#include <time.h>
             ),
-        }).createModule());
+            .optimize = optimize,
+            .target = target,
+        });
+
+        varvara.addImport("sys", translator.mod);
     }
 
     if (link_libc or target.result.cpu.arch == .wasm32) {
@@ -118,9 +121,7 @@ pub fn build(b: *std.Build) void {
         build_options.addOption(bool, "enable_jit_assembly", enable_jit_assembly);
 
         // Clap needed by all three binaries
-        const clap = b.lazyDependency("clap", .{}) orelse {
-            return;
-        };
+        const clap = try b.dependencyLazy("clap", .{});
 
         // Shared between CLI and SDL
         const build_options_mod = build_options.createModule();
@@ -175,10 +176,8 @@ pub fn build(b: *std.Build) void {
             ) orelse .sdl3;
 
             // Graphical SDL environment
-            const c_module = b.addTranslateC(.{
-                .optimize = optimize,
-                .target = target,
-                .root_source_file = files.add("sdl-sys.h", switch (sdl_version) {
+            const translator = @import("translate_c").Translator.init(translate_c, .{
+                .c_source_file = files.add("sdl-sys.h", switch (sdl_version) {
                     .sdl2 =>
                     \\#define SDL_DISABLE_ARM_NEON_H 1
                     \\#include <SDL2/SDL.h>
@@ -187,12 +186,17 @@ pub fn build(b: *std.Build) void {
                     \\#define SDL_DISABLE_OLD_NAMES 1
                     \\#include <SDL3/SDL.h>
                 }),
+                .optimize = optimize,
+                .target = target,
+                .link_system_libs = &.{
+                    .{
+                        .name = switch (sdl_version) {
+                            .sdl2 => "SDL2",
+                            .sdl3 => "SDL3",
+                        },
+                    },
+                },
             });
-
-            c_module.linkSystemLibrary(switch (sdl_version) {
-                .sdl2 => "SDL2",
-                .sdl3 => "SDL3",
-            }, .{});
 
             const uxn_sdl = b.addExecutable(.{
                 .name = "uxn-sdl",
@@ -202,7 +206,7 @@ pub fn build(b: *std.Build) void {
                     .optimize = optimize,
                     .link_libc = true,
                     .imports = &.{
-                        .{ .name = "sdl-sys", .module = c_module.createModule() },
+                        .{ .name = "sdl-sys", .module = translator.mod },
                         .{ .name = "uxn-shared", .module = shared_mod },
                         .{ .name = "uxn-core", .module = core },
                         .{ .name = "uxn-varvara", .module = varvara },
